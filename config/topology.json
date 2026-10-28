@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "workspace_roots": [],
+  "worktree_hubs": [],
+  "app_roots": [
+    "/Applications",
+    "~/Applications"
+  ],
+  "library_roots": [
+    "~/Library/Application Support",
+    "~/Library/Caches",
+    "~/Library/Containers"
+  ],
+  "thresholds": {
+    "min_orphan_mb": 50,
+    "min_git_pack_mb": 100,
+    "min_build_artifact_mb": 100,
+    "recent_activity_minutes": 60
+  },
+  "storage_gauges": [
+    {
+      "id": "mac-data",
+      "label": "Mac Data Volume",
+      "mount_path": "/System/Volumes/Data",
+      "warn_used_pct": 85.0
+    }
+  ],
+  "backup_pipelines": [],
+  "homelab": {
+    "enabled": false,
+    "pve_ssh_host": "",
+    "nas_mounts": [],
+    "docker_hosts": []
+  },
+  "whitelist": {
+    "paths": [],
+    "repos": [],
+    "app_names": [],
+    "guest_ids": [],
+    "notes": {}
+  }
+}

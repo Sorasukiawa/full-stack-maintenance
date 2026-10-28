@@ -1,0 +1,14 @@
+{
+  "name": "full-stack-maintenance",
+  "displayName": "Full-Stack Maintenance & Dashboard",
+  "version": "1.0.0",
+  "description": "Cross-domain read-only audit, baseline diff, interactive HTML waterline simulator dashboard, and pre-flight concurrency check across macOS, local multi-repo workspaces, GitHub, and NAS/Proxmox homelabs.",
+  "author": {
+    "name": "Sorasukiawa",
+    "url": "https://github.com/Sorasukiawa"
+  },
+  "homepage": "https://github.com/Sorasukiawa/full-stack-maintenance",
+  "repository": "https://github.com/Sorasukiawa/full-stack-maintenance",
+  "license": "MIT",
+  "keywords": ["maintenance", "mac", "homelab", "proxmox", "nas", "github", "dashboard", "cleanup", "skill"]
+}

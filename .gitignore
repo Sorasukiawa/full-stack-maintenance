@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
+/work/
+/outputs/
+/config/topology.local.json
+*.jsonl
+*.log
+.env
+.env.*

@@ -1,0 +1,17 @@
+{
+  "name": "full-stack-maintenance",
+  "description": "Marketplace for full-stack-maintenance: cross-domain inspection, baseline diffing, interactive HTML approval dashboard, and safe concurrent cleanup.",
+  "owner": {
+    "name": "Sorasukiawa",
+    "url": "https://github.com/Sorasukiawa"
+  },
+  "plugins": [
+    {
+      "name": "full-stack-maintenance",
+      "source": ".",
+      "description": "Audit Mac, local multi-repo workspaces, GitHub, and NAS/Proxmox homelabs with an interactive HTML waterline dashboard and pre-flight concurrency guard.",
+      "category": "development",
+      "tags": ["maintenance", "dashboard", "homelab", "mac", "cleanup"]
+    }
+  ]
+}

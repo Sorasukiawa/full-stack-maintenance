@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "workspace_roots": [
+    "~/Projects"
+  ],
+  "worktree_hubs": [
+    "~/orca/workspaces",
+    "~/.codex/worktrees"
+  ],
+  "app_roots": [
+    "/Applications",
+    "~/Applications"
+  ],
+  "library_roots": [
+    "~/Library/Application Support",
+    "~/Library/Caches",
+    "~/Library/Containers"
+  ],
+  "thresholds": {
+    "min_orphan_mb": 50,
+    "min_git_pack_mb": 100,
+    "min_build_artifact_mb": 100,
+    "recent_activity_minutes": 60
+  },
+  "storage_gauges": [
+    {
+      "id": "mac-data",
+      "label": "Mac Data Volume",
+      "mount_path": "/System/Volumes/Data",
+      "warn_used_pct": 80.0
+    },
+    {
+      "id": "nas-nvme",
+      "label": "NAS NVMe Pool",
+      "mount_path": "/Volumes/Scratch",
+      "warn_used_pct": 85.0,
+      "min_free_gib": 450.0
+    }
+  ],
+  "backup_pipelines": [
+    {
+      "id": "cloud-backup",
+      "label": "Cloud Incremental Backup",
+      "script_path": "~/.local/share/example-backup/backup.py",
+      "watched_roots": ["~/Projects"],
+      "expected_exclude_globs": [
+        "target",
+        "build",
+        ".build*",
+        "DerivedData*",
+        "*-builds",
+        "*-preservation",
+        "node_modules",
+        "dist",
+        "*.app",
+        "*.xcarchive"
+      ]
+    }
+  ],
+  "homelab": {
+    "enabled": true,
+    "pve_ssh_host": "pve-example",
+    "nas_mounts": ["/Volumes/Data", "/Volumes/Scratch"],
+    "docker_hosts": ["docker-vm-example"]
+  },
+  "whitelist": {
+    "paths": [
+      "~/Projects/example-archive"
+    ],
+    "repos": [
+      "owner/example-pinned-repo"
+    ],
+    "app_names": [
+      "ExampleLegacyPluginHost"
+    ],
+    "guest_ids": [
+      "111"
+    ],
+    "notes": {
+      "~/Projects/example-archive": "Preserved verification reports and screenshots; clean only nested build caches."
+    }
+  }
+}
