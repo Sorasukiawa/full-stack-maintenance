@@ -45,7 +45,7 @@ class FullStackMaintenanceTests(unittest.TestCase):
     def test_scan_local_orphans_git_pack_and_backup_drift(self) -> None:
         apps_dir = self.root / "Applications"
         lib_support = self.root / "Library" / "Application Support"
-        ws_dir = self.root / "Codex"
+        ws_dir = self.root / "Projects"
 
         # 1. Installed app: SuperStudio.app
         self._write_plist(

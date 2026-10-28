@@ -1,13 +1,21 @@
 ---
 name: full-stack-maintenance
 description: Use when a user requests a full-stack or cross-domain health check, storage audit, optimization, or interactive HTML approval dashboard spanning Mac, local multi-repo workspaces, GitHub repositories, and NAS/PVE/Homelab servers. Coordinates with mac-maintenance, repo-cleanup, and codex-maintenance.
+license: MIT
+compatibility: Requires Python 3.10+ (standard library only) and git. gh is optional for GitHub account audits; ssh is optional for NAS/Proxmox homelab checks. Works with Claude Code, Codex, Antigravity, OpenCode, Cursor, and Windsurf.
+argument-hint: "[inspect only | dashboard | execute <ids> | mac | projects | github | nas]"
+allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py scan-local *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py diff *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py preflight *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py *), Bash(git status *), Bash(git worktree list *), Bash(gh repo list *), Bash(gh run list *), Bash(df -h *), Bash(du -sh *)
+metadata:
+  version: "1.0.0"
 ---
 
 # 全栈多域巡检与交互式看板维护
 
 面向「Mac 本机 + 本地多仓库工作区 + GitHub 全账号远端 + NAS/PVE/Docker 家庭服务器」的总管级维护技能。负责跨四域并行只读盘点、跨层连带病灶追查、前后基线快照对比、带水位模拟器的单文件 HTML 审批看板生成，以及动手前二次并发安全复核。
 
-## 1. 定位与已有技能联动
+## 1. 定位、多 Agent 适配与已有技能联动
+
+本技能支持 **Claude Code、OpenAI Codex、Google Antigravity、OpenCode、Cursor、Windsurf** 等主流 Agent 宿主；各宿主的目录定位、并行子代理调度与看板打开方式见 [多 Agent 宿主适配指南](references/multi-agent-hosts.md)。
 
 本技能不重复实现单机或单仓库的底层细则，而是按职责编排联动：
 
@@ -20,7 +28,7 @@ description: Use when a user requests a full-stack or cross-domain health check,
 
 ## 2. 外置拓扑配置与持久化白名单（Fail-Closed）
 
-1. **优先读取个人配置**：检查技能目录下是否存在 Git 忽略的 `config/topology.local.json`；存在则显式传给 `--config`，否则使用通用默认配置 [topology.json](config/topology.json)（可参考 [topology.example.json](config/topology.example.json) 创建）。
+1. **优先读取个人配置**：定位技能根目录（Claude Code 插件中为 `${CLAUDE_SKILL_DIR}`，其他宿主见 [多 Agent 宿主适配指南](references/multi-agent-hosts.md)）后，检查是否存在 Git 忽略的 `config/topology.local.json`；存在则显式传给 `--config`，否则使用通用默认配置 [topology.json](config/topology.json)（可参考 [topology.example.json](config/topology.example.json) 创建）。
 2. **Fail-Closed 保护**：配置文件语法错误、版本不匹配或 `whitelist` 结构非法时，脚本返回退出码 `2` 并立即中止，绝不降级成「无白名单全量放行」。
 3. **持久化白名单免打扰**：命中 `whitelist.paths`、`whitelist.repos`、`whitelist.app_names` 或 `whitelist.guest_ids` 的条目，在 JSON 与 HTML 看板中自动归入折叠的「🛡️ 已豁免白名单」分页，默认不勾选，且在 `preflight` 阶段强制拦截删除。用户在看板中点击「🛡️ 长期豁免」并回传指令后，将新增豁免项写回 `config/topology.local.json`。
 
@@ -30,18 +38,18 @@ description: Use when a user requests a full-stack or cross-domain health check,
 
 1. **运行本机快速扫描与基线对比**：
    ```bash
-   python3 scripts/full_stack_tool.py scan-local \
-     --config config/topology.local.json \
+   python3 "${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py" scan-local \
+     --config "${CLAUDE_SKILL_DIR}/config/topology.local.json" \
      --output work/full-stack/current-snapshot.json --overwrite
    ```
    若存在上一次巡检留下的基线快照（如 `work/full-stack/baseline-snapshot.json`），立即运行 `diff` 找出**「这几天是谁偷偷占了空间」**：
    ```bash
-   python3 scripts/full_stack_tool.py diff \
+   python3 "${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py" diff \
      --before work/full-stack/baseline-snapshot.json \
      --after work/full-stack/current-snapshot.json \
      --output work/full-stack/diff.json --overwrite
    ```
-2. **派出 4 路并行只读子代理（Subagents）补齐深层证据**：
+2. **派出 4 路并行只读子代理（Subagents）补齐深层证据**（不支持子代理的宿主按 [多 Agent 宿主适配指南](references/multi-agent-hosts.md) 顺序执行）：
    - **子代理 1（Mac 与备份管线）**：结合 `$mac-maintenance` 的 `audit.py --quick`，核查 `/System/Volumes/Data` 水位、Xcode `DerivedData` 与 `Unavailable` 模拟器、Time Machine 本地快照、以及 iCloud/NAS 自动备份脚本是否漏排了新建的构建或归档目录。
    - **子代理 2（本地项目群与 AI 工具）**：遍历 `workspace_roots` 与 `worktree_hubs`，检查各仓库未提交改动、已合并可退役的 Worktree、缺少 `合入前检查：` 的 `AGENTS.md`、缺失的 `CLAUDE.md`、以及散落的编译产物。
    - **子代理 3（GitHub 全账号远端）**：用 `gh` 盘点全部公开/私有仓库，筛出长期废弃或已合并的远端分支（如 `checkpoints/*`）、近期失败的 GitHub Actions、以及已完成历史使命可 `gh repo archive` 的仓库。
@@ -53,7 +61,7 @@ description: Use when a user requests a full-stack or cross-domain health check,
 将四路子代理汇总的候选项合并进快照 JSON（按风险分为 **A 级·安全立省**、**B 级·整理升级**、**C 级·需拍板确认**），调用 `scripts/render_dashboard.py` 生成单文件 HTML 看板：
 
 ```bash
-python3 scripts/render_dashboard.py \
+python3 "${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py" \
   --input work/full-stack/current-snapshot.json \
   --diff work/full-stack/diff.json \
   --output work/full-stack/inspection-dashboard.html --overwrite
@@ -70,10 +78,10 @@ python3 scripts/render_dashboard.py \
 收到用户确认或从 HTML 看板复制回传的勾选清单后，按以下铁律执行：
 
 1. **强制运行 `preflight` 二次并发安全复查**：
-   由于用户在网页上勾选到真正执行之间，可能有其他 AI 会话（Claude Code / Codex / Antigravity）刚启动了构建或修改了工作区，动手前必须运行：
+   由于用户在网页上勾选到真正执行之间，可能有其他 AI 会话（Claude Code / Codex / Antigravity / OpenCode）刚启动了构建或修改了工作区，动手前必须运行：
    ```bash
-   python3 scripts/full_stack_tool.py preflight \
-     --config config/topology.local.json \
+   python3 "${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py" preflight \
+     --config "${CLAUDE_SKILL_DIR}/config/topology.local.json" \
      --targets work/full-stack/current-snapshot.json \
      --ids "<用户勾选的逗号分隔ID>" \
      --output work/full-stack/preflight.json --overwrite

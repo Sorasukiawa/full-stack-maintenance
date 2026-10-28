@@ -1,0 +1,13 @@
+[
+  {"query": "全面检查一下我的项目 Mac 项目 GitHub NAS 都有哪些可以优化 升级 改进 更新的地方", "should_trigger": true},
+  {"query": "帮我做一次全栈体检，生成一个带水位模拟器的可视化 HTML 看板让我勾选清理", "should_trigger": true},
+  {"query": "Use $full-stack-maintenance to audit my Mac, local repos, GitHub, and Proxmox/NAS homelab and build an interactive HTML dashboard", "should_trigger": true},
+  {"query": "对比一下上次巡检快照，看看这几天是谁偷偷占了我的 Mac 和 NAS 空间", "should_trigger": true},
+  {"query": "按我在巡检 HTML 看板上勾选的项目执行清理，动手前再用 preflight 检查一遍有没有别的 AI 会话正在改", "should_trigger": true},
+  {"query": "检查一下我的 iCloud 自动备份和 NAS 备份脚本是不是漏排了新建的构建目录", "should_trigger": true},
+  {"query": "幫我把這台電腦的本地多倉庫、GitHub 分支和家庭伺服器儲存池一起盤點一下，做個勾選看板", "should_trigger": true},
+  {"query": "fix the TypeScript type error in src/components/Header.tsx", "should_trigger": false},
+  {"query": "write a SQL migration to add an index on users.email", "should_trigger": false},
+  {"query": "帮我把这段 Python 冒泡排序改成快速排序", "should_trigger": false},
+  {"query": "create a new React hook for debouncing window resize events", "should_trigger": false}
+]

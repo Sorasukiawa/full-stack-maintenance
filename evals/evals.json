@@ -1,0 +1,30 @@
+{
+  "skill_name": "full-stack-maintenance",
+  "setup": "Run in an isolated temporary fixture directory created by tests/test_full_stack.py or pass a custom topology.json.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "使用 full-stack-maintenance 对我的 Mac、本地项目、GitHub 和 NAS 做一次全面只读巡检，并生成可视化 HTML 看板。",
+      "expected_output": "A read-only 4-domain audit report and a generated single-file interactive HTML dashboard with storage waterline gauges, A/B/C risk tiers, and zero file deletions.",
+      "files": [],
+      "expectations": [
+        "No files, branches, worktrees, or containers were deleted or modified during the inspection phase",
+        "full_stack_tool.py scan-local and render_dashboard.py were used to produce a snapshot JSON and an interactive HTML file",
+        "Candidates are grouped by domain (Mac, Projects, GitHub, NAS) and risk tier (A, B, C)",
+        "Whitelisted paths from topology configuration are placed in the whitelisted section rather than checked for deletion"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "按我在全栈巡检 HTML 看板上的勾选执行清理，动手前再检查一遍并发状态：build-demo-target（备注：如果最近半小时有改动就跳过）。",
+      "expected_output": "Runs preflight concurrency verification first, skips any target with recent modifications or open handles, and reports both logical directory reduction and volume free-space change.",
+      "files": [],
+      "expectations": [
+        "full_stack_tool.py preflight is executed before any deletion",
+        "Targets flagged as BLOCKED_RECENT_ACTIVITY, BLOCKED_OPEN_HANDLES, or BLOCKED_WHITELISTED are skipped safely",
+        "User per-item notes are respected",
+        "Post-cleanup physical free space is verified via df and cross-layer traps (such as APFS local snapshots) are checked if space does not increase"
+      ]
+    }
+  ]
+}

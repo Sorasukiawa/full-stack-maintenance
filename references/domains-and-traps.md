@@ -11,7 +11,7 @@
 - **开发缓存重灾区**：
   - `~/Library/Developer/Xcode/DerivedData`（含空壳目录与过期工程构建缓存）；
   - `xcrun simctl list devices unavailable`（已淘汰 iOS 版本的 `Unavailable` 模拟器运行时与设备沙盒）；
-  - Rust `target/`、Swift `.build*`、前端 `node_modules/.cache`、Playwright `ms-playwright` 旧内核、电子应用 Updater 缓存（`orca-updater`、`tapnow-*-updater`、旧版本 `claude-code` 二进制）。
+  - Rust `target/`、Swift `.build*`、前端 `node_modules/.cache`、Playwright `ms-playwright` 旧内核、桌面端应用 Updater 缓存（如 `*-updater`、旧版本 `claude-code` 二进制）。
 - **孤儿应用残留交叉比对（Orphan Cross-Referencing）**：
   - 将 `~/Library/Application Support`、`~/Library/Caches`、`~/Library/Containers` 与当前已安装的 `/Applications`、`~/Applications` 及 Homebrew 软件包做 Bundle ID / 规范化名称交叉比对；
   - 筛出「主程序已卸载、但残留 ≥50 MiB 数据」的目录，统一归为 **C 级（需用户拍板确认）**，不自动当作普通缓存删除。
@@ -55,7 +55,7 @@
 ## 二、五大跨层连带存储陷阱（实战必查）
 
 ### 陷阱 1：本地目录新建/改名 ➔ 穿透备份排除规则 ➔ 撑爆 iCloud / NAS
-- **现象**：在本地新建了构建归档目录（如 `*-builds`、`*-preservation`、`Artifacts`）或改了目录名，结果后台定时运行的加密备份脚本（如 `sora-ai-backup`）或 NAS 同步脚本（`sora-nas-backup`）因为只写了死路径排除，把几十 GB 的二进制构建包和 `.o`/`.rlib` 编译中间产物全量切片上传到了 iCloud Drive 或 NAS。
+- **现象**：在本地新建了构建归档目录（如 `*-builds`、`*-preservation`、`Artifacts`）或改了目录名，结果后台定时运行的云端加密备份脚本或 NAS 增量同步脚本因为只写了固定路径排除，把几十 GB 的二进制构建包和 `.o`/`.rlib` 编译中间产物全量切片上传到了 iCloud Drive 或 NAS。
 - **治本对策**：
   1. 用 `full_stack_tool.py scan-local` 自动比对本地大体积构建目录与 `backup_pipelines` 的排除通配符；
   2. 将备份脚本升级为**「目录通配模式 + 二进制产物后缀拦截」双层防呆**（例如在项目根下拦截 `DerivedData*`、`.build*`、`*-builds`、`*-preservation`、`Artifacts`、`distribution`，并拦截 `.app`、`.xcarchive`、`.dSYM`、`.framework`、`.ipa`、`.dmg`、`.pkg`、`.o`、`.rlib`）；
@@ -88,5 +88,5 @@
   下发 Discard 指令后，thin-pool 水位才会真正回落。
 
 ### 陷阱 5：通过 SMB 删除 NAS 文件，结果被 `#recycle` 回收站二次截留
-- **现象**：在 Mac 挂载的 `/Volumes/Data`、`/Volumes/Scratch`、`/Volumes/Resolve-Work` 上删除了几十 GB 的旧构建包或缓存，但 NAS 存储池可用空间纹丝不动。
+- **现象**：在 Mac 挂载的 `/Volumes/Data`、`/Volumes/Scratch` 等共享卷上删除了几十 GB 的旧构建包或缓存，但 NAS 存储池可用空间纹丝不动。
 - **根因与对策**：群晖/NAS 开启了 SMB 共享文件夹回收站（`#recycle`），通过挂载卷删除的文件只是被移入了同卷的 `#recycle/` 目录。清理 NAS 挂载卷时，必须同步检查并清理各共享根目录下的 `#recycle`（经用户授权后清空）。
