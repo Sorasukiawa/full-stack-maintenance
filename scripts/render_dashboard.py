@@ -569,27 +569,46 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .cat-bar-head {
     display: flex;
     justify-content: space-between;
-    align-items: baseline;
-    gap: 8px;
+    align-items: center;
+    gap: 6px;
     font-size: 11.5px;
-    margin-bottom: 6px;
+    margin-bottom: 5px;
   }
   .cat-bar-name {
-    font-weight: 500;
+    font-weight: 600;
     color: var(--ink-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .cat-bar-val {
+  .cat-bar-clean-tag {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--tone-sage);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .cat-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+  }
+  .cat-bar-total {
+    color: var(--ink-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .cat-bar-val {
     color: var(--ink-secondary);
     white-space: nowrap;
     flex-shrink: 0;
   }
   .cat-bar-track {
-    height: 7px;
+    flex: 1;
+    height: 8px;
     background: var(--bar-free);
     border-radius: 4px;
     overflow: hidden;
@@ -901,46 +920,54 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .card-impact-track {
     position: relative;
     flex: 1;
-    height: 16px;
+    height: 20px;
     background: var(--bar-free);
     border: 1px solid var(--border-hairline);
     border-radius: 5px;
     overflow: hidden;
-    min-width: 80px;
+    min-width: 100px;
     display: flex;
     align-items: stretch;
   }
   .card-impact-retained {
     height: 100%;
     background: var(--bar-retained);
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: rgba(250, 249, 245, 0.78);
+    white-space: nowrap;
+    overflow: hidden;
+    transition: width 340ms var(--spring-soft);
+  }
+  .card-impact-other {
+    height: 100%;
+    background: rgba(82, 163, 122, 0.30);
     transition: width 340ms var(--spring-soft);
   }
   .card-impact-reclaim {
     height: 100%;
     background: var(--tone-sage);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 600;
-    color: #FAF9F5;
-    white-space: nowrap;
-    overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(250, 249, 245, 0.32);
     transition: width 340ms var(--spring-rebound);
   }
   .card-impact-mid-tag {
     position: absolute;
-    inset: 0;
+    top: 0;
+    bottom: 0;
     display: flex;
     align-items: center;
-    justify-content: center;
+    padding: 0 6px;
     font-family: var(--font-mono);
     font-size: 10px;
     font-weight: 600;
     color: #FAF9F5;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+    white-space: nowrap;
     pointer-events: none;
+    transition: left 340ms var(--spring-soft);
   }
   .card-impact-label {
     font-family: var(--font-mono);
@@ -1109,7 +1136,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <div class="legend-items">
             <span><i class="legend-dot" style="background:var(--bar-retained)"></i>清理后已用 <strong class="mono" id="leg-retained">0 GiB</strong></span>
             <span><i class="legend-dot" style="background:var(--tone-sage)"></i>进度条中间：这次清理 <strong class="mono" style="color:var(--tone-sage)" id="leg-reclaim">0 GiB</strong></span>
-            <span><i class="legend-dot" style="background:var(--bar-free);border:1px solid var(--border-strong)"></i>空闲未用 <strong class="mono" id="leg-free">0 GiB</strong></span>
+            <span><i class="legend-dot" style="background:var(--bar-free);border:1px solid var(--border-strong)"></i>原本空闲 <strong class="mono" id="leg-free">0 GiB</strong></span>
           </div>
           <span class="mono" style="color:var(--ink-secondary)" id="leg-total-free-after"></span>
         </div>
@@ -1325,9 +1352,9 @@ function formatBytes(bytes) {
 function formatCompactBytes(bytes) {
   const b = Number(bytes) || 0;
   const abs = Math.abs(b);
-  if (abs >= 1024 ** 4) return (b / (1024 ** 4)).toFixed(1) + " TiB";
-  if (abs >= 1024 ** 3) return (b / (1024 ** 3)).toFixed(1) + " GiB";
-  if (abs >= 1024 ** 2) return (b / (1024 ** 2)).toFixed(0) + " MiB";
+  if (abs >= 1024 ** 4) return (b / (1024 ** 4)).toFixed(2) + " TiB";
+  if (abs >= 1024 ** 3) return (b / (1024 ** 3)).toFixed(2) + " GiB";
+  if (abs >= 1024 ** 2) return (b / (1024 ** 2)).toFixed(1) + " MiB";
   if (abs > 0) return (b / 1024).toFixed(0) + " KiB";
   return "0 GiB";
 }
@@ -1466,31 +1493,52 @@ function updateAllCardBars(savingsByGauge) {
     const isChecked = !isWl && !isDone && !!state.checked[c.id];
 
     const { totalBytes, origUsedBytes, poolId } = getCardPoolMetrics(c);
-    const poolSaved = savingsByGauge[poolId] || 0;
+    const poolSaved = Math.min(origUsedBytes, savingsByGauge[poolId] || 0);
     const usedAfterPool = Math.max(0, origUsedBytes - poolSaved);
 
-    // In the middle of the progress bar:
-    // Left = retained used (gray), Middle (centered around 50%) = cleaned capacity (green), Right = free space track
-    const baseItemPct = Math.min(34, Math.max(18, Math.sqrt(sz / totalBytes) * 68));
-    const baseRetainedPct = Math.max(24, 50 - baseItemPct / 2);
-    const itemVisualPct = isChecked ? baseItemPct : 0;
-    const retainedVisualPct = isChecked ? baseRetainedPct : (baseRetainedPct + baseItemPct);
+    // Exact byte-accurate proportions relative to totalBytes (100% = totalBytes):
+    // [Retained Used (gray)] [Other Checked in Pool (soft green)] [This Item Cleaned (bright green)] [Original Free (empty)]
+    const thisItemSaved = isChecked ? Math.min(poolSaved, sz) : 0;
+    const otherPoolSaved = Math.max(0, poolSaved - thisItemSaved);
+
+    const retainedPct = (usedAfterPool / totalBytes) * 100;
+    const otherSavedPct = (otherPoolSaved / totalBytes) * 100;
+    const thisItemPct = (thisItemSaved / totalBytes) * 100;
+    const rawItemPct = (sz / totalBytes) * 100;
+    const poolSavedPct = (poolSaved / totalBytes) * 100;
 
     const retEl = document.getElementById("cret-" + c.id);
+    const othEl = document.getElementById("coth-" + c.id);
     const impEl = document.getElementById("cimp-" + c.id);
     const midEl = document.getElementById("cmid-" + c.id);
     const lblEl = document.getElementById("clbl-" + c.id);
 
-    if (retEl) retEl.style.width = retainedVisualPct.toFixed(1) + "%";
-    if (impEl) impEl.style.width = itemVisualPct.toFixed(1) + "%";
+    if (retEl) {
+      retEl.style.width = retainedPct.toFixed(2) + "%";
+      retEl.textContent = retainedPct > 26 ? `清理后已用 ${formatBytes(usedAfterPool)} (${retainedPct.toFixed(1)}%)` : "";
+    }
+    if (othEl) othEl.style.width = otherSavedPct.toFixed(2) + "%";
+    if (impEl) {
+      impEl.style.width = thisItemPct.toFixed(2) + "%";
+      impEl.style.minWidth = (isChecked && thisItemSaved > 0) ? "3px" : "0px";
+    }
     if (midEl) {
-      midEl.textContent = isChecked
-        ? `这次清理 -${formatBytes(sz)}`
-        : `未清理 ${formatBytes(sz)}（点击开启）`;
-      midEl.style.color = isChecked ? "#FAF9F5" : "var(--ink-muted)";
+      const tagLeftPct = Math.min(62, Math.max(4, retainedPct));
+      midEl.style.left = tagLeftPct.toFixed(2) + "%";
+      if (isChecked) {
+        midEl.textContent = otherPoolSaved > 0
+          ? `本项 -${formatBytes(sz)} (${rawItemPct.toFixed(1)}%) · 本池共 -${formatBytes(poolSaved)} (${poolSavedPct.toFixed(1)}%)`
+          : `这次清理 -${formatBytes(sz)} (${rawItemPct.toFixed(1)}%)`;
+        midEl.style.color = "#FAF9F5";
+      } else {
+        midEl.textContent = poolSaved > 0
+          ? `未选 (${formatBytes(sz)} / ${rawItemPct.toFixed(1)}%) · 本池清理 -${formatBytes(poolSaved)}`
+          : `未选（可清理 ${formatBytes(sz)} / ${rawItemPct.toFixed(1)}%）`;
+        midEl.style.color = "var(--ink-muted)";
+      }
     }
     if (lblEl) {
-      lblEl.innerHTML = `已用 <strong style="color:var(--ink-primary)">${formatCompactBytes(usedAfterPool)}</strong>`;
+      lblEl.innerHTML = `已用 <strong style="color:var(--ink-primary)">${formatBytes(usedAfterPool)}</strong> (${retainedPct.toFixed(1)}%)`;
     }
   });
 }
@@ -1512,18 +1560,21 @@ function updateVisualCharts(lastToggledItem = null) {
   if (totalSavingsSpring) totalSavingsSpring.set(totalSavingsBytes / (1024 ** 3));
   pulseElement(document.getElementById("sticky-summary"), "rebound", 220);
 
-  // Update 5 pool mini-cards (Left: Total Capacity, Middle Progress Bar: Used + Cleaned in Middle, Right: Used Capacity)
+  // Update 5 pool mini-cards with exact proportions (Left: Total Capacity, Middle Progress Bar: Used + Cleaned in Middle, Right: Used Capacity)
   (REPORT_DATA.storage_gauges || []).forEach(g => {
     const total = Math.max(1, Number(g.total_bytes) || 1);
     const used = Number(g.used_bytes) || 0;
     const saved = Math.min(used, savingsByGauge[g.id] || 0);
     const newUsed = Math.max(0, used - saved);
     const newPct = (newUsed / total) * 100;
-    const savedPct = saved > 0 ? Math.min(100 - newPct, Math.max(3, (saved / total) * 100)) : 0;
+    const savedPct = (saved / total) * 100;
 
     if (gaugeSprings[g.id]) gaugeSprings[g.id].set(newPct);
     const reclaimEl = document.getElementById("greclaim-" + g.id);
-    if (reclaimEl) reclaimEl.style.width = savedPct.toFixed(1) + "%";
+    if (reclaimEl) {
+      reclaimEl.style.width = savedPct.toFixed(2) + "%";
+      reclaimEl.style.minWidth = saved > 0 ? "2px" : "0px";
+    }
     const usedEl = document.getElementById("gused-" + g.id);
     if (usedEl) {
       usedEl.textContent = formatCompactBytes(newUsed);
@@ -1540,8 +1591,11 @@ function updateVisualCharts(lastToggledItem = null) {
     const saved = Math.min(used, savingsByGauge[activePool.id] || 0);
     const retained = Math.max(0, used - saved);
 
+    const usedBeforePct = (used / total) * 100;
     const retainedPct = (retained / total) * 100;
-    const reclaimPct = saved > 0 ? Math.min(100 - retainedPct, Math.max(2, (saved / total) * 100)) : 0;
+    const reclaimPct = (saved / total) * 100;
+    const freePct = (free / total) * 100;
+    const freeAfterPct = ((free + saved) / total) * 100;
 
     if (anatomyRetainedSpring) anatomyRetainedSpring.set(retainedPct);
     if (anatomyReclaimSpring) anatomyReclaimSpring.set(reclaimPct);
@@ -1551,26 +1605,31 @@ function updateVisualCharts(lastToggledItem = null) {
     const mainTotalEl = document.getElementById("main-storage-total");
     if (mainTotalEl) mainTotalEl.textContent = `总容量 ${formatBytes(total)}`;
     document.getElementById("anatomy-mid-badge").textContent =
-      `这次清理 -${formatBytes(saved)}`;
+      `这次清理 -${formatBytes(saved)} (${reclaimPct.toFixed(1)}%)`;
     const subEl = document.getElementById("anatomy-pool-sub");
-    if (subEl) subEl.textContent = `清理前已用 ${formatCompactBytes(used)} → 清理后已用 ${formatCompactBytes(retained)}`;
+    if (subEl) {
+      subEl.textContent =
+        `清理前已用 ${formatBytes(used)} (${usedBeforePct.toFixed(1)}%) － 这次清理 ${formatBytes(saved)} (${reclaimPct.toFixed(1)}%) ＝ 清理后已用 ${formatBytes(retained)} (${retainedPct.toFixed(1)}%)`;
+    }
     document.getElementById("anatomy-pool-readout").innerHTML =
       `已用 <strong style="color:var(--ink-primary);font-size:13px">${formatBytes(retained)}</strong> (${retainedPct.toFixed(1)}%)`;
 
     const isWideBar = window.innerWidth >= 760;
     const retEl = document.getElementById("seg-retained");
-    if (retEl) retEl.textContent = (isWideBar && retainedPct > 22) ? `已用 ${formatCompactBytes(retained)}` : "";
+    if (retEl) retEl.textContent = (isWideBar && retainedPct > 22) ? `清理后已用 ${formatBytes(retained)} (${retainedPct.toFixed(1)}%)` : "";
     const recEl = document.getElementById("seg-reclaim-mid");
-    if (recEl) recEl.textContent = (isWideBar && reclaimPct > 18) ? `这次清理 -${formatCompactBytes(saved)}` : ((isWideBar && reclaimPct > 11) ? `-${formatCompactBytes(saved)}` : "");
-    const freePct = Math.max(0, 100 - retainedPct - reclaimPct);
+    if (recEl) {
+      recEl.style.minWidth = saved > 0 ? "2px" : "0px";
+      recEl.textContent = (isWideBar && reclaimPct > 18) ? `-${formatBytes(saved)} (${reclaimPct.toFixed(1)}%)` : ((isWideBar && reclaimPct > 10) ? `-${formatCompactBytes(saved)}` : "");
+    }
     const freeEl = document.getElementById("seg-free");
-    if (freeEl) freeEl.textContent = (isWideBar && freePct > 18) ? `空闲 ${formatCompactBytes(free)}` : "";
+    if (freeEl) freeEl.textContent = (isWideBar && freePct > 18) ? `原本空闲 ${formatBytes(free)} (${freePct.toFixed(1)}%)` : "";
 
-    document.getElementById("leg-retained").textContent = formatCompactBytes(retained);
-    document.getElementById("leg-reclaim").textContent = formatBytes(saved);
-    document.getElementById("leg-free").textContent = formatCompactBytes(free + saved);
+    document.getElementById("leg-retained").textContent = `${formatBytes(retained)} (${retainedPct.toFixed(1)}%)`;
+    document.getElementById("leg-reclaim").textContent = `-${formatBytes(saved)} (${reclaimPct.toFixed(1)}%)`;
+    document.getElementById("leg-free").textContent = `${formatBytes(free)} (${freePct.toFixed(1)}%)`;
     document.getElementById("leg-total-free-after").textContent =
-      `原已用 ${formatCompactBytes(used)} → 清理后已用 ${formatCompactBytes(retained)}`;
+      `清理后总可用 ${formatBytes(free + saved)} (${freeAfterPct.toFixed(1)}%)`;
 
     renderPoolCategoryBreakdown(activePool);
   }
@@ -1626,27 +1685,29 @@ function renderPoolCategoryBreakdown(pool) {
   });
 
   const rows = Object.values(catMap).filter(r => r.total > 0);
-  const maxCatTotal = Math.max(1, ...rows.map(r => r.total)) * 1.15;
 
   rows.forEach(r => {
-    const saved = Math.min(r.total, r.saved);
-    const remain = Math.max(0, r.total - saved);
-    // Left = Retained Used, Middle = Cleaned Capacity (in the middle of the bar), Right = Empty track
-    const remainPct = (remain / maxCatTotal) * 100;
-    const savedPct = saved > 0 ? Math.max(3, (saved / maxCatTotal) * 100) : 0;
+    const catTotal = Math.max(1, r.total);
+    const saved = Math.min(catTotal, r.saved);
+    const remain = Math.max(0, catTotal - saved);
+    // Exact 100% scale relative to this directory's pre-cleanup size (remainPct + savedPct = 100%)
+    const remainPct = (remain / catTotal) * 100;
+    const savedPct = (saved / catTotal) * 100;
 
     const div = document.createElement("div");
     div.className = "cat-bar-card tabular";
     div.innerHTML = `
       <div class="cat-bar-head">
-        <span class="cat-bar-name" title="${escapeHtml(r.name)}">${escapeHtml(r.name)} · 总计 ${formatCompactBytes(r.total)}</span>
-        <span class="cat-bar-val">
-          ${saved > 0 ? `<strong style="color:var(--tone-sage);margin-right:6px">清理 -${formatCompactBytes(saved)}</strong>` : ""}已用 <strong>${formatCompactBytes(remain)}</strong>
-        </span>
+        <span class="cat-bar-name" title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</span>
+        <span class="cat-bar-clean-tag">${saved > 0 ? `这次清理 -${formatBytes(saved)} (${savedPct.toFixed(1)}%)` : "未选清理 (0%)"}</span>
       </div>
-      <div class="cat-bar-track">
-        <div class="cat-bar-remain" style="width:${remainPct.toFixed(1)}%"></div>
-        <div class="cat-bar-saved" style="width:${savedPct.toFixed(1)}%" title="这次清理 ${formatBytes(saved)}"></div>
+      <div class="cat-bar-row">
+        <span class="cat-bar-total">原占 ${formatBytes(catTotal)}</span>
+        <div class="cat-bar-track">
+          <div class="cat-bar-remain" style="width:${remainPct.toFixed(1)}%"></div>
+          <div class="cat-bar-saved" style="width:${savedPct.toFixed(1)}%" title="这次清理 ${formatBytes(saved)}"></div>
+        </div>
+        <span class="cat-bar-val">已用 <strong style="color:var(--ink-primary)">${formatBytes(remain)}</strong> (${remainPct.toFixed(1)}%)</span>
       </div>
     `;
     box.appendChild(div);
@@ -1760,12 +1821,10 @@ function renderCandidates() {
     const noteVal = state.notes[c.id] || c.whitelist_note || "";
     const sz = Number(c.size_bytes) || 0;
 
-    // Left = Total Capacity, Middle Progress Bar = [Retained][Cleaned in Middle][Free], Right = Used Capacity
+    // Left = Total Capacity, Middle Progress Bar = [Retained][Other Checked][This Item Cleaned][Free], Right = Used Capacity
     const { totalBytes, origUsedBytes } = getCardPoolMetrics(c);
-    const baseItemPct = Math.min(34, Math.max(18, Math.sqrt(sz / totalBytes) * 68));
-    const baseRetainedPct = Math.max(24, 50 - baseItemPct / 2);
-    const curReclaimPct = isChecked ? baseItemPct : 0;
-    const curRetainedPct = isChecked ? baseRetainedPct : (baseRetainedPct + baseItemPct);
+    const curReclaimPct = isChecked ? (sz / totalBytes) * 100 : 0;
+    const curRetainedPct = Math.max(0, ((origUsedBytes - (isChecked ? sz : 0)) / totalBytes) * 100);
 
     const card = document.createElement("div");
     card.id = "card-" + c.id;
@@ -1777,14 +1836,15 @@ function renderCandidates() {
 
     const impactBarHtml = sz > 0 ? `
       <div class="card-impact-meter tabular">
-        <span class="card-impact-total">总容量 ${formatCompactBytes(totalBytes)}</span>
+        <span class="card-impact-total">总容量 ${formatBytes(totalBytes)}</span>
         <div class="card-impact-track">
-          <div class="card-impact-retained" id="cret-${escapeHtml(c.id)}" style="width:${curRetainedPct.toFixed(1)}%"></div>
-          <div class="card-impact-reclaim" id="cimp-${escapeHtml(c.id)}" style="width:${curReclaimPct.toFixed(1)}%"></div>
-          <span class="card-impact-mid-tag" id="cmid-${escapeHtml(c.id)}">${isChecked ? `这次清理 -${formatBytes(sz)}` : `待清理 ${formatBytes(sz)}（未开启）`}</span>
+          <div class="card-impact-retained" id="cret-${escapeHtml(c.id)}" style="width:${curRetainedPct.toFixed(2)}%"></div>
+          <div class="card-impact-reclaim" id="cimp-${escapeHtml(c.id)}" style="width:${curReclaimPct.toFixed(2)}%"></div>
+          <div class="card-impact-other" id="coth-${escapeHtml(c.id)}" style="width:0%"></div>
+          <span class="card-impact-mid-tag" id="cmid-${escapeHtml(c.id)}">${isChecked ? `本项清理 -${formatBytes(sz)}` : `本项未选 (${formatBytes(sz)})`}</span>
         </div>
         <span class="card-impact-label" id="clbl-${escapeHtml(c.id)}">
-          已用 <strong style="color:var(--ink-primary)">${formatCompactBytes(origUsedBytes)}</strong>
+          已用 <strong style="color:var(--ink-primary)">${formatBytes(origUsedBytes)}</strong>
         </span>
       </div>
     ` : "";
