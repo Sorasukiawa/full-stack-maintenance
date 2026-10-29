@@ -388,10 +388,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 6px;
+    gap: 4px;
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: 11px;
     white-space: nowrap;
+    overflow: hidden;
   }
   .pool-mini-track {
     position: relative;
@@ -404,18 +405,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   }
   .pool-mini-fill {
     height: 100%;
-    border-radius: 999px 0 0 999px;
     will-change: width;
   }
   .pool-mini-reclaim {
-    margin-left: auto;
     height: 100%;
     background: var(--tone-sage);
-    border-radius: 0 999px 999px 0;
     transition: width 320ms var(--spring-rebound);
   }
 
-  /* Active Pool Deep-Dive Anatomy Chart (Total Capacity + Rightmost Cleaned Capacity) */
+  /* Active Pool Deep-Dive Anatomy Chart: Left = Total Capacity, Middle = Progress Bar (adjusting Cleaned Capacity in middle), Right = Used Capacity */
   .anatomy-panel {
     background: var(--bg-recessed);
     border: 1px solid var(--border-hairline);
@@ -426,7 +424,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .anatomy-head {
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
     gap: 10px;
     margin-bottom: 10px;
@@ -436,24 +434,54 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     font-weight: 600;
     color: var(--ink-primary);
   }
+  .anatomy-mid-badge {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--tone-sage);
+    background: var(--tone-sage-bg);
+    padding: 2px 9px;
+    border-radius: 999px;
+  }
   .anatomy-readout {
     font-family: var(--font-mono);
-    font-size: 12.5px;
+    font-size: 12px;
     color: var(--ink-secondary);
   }
+  .main-storage-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .main-storage-total {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-secondary);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .main-storage-used {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-secondary);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
 
-  /* 28px Clean Solid Storage Bar: [Retained Used (Left)] [Available (Middle)] [Cleaned This Time (Far Right)] */
+  /* 28px Clean Solid Storage Bar: [Used After Clean (Left)] [Cleaned Capacity (Middle)] [Free Space (Right)] */
   .segmented-storage-bar {
     position: relative;
     height: 28px;
-    width: 100%;
+    flex: 1;
+    min-width: 120px;
     background: var(--bar-free);
     border: 1px solid var(--border-hairline);
     border-radius: 7px;
     overflow: hidden;
     display: flex;
     align-items: stretch;
-    margin-bottom: 10px;
   }
   .seg-retained {
     height: 100%;
@@ -468,26 +496,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     overflow: hidden;
     will-change: width;
   }
-  .seg-free {
-    flex: 1;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 8px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--ink-muted);
-    white-space: nowrap;
-    overflow: hidden;
-  }
-  .seg-reclaim-right {
-    margin-left: auto;
+  .seg-reclaim-mid {
     height: 100%;
     background: var(--tone-sage);
     display: flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: center;
     padding: 0;
     color: #FAF9F5;
     font-family: var(--font-mono);
@@ -496,6 +510,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     white-space: nowrap;
     overflow: hidden;
     will-change: width;
+  }
+  .seg-free {
+    flex: 1;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 10px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-muted);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  @media (max-width: 760px) {
+    .seg-retained, .seg-reclaim-mid, .seg-free { font-size: 0 !important; padding: 0 !important; }
   }
   .storage-legend {
     display: flex;
@@ -520,7 +550,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     vertical-align: -1px;
   }
 
-  /* Category / Directory Breakdown Mini-Bars: Total Capacity with Cleaned Capacity at Far Right */
+  /* Category / Directory Breakdown Mini-Bars: Left = Total, Middle = Cleaned in Progress Bar, Right = Used */
   .category-breakdown-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
@@ -572,7 +602,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     transition: width 320ms var(--spring-soft);
   }
   .cat-bar-saved {
-    margin-left: auto;
     height: 100%;
     background: var(--tone-sage);
     transition: width 320ms var(--spring-rebound);
@@ -851,7 +880,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     margin-bottom: 5px;
   }
 
-  /* Inline Per-Card Storage Bar: [Total Capacity] [Retained ... | Cleaned at Far Right] [Cleaned Capacity] */
+  /* Inline Per-Card Storage Bar: [Left: Total Capacity] [Middle: Progress Bar with Cleaned Segment in Middle] [Right: Used Capacity] */
   .card-impact-meter {
     display: flex;
     align-items: center;
@@ -870,12 +899,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     flex-shrink: 0;
   }
   .card-impact-track {
+    position: relative;
     flex: 1;
-    height: 7px;
+    height: 16px;
     background: var(--bar-free);
-    border-radius: 999px;
+    border: 1px solid var(--border-hairline);
+    border-radius: 5px;
     overflow: hidden;
-    min-width: 60px;
+    min-width: 80px;
     display: flex;
     align-items: stretch;
   }
@@ -885,10 +916,31 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     transition: width 340ms var(--spring-soft);
   }
   .card-impact-reclaim {
-    margin-left: auto;
     height: 100%;
     background: var(--tone-sage);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: #FAF9F5;
+    white-space: nowrap;
+    overflow: hidden;
     transition: width 340ms var(--spring-rebound);
+  }
+  .card-impact-mid-tag {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: #FAF9F5;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
   }
   .card-impact-label {
     font-family: var(--font-mono);
@@ -1018,7 +1070,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div class="editorial-kicker">STORAGE ANATOMY &amp; RECLAIM SIMULATION</div>
       <h1>__HEADING__</h1>
       <p class="editorial-subtitle">
-        记录时间：__GENERATED_AT__。所有容量条均以整条代表「总容量」，最右侧代表「这次清理的容量」；切换下方任意开关将实时改变最右侧的清理容量。
+        记录时间：__GENERATED_AT__。所有容量图表均采用「左边总容量、右边已使用容量、进度条中间动态调整这次清理的容量」布局；切换下方开关即可实时观察中间清理段伸缩与右侧已用容量变化。
       </p>
     </div>
     <div>
@@ -1029,32 +1081,37 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <!-- ==================== INTERACTIVE STORAGE VISUALIZATION ==================== -->
   <section class="section-block">
     <div class="section-header">
-      <h2 class="section-title">存储空间总容量与清理容量实时视图</h2>
-      <span class="section-caption">整条代表总容量，最右侧绿色实心段代表这次清理的容量（随下方开关实时伸缩）</span>
+      <h2 class="section-title">存储空间总容量与已用容量实时视图</h2>
+      <span class="section-caption">左边：总容量 ｜ 进度条中间：调整这次清理的容量 ｜ 右边：已经使用的容量</span>
     </div>
 
     <div class="viz-studio">
       <!-- 5-Pool Selector Strip -->
       <div class="pool-selector-strip" id="pool-selector-strip"></div>
 
-      <!-- Active Pool Total Capacity Bar (Cleaned Capacity at Far Right) + Directory Breakdown -->
+      <!-- Active Pool Bar: Left = Total Capacity, Middle = Progress Bar (Cleaned in Middle), Right = Used Capacity -->
       <div class="anatomy-panel" id="anatomy-panel">
         <div class="anatomy-head">
-          <span class="anatomy-title" id="anatomy-pool-title">存储池总容量视图</span>
-          <span class="anatomy-readout tabular" id="anatomy-pool-readout"></span>
+          <span class="anatomy-title" id="anatomy-pool-title">Mac 内置 SSD (APFS)</span>
+          <span class="anatomy-mid-badge tabular" id="anatomy-mid-badge">这次清理 -0.00 GiB</span>
+          <span class="anatomy-readout tabular" id="anatomy-pool-sub">原已用 0 GiB → 清理后已用 0 GiB</span>
         </div>
-        <div class="segmented-storage-bar" id="segmented-storage-bar">
-          <div class="seg-retained" id="seg-retained" style="width:50%"></div>
-          <div class="seg-free" id="seg-free"></div>
-          <div class="seg-reclaim-right" id="seg-reclaim-right" style="width:0%"></div>
+        <div class="main-storage-row tabular">
+          <span class="main-storage-total" id="main-storage-total">总容量 0 GiB</span>
+          <div class="segmented-storage-bar" id="segmented-storage-bar">
+            <div class="seg-retained" id="seg-retained" style="width:48%"></div>
+            <div class="seg-reclaim-mid" id="seg-reclaim-mid" style="width:22%"></div>
+            <div class="seg-free" id="seg-free"></div>
+          </div>
+          <span class="main-storage-used" id="anatomy-pool-readout">已用 0 GiB</span>
         </div>
         <div class="storage-legend">
           <div class="legend-items">
-            <span><i class="legend-dot" style="background:var(--bar-retained)"></i>清理后保留已用 <strong class="mono" id="leg-retained">0 GiB</strong></span>
-            <span><i class="legend-dot" style="background:var(--bar-free);border:1px solid var(--border-strong)"></i>原有可用 <strong class="mono" id="leg-free">0 GiB</strong></span>
-            <span><i class="legend-dot" style="background:var(--tone-sage)"></i>最右侧：这次清理的容量 <strong class="mono" style="color:var(--tone-sage)" id="leg-reclaim">0 GiB</strong></span>
+            <span><i class="legend-dot" style="background:var(--bar-retained)"></i>清理后已用 <strong class="mono" id="leg-retained">0 GiB</strong></span>
+            <span><i class="legend-dot" style="background:var(--tone-sage)"></i>进度条中间：这次清理 <strong class="mono" style="color:var(--tone-sage)" id="leg-reclaim">0 GiB</strong></span>
+            <span><i class="legend-dot" style="background:var(--bar-free);border:1px solid var(--border-strong)"></i>空闲未用 <strong class="mono" id="leg-free">0 GiB</strong></span>
           </div>
-          <span class="mono" style="color:var(--tone-sage);font-weight:600" id="leg-total-free-after"></span>
+          <span class="mono" style="color:var(--ink-secondary)" id="leg-total-free-after"></span>
         </div>
 
         <!-- Directory / Category Breakdown Mini-Charts -->
@@ -1063,7 +1120,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
       <!-- Live Action Spotlight Banner -->
       <div class="spotlight-banner" id="spotlight-banner">
-        <span id="spotlight-text">切换下方任意项目开关，图表最右侧的「这次清理容量」将按欠阻尼弹簧实时伸缩。</span>
+        <span id="spotlight-text">切换下方任意项目开关，进度条中间的「这次清理容量」与右侧的「已使用容量」将实时联动。</span>
         <span class="mono" style="color:var(--tone-sage);font-weight:600" id="spotlight-badge">实时联动</span>
       </div>
     </div>
@@ -1310,13 +1367,13 @@ function initGaugesDOM() {
     card.onclick = () => selectPool(g.id);
     card.innerHTML = `
       <div class="pool-tab-top">
-        <span>POOL ${indexStr} · 总容量 ${formatCompactBytes(total)}</span>
+        <span>POOL ${indexStr}</span>
         <span class="status-pip" id="gpip-${escapeHtml(g.id)}"></span>
       </div>
       <div class="pool-tab-name" title="${escapeHtml(cleanLabel)}">${escapeHtml(cleanLabel)}</div>
       <div class="pool-tab-metrics tabular">
-        <span style="color:var(--ink-secondary)">已用 <strong style="color:var(--ink-primary)" id="gpct-${escapeHtml(g.id)}">${curPct.toFixed(1)}%</strong></span>
-        <span style="color:var(--tone-sage);font-size:11px;font-weight:600" id="gsaved-${escapeHtml(g.id)}">清理 0 GiB</span>
+        <span style="color:var(--ink-muted)">总 ${formatCompactBytes(total)}</span>
+        <span style="color:var(--ink-secondary)">已用 <strong style="color:var(--ink-primary)" id="gused-${escapeHtml(g.id)}">${formatCompactBytes(used)}</strong></span>
       </div>
       <div class="pool-mini-track">
         <div class="pool-mini-fill" id="gfill-${escapeHtml(g.id)}" style="width:${Math.min(100, curPct).toFixed(1)}%"></div>
@@ -1328,7 +1385,6 @@ function initGaugesDOM() {
     gaugeSprings[g.id] = new AnalyticalSpring(curPct, val => {
       const clamped = Math.max(0, Math.min(100, val));
       const fillEl = document.getElementById("gfill-" + g.id);
-      const pctEl = document.getElementById("gpct-" + g.id);
       const pipEl = document.getElementById("gpip-" + g.id);
       const isCrit = clamped >= warnPct;
       const isWarn = !isCrit && clamped >= warnPct - 10;
@@ -1337,7 +1393,6 @@ function initGaugesDOM() {
         fillEl.style.width = clamped.toFixed(2) + "%";
         fillEl.style.backgroundColor = isCrit ? "var(--tone-rust)" : (isWarn ? "var(--tone-ochre)" : "var(--bar-retained)");
       }
-      if (pctEl) pctEl.textContent = clamped.toFixed(1) + "%";
       if (pipEl) {
         pipEl.className = "status-pip " + (isCrit ? "pip-crit" : (isWarn ? "pip-warn" : "pip-ok"));
         pipEl.textContent = isCrit ? "告警" : (isWarn ? "偏高" : "健康");
@@ -1350,11 +1405,11 @@ function initGaugesDOM() {
     if (el) el.style.width = Math.max(0, Math.min(100, val)).toFixed(2) + "%";
   });
   anatomyReclaimSpring = new AnalyticalSpring(0, val => {
-    const el = document.getElementById("seg-reclaim-right");
+    const el = document.getElementById("seg-reclaim-mid");
     if (el) {
       const w = Math.max(0, Math.min(100, val));
       el.style.width = w.toFixed(2) + "%";
-      el.style.padding = w > 12 ? "0 10px" : "0";
+      el.style.padding = w > 12 ? "0 8px" : "0";
     }
   });
 
@@ -1387,22 +1442,57 @@ function inferCategoryName(c) {
   return "其他可回收项";
 }
 
-function getCardScopeTotalBytes(c) {
+function getCardPoolMetrics(c) {
   const pool = (REPORT_DATA.storage_gauges || []).find(g => g.id === c.gauge_id);
-  if (pool && Array.isArray(pool.breakdown)) {
-    const catName = inferCategoryName(c);
-    const found = pool.breakdown.find(b => b.name === catName);
-    if (found && Number(found.size_bytes) > 0) {
-      return { totalBytes: Number(found.size_bytes), scopeLabel: catName };
-    }
-  }
   if (pool && Number(pool.total_bytes) > 0) {
-    return { totalBytes: Number(pool.total_bytes), scopeLabel: stripLeadingEmoji(pool.label || pool.id) };
+    return {
+      totalBytes: Number(pool.total_bytes),
+      origUsedBytes: Number(pool.used_bytes) || 0,
+      poolId: pool.id
+    };
   }
   const fallbackTotal = (REPORT_DATA.candidates || [])
     .filter(x => (x.gauge_id || "_default") === (c.gauge_id || "_default"))
     .reduce((acc, x) => acc + (Number(x.size_bytes) || 0), 0) || 1;
-  return { totalBytes: fallbackTotal, scopeLabel: "当前分组" };
+  return { totalBytes: fallbackTotal, origUsedBytes: fallbackTotal, poolId: "_default" };
+}
+
+function updateAllCardBars(savingsByGauge) {
+  (REPORT_DATA.candidates || []).forEach(c => {
+    const sz = Number(c.size_bytes) || 0;
+    if (sz <= 0) return;
+    const isWl = !!state.whitelisted[c.id];
+    const isDone = c.status === "done";
+    const isChecked = !isWl && !isDone && !!state.checked[c.id];
+
+    const { totalBytes, origUsedBytes, poolId } = getCardPoolMetrics(c);
+    const poolSaved = savingsByGauge[poolId] || 0;
+    const usedAfterPool = Math.max(0, origUsedBytes - poolSaved);
+
+    // In the middle of the progress bar:
+    // Left = retained used (gray), Middle (centered around 50%) = cleaned capacity (green), Right = free space track
+    const baseItemPct = Math.min(34, Math.max(18, Math.sqrt(sz / totalBytes) * 68));
+    const baseRetainedPct = Math.max(24, 50 - baseItemPct / 2);
+    const itemVisualPct = isChecked ? baseItemPct : 0;
+    const retainedVisualPct = isChecked ? baseRetainedPct : (baseRetainedPct + baseItemPct);
+
+    const retEl = document.getElementById("cret-" + c.id);
+    const impEl = document.getElementById("cimp-" + c.id);
+    const midEl = document.getElementById("cmid-" + c.id);
+    const lblEl = document.getElementById("clbl-" + c.id);
+
+    if (retEl) retEl.style.width = retainedVisualPct.toFixed(1) + "%";
+    if (impEl) impEl.style.width = itemVisualPct.toFixed(1) + "%";
+    if (midEl) {
+      midEl.textContent = isChecked
+        ? `这次清理 -${formatBytes(sz)}`
+        : `未清理 ${formatBytes(sz)}（点击开启）`;
+      midEl.style.color = isChecked ? "#FAF9F5" : "var(--ink-muted)";
+    }
+    if (lblEl) {
+      lblEl.innerHTML = `已用 <strong style="color:var(--ink-primary)">${formatCompactBytes(usedAfterPool)}</strong>`;
+    }
+  });
 }
 
 function updateVisualCharts(lastToggledItem = null) {
@@ -1422,7 +1512,7 @@ function updateVisualCharts(lastToggledItem = null) {
   if (totalSavingsSpring) totalSavingsSpring.set(totalSavingsBytes / (1024 ** 3));
   pulseElement(document.getElementById("sticky-summary"), "rebound", 220);
 
-  // Update 5 pool mini-cards (Left: retained used, Far Right: cleaned capacity)
+  // Update 5 pool mini-cards (Left: Total Capacity, Middle Progress Bar: Used + Cleaned in Middle, Right: Used Capacity)
   (REPORT_DATA.storage_gauges || []).forEach(g => {
     const total = Math.max(1, Number(g.total_bytes) || 1);
     const used = Number(g.used_bytes) || 0;
@@ -1434,14 +1524,13 @@ function updateVisualCharts(lastToggledItem = null) {
     if (gaugeSprings[g.id]) gaugeSprings[g.id].set(newPct);
     const reclaimEl = document.getElementById("greclaim-" + g.id);
     if (reclaimEl) reclaimEl.style.width = savedPct.toFixed(1) + "%";
-    const savedEl = document.getElementById("gsaved-" + g.id);
-    if (savedEl) {
-      savedEl.textContent = saved > 0 ? (`这次清理 ${formatCompactBytes(saved)}`) : "这次清理 0 GiB";
-      savedEl.style.color = saved > 0 ? "var(--tone-sage)" : "var(--ink-muted)";
+    const usedEl = document.getElementById("gused-" + g.id);
+    if (usedEl) {
+      usedEl.textContent = formatCompactBytes(newUsed);
     }
   });
 
-  // Active Pool Main Bar: Whole bar = Total Capacity, Far Right = Cleaned Capacity This Time
+  // Active Pool Main Bar: Left = Total Capacity, Middle Progress Bar = [Used][Cleaned in Middle][Free], Right = Used Capacity
   const gauges = REPORT_DATA.storage_gauges || [];
   const activePool = gauges.find(g => g.id === activePoolId) || gauges[0];
   if (activePool) {
@@ -1452,33 +1541,41 @@ function updateVisualCharts(lastToggledItem = null) {
     const retained = Math.max(0, used - saved);
 
     const retainedPct = (retained / total) * 100;
-    const reclaimPct = saved > 0 ? Math.min(100 - retainedPct, Math.max(1.8, (saved / total) * 100)) : 0;
+    const reclaimPct = saved > 0 ? Math.min(100 - retainedPct, Math.max(2, (saved / total) * 100)) : 0;
 
     if (anatomyRetainedSpring) anatomyRetainedSpring.set(retainedPct);
     if (anatomyReclaimSpring) anatomyReclaimSpring.set(reclaimPct);
 
     const cleanPoolName = stripLeadingEmoji(activePool.label || activePool.id);
-    document.getElementById("anatomy-pool-title").textContent =
-      `${cleanPoolName} · 总容量 ${formatBytes(total)}`;
+    document.getElementById("anatomy-pool-title").textContent = cleanPoolName;
+    const mainTotalEl = document.getElementById("main-storage-total");
+    if (mainTotalEl) mainTotalEl.textContent = `总容量 ${formatBytes(total)}`;
+    document.getElementById("anatomy-mid-badge").textContent =
+      `这次清理 -${formatBytes(saved)}`;
+    const subEl = document.getElementById("anatomy-pool-sub");
+    if (subEl) subEl.textContent = `清理前已用 ${formatCompactBytes(used)} → 清理后已用 ${formatCompactBytes(retained)}`;
     document.getElementById("anatomy-pool-readout").innerHTML =
-      `最右侧：这次清理 <strong style="color:var(--tone-sage);font-size:13.5px">${formatBytes(saved)}</strong>`;
+      `已用 <strong style="color:var(--ink-primary);font-size:13px">${formatBytes(retained)}</strong> (${retainedPct.toFixed(1)}%)`;
 
+    const isWideBar = window.innerWidth >= 760;
     const retEl = document.getElementById("seg-retained");
-    if (retEl) retEl.textContent = retainedPct > 22 ? `保留已用 ${formatCompactBytes(retained)}` : (retainedPct > 12 ? formatCompactBytes(retained) : "");
+    if (retEl) retEl.textContent = (isWideBar && retainedPct > 22) ? `已用 ${formatCompactBytes(retained)}` : "";
+    const recEl = document.getElementById("seg-reclaim-mid");
+    if (recEl) recEl.textContent = (isWideBar && reclaimPct > 18) ? `这次清理 -${formatCompactBytes(saved)}` : ((isWideBar && reclaimPct > 11) ? `-${formatCompactBytes(saved)}` : "");
     const freePct = Math.max(0, 100 - retainedPct - reclaimPct);
     const freeEl = document.getElementById("seg-free");
-    if (freeEl) freeEl.textContent = freePct > 22 ? `原有可用 ${formatCompactBytes(free)}` : "";
-    const recEl = document.getElementById("seg-reclaim-right");
-    if (recEl) recEl.textContent = reclaimPct > 28 ? `这次清理 ${formatCompactBytes(saved)}` : (reclaimPct > 14 ? formatCompactBytes(saved) : "");
+    if (freeEl) freeEl.textContent = (isWideBar && freePct > 18) ? `空闲 ${formatCompactBytes(free)}` : "";
 
     document.getElementById("leg-retained").textContent = formatCompactBytes(retained);
-    document.getElementById("leg-free").textContent = formatCompactBytes(free);
     document.getElementById("leg-reclaim").textContent = formatBytes(saved);
+    document.getElementById("leg-free").textContent = formatCompactBytes(free + saved);
     document.getElementById("leg-total-free-after").textContent =
-      `清理后可用空间：${formatCompactBytes(free)} + ${formatCompactBytes(saved)} = ${formatCompactBytes(free + saved)}`;
+      `原已用 ${formatCompactBytes(used)} → 清理后已用 ${formatCompactBytes(retained)}`;
 
     renderPoolCategoryBreakdown(activePool);
   }
+
+  updateAllCardBars(savingsByGauge);
 
   // Update Spotlight Banner when user toggles any switch
   if (lastToggledItem) {
@@ -1489,12 +1586,13 @@ function updateVisualCharts(lastToggledItem = null) {
     const sz = Number(lastToggledItem.size_bytes) || 0;
     const pool = (REPORT_DATA.storage_gauges || []).find(g => g.id === lastToggledItem.gauge_id);
     const poolSaved = pool ? (savingsByGauge[pool.id] || 0) : totalSavingsBytes;
+    const poolUsedAfter = pool ? Math.max(0, (Number(pool.used_bytes) || 0) - poolSaved) : 0;
 
     if (sz > 0) {
       textEl.innerHTML = isNowChecked
-        ? `已开启 <strong>${escapeHtml(lastToggledItem.id)} · ${escapeHtml(stripLeadingEmoji(lastToggledItem.title))}</strong>：最右侧清理容量增加 <strong style="color:var(--tone-sage)">+${formatBytes(sz)}</strong>（当前池这次清理合计 <strong>${formatBytes(poolSaved)}</strong>）`
-        : `已关闭 <strong>${escapeHtml(lastToggledItem.id)} · ${escapeHtml(stripLeadingEmoji(lastToggledItem.title))}</strong>：最右侧清理容量减少 <strong>-${formatBytes(sz)}</strong>（当前池这次清理合计 <strong>${formatBytes(poolSaved)}</strong>）`;
-      badgeEl.textContent = isNowChecked ? `这次清理 +${formatCompactBytes(sz)}` : `已撤回 ${formatCompactBytes(sz)}`;
+        ? `已开启 <strong>${escapeHtml(lastToggledItem.id)} · ${escapeHtml(stripLeadingEmoji(lastToggledItem.title))}</strong>：进度条中间清理容量 <strong style="color:var(--tone-sage)">+${formatBytes(sz)}</strong>，右侧已用容量降至 <strong>${formatBytes(poolUsedAfter)}</strong>`
+        : `已关闭 <strong>${escapeHtml(lastToggledItem.id)} · ${escapeHtml(stripLeadingEmoji(lastToggledItem.title))}</strong>：进度条中间清理容量 <strong>-${formatBytes(sz)}</strong>，右侧已用容量回升至 <strong>${formatBytes(poolUsedAfter)}</strong>`;
+      badgeEl.textContent = isNowChecked ? `已清理 -${formatCompactBytes(sz)}` : `已恢复 +${formatCompactBytes(sz)}`;
     } else {
       textEl.innerHTML = `${isNowChecked ? "已开启" : "已关闭"}配置项 <strong>${escapeHtml(lastToggledItem.id)} · ${escapeHtml(stripLeadingEmoji(lastToggledItem.title))}</strong>`;
       badgeEl.textContent = isNowChecked ? "已纳入执行" : "已移除";
@@ -1528,21 +1626,22 @@ function renderPoolCategoryBreakdown(pool) {
   });
 
   const rows = Object.values(catMap).filter(r => r.total > 0);
+  const maxCatTotal = Math.max(1, ...rows.map(r => r.total)) * 1.15;
 
   rows.forEach(r => {
     const saved = Math.min(r.total, r.saved);
     const remain = Math.max(0, r.total - saved);
-    // Each category bar represents 100% of that category's total capacity, with Cleaned Capacity anchored at Far Right
-    const savedPct = saved > 0 ? Math.min(100, Math.max(3, (saved / r.total) * 100)) : 0;
-    const remainPct = Math.max(0, 100 - savedPct);
+    // Left = Retained Used, Middle = Cleaned Capacity (in the middle of the bar), Right = Empty track
+    const remainPct = (remain / maxCatTotal) * 100;
+    const savedPct = saved > 0 ? Math.max(3, (saved / maxCatTotal) * 100) : 0;
 
     const div = document.createElement("div");
     div.className = "cat-bar-card tabular";
     div.innerHTML = `
       <div class="cat-bar-head">
-        <span class="cat-bar-name" title="${escapeHtml(r.name)}">${escapeHtml(r.name)} · 总容量 ${formatCompactBytes(r.total)}</span>
+        <span class="cat-bar-name" title="${escapeHtml(r.name)}">${escapeHtml(r.name)} · 总计 ${formatCompactBytes(r.total)}</span>
         <span class="cat-bar-val">
-          这次清理 <strong style="color:${saved > 0 ? 'var(--tone-sage)' : 'var(--ink-muted)'}">${saved > 0 ? formatCompactBytes(saved) : '0 GiB'}</strong>
+          ${saved > 0 ? `<strong style="color:var(--tone-sage);margin-right:6px">清理 -${formatCompactBytes(saved)}</strong>` : ""}已用 <strong>${formatCompactBytes(remain)}</strong>
         </span>
       </div>
       <div class="cat-bar-track">
@@ -1661,12 +1760,12 @@ function renderCandidates() {
     const noteVal = state.notes[c.id] || c.whitelist_note || "";
     const sz = Number(c.size_bytes) || 0;
 
-    // Whole bar = Scope Total Capacity, Far Right = Cleaned Capacity (controlled by the card switch!)
-    const { totalBytes: scopeTotalBytes } = getCardScopeTotalBytes(c);
-    const rawPct = scopeTotalBytes > 0 ? (sz / scopeTotalBytes) * 100 : 0;
-    const reclaimPctWhenChecked = sz > 0 ? Math.min(92, Math.max(5, rawPct)) : 0;
-    const curReclaimPct = isChecked ? reclaimPctWhenChecked : 0;
-    const curRetainedPct = Math.max(8, 100 - curReclaimPct);
+    // Left = Total Capacity, Middle Progress Bar = [Retained][Cleaned in Middle][Free], Right = Used Capacity
+    const { totalBytes, origUsedBytes } = getCardPoolMetrics(c);
+    const baseItemPct = Math.min(34, Math.max(18, Math.sqrt(sz / totalBytes) * 68));
+    const baseRetainedPct = Math.max(24, 50 - baseItemPct / 2);
+    const curReclaimPct = isChecked ? baseItemPct : 0;
+    const curRetainedPct = isChecked ? baseRetainedPct : (baseRetainedPct + baseItemPct);
 
     const card = document.createElement("div");
     card.id = "card-" + c.id;
@@ -1678,13 +1777,14 @@ function renderCandidates() {
 
     const impactBarHtml = sz > 0 ? `
       <div class="card-impact-meter tabular">
-        <span class="card-impact-total">总容量 ${formatCompactBytes(scopeTotalBytes)}</span>
+        <span class="card-impact-total">总容量 ${formatCompactBytes(totalBytes)}</span>
         <div class="card-impact-track">
           <div class="card-impact-retained" id="cret-${escapeHtml(c.id)}" style="width:${curRetainedPct.toFixed(1)}%"></div>
           <div class="card-impact-reclaim" id="cimp-${escapeHtml(c.id)}" style="width:${curReclaimPct.toFixed(1)}%"></div>
+          <span class="card-impact-mid-tag" id="cmid-${escapeHtml(c.id)}">${isChecked ? `这次清理 -${formatBytes(sz)}` : `待清理 ${formatBytes(sz)}（未开启）`}</span>
         </div>
         <span class="card-impact-label" id="clbl-${escapeHtml(c.id)}">
-          这次清理 <strong style="color:${isChecked ? 'var(--tone-sage)' : 'var(--ink-muted)'}">${isChecked ? formatBytes(sz) : '0.00 GiB'}</strong>
+          已用 <strong style="color:var(--ink-primary)">${formatCompactBytes(origUsedBytes)}</strong>
         </span>
       </div>
     ` : "";
@@ -1745,28 +1845,11 @@ function toggleItem(id, checked) {
     card.classList.toggle("checked", !!checked);
     pulseElement(card, "pulse", 200);
   }
-  // Animate the inline card bar: rightmost cleaned capacity expands/collapses with the switch
-  if (c && Number(c.size_bytes) > 0) {
-    const sz = Number(c.size_bytes) || 0;
-    const { totalBytes: scopeTotalBytes } = getCardScopeTotalBytes(c);
-    const rawPct = scopeTotalBytes > 0 ? (sz / scopeTotalBytes) * 100 : 0;
-    const reclaimPct = checked ? Math.min(92, Math.max(5, rawPct)) : 0;
-    const retainedPct = Math.max(8, 100 - reclaimPct);
-
-    const retEl = document.getElementById("cret-" + id);
-    const impEl = document.getElementById("cimp-" + id);
-    const lblEl = document.getElementById("clbl-" + id);
-    if (retEl) retEl.style.width = retainedPct.toFixed(1) + "%";
-    if (impEl) impEl.style.width = reclaimPct.toFixed(1) + "%";
-    if (lblEl) {
-      lblEl.innerHTML = `这次清理 <strong style="color:${checked ? 'var(--tone-sage)' : 'var(--ink-muted)'}">${checked ? formatBytes(sz) : '0.00 GiB'}</strong>`;
-    }
-    if (c.gauge_id && c.gauge_id !== activePoolId) {
-      activePoolId = c.gauge_id;
-      document.querySelectorAll(".pool-tab-card").forEach(el => {
-        el.classList.toggle("active", el.id === "pool-tab-" + activePoolId);
-      });
-    }
+  if (c && c.gauge_id && c.gauge_id !== activePoolId) {
+    activePoolId = c.gauge_id;
+    document.querySelectorAll(".pool-tab-card").forEach(el => {
+      el.classList.toggle("active", el.id === "pool-tab-" + activePoolId);
+    });
   }
   updateSelectionTotals(c);
 }
