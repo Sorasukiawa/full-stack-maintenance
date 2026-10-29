@@ -496,6 +496,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     overflow: hidden;
     will-change: width;
   }
+  .seg-reclaim-item {
+    height: 100%;
+    background: var(--accent-clay);
+    border-right: 1.5px solid rgba(20, 20, 19, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #FAF9F5;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    transition: width 320ms var(--spring-rebound);
+  }
   .seg-reclaim-mid {
     height: 100%;
     background: var(--tone-sage);
@@ -899,16 +914,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     margin-bottom: 5px;
   }
 
-  /* Inline Per-Card Storage Bar: [Left: Total Capacity] [Middle: Progress Bar with Cleaned Segment in Middle] [Right: Used Capacity] */
+  /* Inline Per-Card Storage Bar:
+     Row 1: [Left: Total Capacity] [Middle: ● Current Item Cleanup (Terracotta) · ● Total Pool Cleanup (Sage)] [Right: Used Capacity]
+     Row 2: Unobstructed Progress Bar [Retained Used (Gray)] [Current Item (Terracotta)] [Other Pool Cleanup (Sage)] [Free Space] */
   .card-impact-meter {
     display: flex;
-    align-items: center;
-    gap: 10px;
+    flex-direction: column;
+    gap: 5px;
     background: var(--bg-recessed);
     border: 1px solid var(--border-hairline);
     border-radius: 6px;
-    padding: 6px 10px;
+    padding: 7px 10px;
     margin-bottom: 6px;
+  }
+  .card-impact-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
   }
   .card-impact-total {
     font-family: var(--font-mono);
@@ -917,63 +941,63 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     white-space: nowrap;
     flex-shrink: 0;
   }
-  .card-impact-track {
-    position: relative;
-    flex: 1;
-    height: 20px;
-    background: var(--bar-free);
-    border: 1px solid var(--border-hairline);
-    border-radius: 5px;
-    overflow: hidden;
-    min-width: 100px;
-    display: flex;
-    align-items: stretch;
-  }
-  .card-impact-retained {
-    height: 100%;
-    background: var(--bar-retained);
-    display: flex;
-    align-items: center;
-    padding: 0 8px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: rgba(250, 249, 245, 0.78);
-    white-space: nowrap;
-    overflow: hidden;
-    transition: width 340ms var(--spring-soft);
-  }
-  .card-impact-other {
-    height: 100%;
-    background: rgba(82, 163, 122, 0.30);
-    transition: width 340ms var(--spring-soft);
-  }
-  .card-impact-reclaim {
-    height: 100%;
-    background: var(--tone-sage);
-    box-shadow: inset 0 0 0 1px rgba(250, 249, 245, 0.32);
-    transition: width 340ms var(--spring-rebound);
-  }
   .card-impact-mid-tag {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    padding: 0 6px;
+    gap: 5px;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 600;
-    color: #FAF9F5;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
     white-space: nowrap;
-    pointer-events: none;
-    transition: left 340ms var(--spring-soft);
   }
   .card-impact-label {
     font-family: var(--font-mono);
     font-size: 11px;
     color: var(--ink-secondary);
     white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .card-impact-track {
+    position: relative;
+    width: 100%;
+    height: 12px;
+    background: var(--bar-free);
+    border: 1px solid var(--border-hairline);
+    border-radius: 999px;
+    overflow: hidden;
+    display: flex;
+    align-items: stretch;
+  }
+  .card-impact-retained {
+    height: 100%;
+    background: var(--bar-retained);
+    transition: width 340ms var(--spring-soft);
+  }
+  .card-impact-reclaim {
+    height: 100%;
+    background: var(--accent-clay);
+    border-right: 1.5px solid var(--bg-recessed);
+    transition: width 340ms var(--spring-rebound);
+  }
+  .card-impact-other {
+    height: 100%;
+    background: var(--tone-sage);
+    transition: width 340ms var(--spring-soft);
+  }
+  .dot-item {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    background: var(--accent-clay);
+    flex-shrink: 0;
+  }
+  .dot-pool {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    background: var(--tone-sage);
     flex-shrink: 0;
   }
 
@@ -1127,7 +1151,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <span class="main-storage-total" id="main-storage-total">总容量 0 GiB</span>
           <div class="segmented-storage-bar" id="segmented-storage-bar">
             <div class="seg-retained" id="seg-retained" style="width:48%"></div>
-            <div class="seg-reclaim-mid" id="seg-reclaim-mid" style="width:22%"></div>
+            <div class="seg-reclaim-item" id="seg-reclaim-item" style="width:7%"></div>
+            <div class="seg-reclaim-mid" id="seg-reclaim-mid" style="width:15%"></div>
             <div class="seg-free" id="seg-free"></div>
           </div>
           <span class="main-storage-used" id="anatomy-pool-readout">已用 0 GiB</span>
@@ -1135,7 +1160,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="storage-legend">
           <div class="legend-items">
             <span><i class="legend-dot" style="background:var(--bar-retained)"></i>清理后已用 <strong class="mono" id="leg-retained">0 GiB</strong></span>
-            <span><i class="legend-dot" style="background:var(--tone-sage)"></i>进度条中间：这次清理 <strong class="mono" style="color:var(--tone-sage)" id="leg-reclaim">0 GiB</strong></span>
+            <span><i class="legend-dot" style="background:var(--accent-clay)"></i>当前项目清理 <strong class="mono" style="color:var(--accent-clay)" id="leg-focus-item">0 GiB</strong></span>
+            <span><i class="legend-dot" style="background:var(--tone-sage)"></i>本池总清理 <strong class="mono" style="color:var(--tone-sage)" id="leg-reclaim">0 GiB</strong></span>
             <span><i class="legend-dot" style="background:var(--bar-free);border:1px solid var(--border-strong)"></i>原本空闲 <strong class="mono" id="leg-free">0 GiB</strong></span>
           </div>
           <span class="mono" style="color:var(--ink-secondary)" id="leg-total-free-after"></span>
@@ -1515,26 +1541,21 @@ function updateAllCardBars(savingsByGauge) {
 
     if (retEl) {
       retEl.style.width = retainedPct.toFixed(2) + "%";
-      retEl.textContent = retainedPct > 26 ? `清理后已用 ${formatBytes(usedAfterPool)} (${retainedPct.toFixed(1)}%)` : "";
     }
     if (othEl) othEl.style.width = otherSavedPct.toFixed(2) + "%";
     if (impEl) {
       impEl.style.width = thisItemPct.toFixed(2) + "%";
-      impEl.style.minWidth = (isChecked && thisItemSaved > 0) ? "3px" : "0px";
+      impEl.style.minWidth = (isChecked && thisItemSaved > 0) ? "4px" : "0px";
     }
     if (midEl) {
-      const tagLeftPct = Math.min(62, Math.max(4, retainedPct));
-      midEl.style.left = tagLeftPct.toFixed(2) + "%";
       if (isChecked) {
-        midEl.textContent = otherPoolSaved > 0
-          ? `本项 -${formatBytes(sz)} (${rawItemPct.toFixed(1)}%) · 本池共 -${formatBytes(poolSaved)} (${poolSavedPct.toFixed(1)}%)`
-          : `这次清理 -${formatBytes(sz)} (${rawItemPct.toFixed(1)}%)`;
-        midEl.style.color = "#FAF9F5";
+        midEl.innerHTML = otherPoolSaved > 0
+          ? `<i class="dot-item"></i><span style="color:var(--accent-clay)">当前项目 -${formatBytes(sz)} (${rawItemPct.toFixed(1)}%)</span><span style="color:var(--ink-muted);margin:0 3px">｜</span><i class="dot-pool"></i><span style="color:var(--tone-sage)">总清理 -${formatBytes(poolSaved)} (${poolSavedPct.toFixed(1)}%)</span>`
+          : `<i class="dot-item"></i><span style="color:var(--accent-clay)">当前项目清理 -${formatBytes(sz)} (${rawItemPct.toFixed(1)}%)</span>`;
       } else {
-        midEl.textContent = poolSaved > 0
-          ? `未选 (${formatBytes(sz)} / ${rawItemPct.toFixed(1)}%) · 本池清理 -${formatBytes(poolSaved)}`
-          : `未选（可清理 ${formatBytes(sz)} / ${rawItemPct.toFixed(1)}%）`;
-        midEl.style.color = "var(--ink-muted)";
+        midEl.innerHTML = poolSaved > 0
+          ? `<span style="color:var(--ink-muted)">当前未选 (${formatBytes(sz)} / ${rawItemPct.toFixed(1)}%)</span><span style="color:var(--ink-muted);margin:0 3px">｜</span><i class="dot-pool"></i><span style="color:var(--tone-sage)">总清理 -${formatBytes(poolSaved)} (${poolSavedPct.toFixed(1)}%)</span>`
+          : `<span style="color:var(--ink-muted)">当前未选（可清理 ${formatBytes(sz)} / ${rawItemPct.toFixed(1)}%）</span>`;
       }
     }
     if (lblEl) {
@@ -1597,19 +1618,42 @@ function updateVisualCharts(lastToggledItem = null) {
     const freePct = (free / total) * 100;
     const freeAfterPct = ((free + saved) / total) * 100;
 
+    // Determine focused item in active pool (hovered/toggled item, or largest checked item in active pool)
+    const poolCheckedItems = (REPORT_DATA.candidates || []).filter(
+      c => c.gauge_id === activePool.id && state.checked[c.id] && !state.whitelisted[c.id] && c.status !== "done" && Number(c.size_bytes) > 0
+    );
+    let focusItem = null;
+    if (window._focusedItemId) {
+      focusItem = poolCheckedItems.find(c => c.id === window._focusedItemId) || null;
+    }
+    if (!focusItem && lastToggledItem && lastToggledItem.gauge_id === activePool.id && state.checked[lastToggledItem.id]) {
+      focusItem = lastToggledItem;
+    }
+    if (!focusItem && poolCheckedItems.length > 0) {
+      focusItem = poolCheckedItems.slice().sort((a, b) => (Number(b.size_bytes) || 0) - (Number(a.size_bytes) || 0))[0];
+    }
+    const focusBytes = focusItem ? Math.min(saved, Number(focusItem.size_bytes) || 0) : 0;
+    const focusPct = (focusBytes / total) * 100;
+    const restReclaimPct = Math.max(0, reclaimPct - focusPct);
+
     if (anatomyRetainedSpring) anatomyRetainedSpring.set(retainedPct);
-    if (anatomyReclaimSpring) anatomyReclaimSpring.set(reclaimPct);
+    const itemSegEl = document.getElementById("seg-reclaim-item");
+    if (itemSegEl) {
+      itemSegEl.style.width = focusPct.toFixed(2) + "%";
+      itemSegEl.style.minWidth = focusBytes > 0 ? "3px" : "0px";
+    }
+    if (anatomyReclaimSpring) anatomyReclaimSpring.set(restReclaimPct);
 
     const cleanPoolName = stripLeadingEmoji(activePool.label || activePool.id);
     document.getElementById("anatomy-pool-title").textContent = cleanPoolName;
     const mainTotalEl = document.getElementById("main-storage-total");
     if (mainTotalEl) mainTotalEl.textContent = `总容量 ${formatBytes(total)}`;
     document.getElementById("anatomy-mid-badge").textContent =
-      `这次清理 -${formatBytes(saved)} (${reclaimPct.toFixed(1)}%)`;
+      `总清理 -${formatBytes(saved)} (${reclaimPct.toFixed(1)}%)`;
     const subEl = document.getElementById("anatomy-pool-sub");
     if (subEl) {
       subEl.textContent =
-        `清理前已用 ${formatBytes(used)} (${usedBeforePct.toFixed(1)}%) － 这次清理 ${formatBytes(saved)} (${reclaimPct.toFixed(1)}%) ＝ 清理后已用 ${formatBytes(retained)} (${retainedPct.toFixed(1)}%)`;
+        `清理前已用 ${formatBytes(used)} (${usedBeforePct.toFixed(1)}%) － 总清理 ${formatBytes(saved)} (${reclaimPct.toFixed(1)}%) ＝ 清理后已用 ${formatBytes(retained)} (${retainedPct.toFixed(1)}%)`;
     }
     document.getElementById("anatomy-pool-readout").innerHTML =
       `已用 <strong style="color:var(--ink-primary);font-size:13px">${formatBytes(retained)}</strong> (${retainedPct.toFixed(1)}%)`;
@@ -1617,15 +1661,24 @@ function updateVisualCharts(lastToggledItem = null) {
     const isWideBar = window.innerWidth >= 760;
     const retEl = document.getElementById("seg-retained");
     if (retEl) retEl.textContent = (isWideBar && retainedPct > 22) ? `清理后已用 ${formatBytes(retained)} (${retainedPct.toFixed(1)}%)` : "";
+    if (itemSegEl) {
+      itemSegEl.textContent = (isWideBar && focusPct > 11) ? `${focusItem ? focusItem.id : ""} -${formatCompactBytes(focusBytes)}` : "";
+    }
     const recEl = document.getElementById("seg-reclaim-mid");
     if (recEl) {
-      recEl.style.minWidth = saved > 0 ? "2px" : "0px";
-      recEl.textContent = (isWideBar && reclaimPct > 18) ? `-${formatBytes(saved)} (${reclaimPct.toFixed(1)}%)` : ((isWideBar && reclaimPct > 10) ? `-${formatCompactBytes(saved)}` : "");
+      recEl.style.minWidth = (saved - focusBytes) > 0 ? "2px" : "0px";
+      recEl.textContent = (isWideBar && restReclaimPct > 22) ? `总清理 -${formatBytes(saved)} (${reclaimPct.toFixed(1)}%)` : ((isWideBar && restReclaimPct > 9) ? `-${formatBytes(saved)}` : "");
     }
     const freeEl = document.getElementById("seg-free");
-    if (freeEl) freeEl.textContent = (isWideBar && freePct > 18) ? `原本空闲 ${formatBytes(free)} (${freePct.toFixed(1)}%)` : "";
+    if (freeEl) freeEl.textContent = (isWideBar && freePct > 20) ? `原本空闲 ${formatBytes(free)} (${freePct.toFixed(1)}%)` : "";
 
     document.getElementById("leg-retained").textContent = `${formatBytes(retained)} (${retainedPct.toFixed(1)}%)`;
+    const focusLegEl = document.getElementById("leg-focus-item");
+    if (focusLegEl) {
+      focusLegEl.textContent = focusItem
+        ? `${focusItem.id} -${formatBytes(focusBytes)} (${focusPct.toFixed(1)}%)`
+        : "0 GiB (0%)";
+    }
     document.getElementById("leg-reclaim").textContent = `-${formatBytes(saved)} (${reclaimPct.toFixed(1)}%)`;
     document.getElementById("leg-free").textContent = `${formatBytes(free)} (${freePct.toFixed(1)}%)`;
     document.getElementById("leg-total-free-after").textContent =
@@ -1720,6 +1773,10 @@ function highlightItem(itemId, active) {
   });
   const card = document.getElementById("card-" + itemId);
   if (card) card.classList.toggle("highlighted", active);
+  if (active) {
+    window._focusedItemId = itemId;
+    updateVisualCharts();
+  }
 }
 
 function scrollToCard(itemId) {
@@ -1836,16 +1893,18 @@ function renderCandidates() {
 
     const impactBarHtml = sz > 0 ? `
       <div class="card-impact-meter tabular">
-        <span class="card-impact-total">总容量 ${formatBytes(totalBytes)}</span>
+        <div class="card-impact-head">
+          <span class="card-impact-total">总容量 ${formatBytes(totalBytes)}</span>
+          <span class="card-impact-mid-tag" id="cmid-${escapeHtml(c.id)}">${isChecked ? `当前项目 -${formatBytes(sz)}` : `当前未选 (${formatBytes(sz)})`}</span>
+          <span class="card-impact-label" id="clbl-${escapeHtml(c.id)}">
+            已用 <strong style="color:var(--ink-primary)">${formatBytes(origUsedBytes)}</strong>
+          </span>
+        </div>
         <div class="card-impact-track">
           <div class="card-impact-retained" id="cret-${escapeHtml(c.id)}" style="width:${curRetainedPct.toFixed(2)}%"></div>
           <div class="card-impact-reclaim" id="cimp-${escapeHtml(c.id)}" style="width:${curReclaimPct.toFixed(2)}%"></div>
           <div class="card-impact-other" id="coth-${escapeHtml(c.id)}" style="width:0%"></div>
-          <span class="card-impact-mid-tag" id="cmid-${escapeHtml(c.id)}">${isChecked ? `本项清理 -${formatBytes(sz)}` : `本项未选 (${formatBytes(sz)})`}</span>
         </div>
-        <span class="card-impact-label" id="clbl-${escapeHtml(c.id)}">
-          已用 <strong style="color:var(--ink-primary)">${formatBytes(origUsedBytes)}</strong>
-        </span>
       </div>
     ` : "";
 
