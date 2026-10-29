@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Generate a single-file interactive HTML dashboard for full-stack maintenance.
 
-Visual & Motion Architecture (inspired by Linear, Raycast, Sonner, and Apple Fluid Interfaces):
-- Translucent glassmorphic surfaces with top-edge specular highlights and ambient radial glow
-- Real JS under-damped spring physics solver (velocity-preserving, interruptible) for storage gauges,
-  rolling tabular numbers, and the sliding segmented-control tab pill
-- Non-linear light-rebound CSS spring curves (--spring-rebound / --spring-soft) for custom SVG
-  checkboxes, staggered card entrances, and the floating Dynamic-Island-style bottom dock
-- Full localStorage persistence for checkboxes, per-item adjustment notes, and whitelist toggles
+Design System & Motion Architecture:
+- Inspired by Anthropic's editorial design language: warm ivory paper (#FAF9F5), deep charcoal ink
+  (#141413), muted stone secondary surfaces (#F2F0E8), hairline borders (#E6E4DC), and restrained
+  terracotta (#C96442) & forest sage (#2E6B4E) accents. Zero neon gradients or emoji clutter.
+- Typography pairs editorial serif headings with humanist sans-serif body copy and strict
+  tabular-nums monospace metrics (non-wrapping single-line figures).
+- Motion uses an exact closed-form analytical underdamped harmonic oscillator (damping ratio
+  zeta = 0.72, ~3.8% peak overshoot) that is 100% frame-rate independent and immune to Euler
+  integration blowups, driving storage waterline bars, rolling figures, and the sliding tab pill.
+- Full localStorage persistence for checkboxes, per-item adjustment notes, and whitelist toggles.
 """
 
 from __future__ import annotations
@@ -29,414 +32,588 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <title>__TITLE__</title>
 <style>
   :root {
-    --bg: #090d16;
-    --bg-ambient: radial-gradient(ellipse 85% 42% at 50% -8%, rgba(56, 189, 248, 0.16), rgba(99, 102, 241, 0.08) 52%, transparent 80%);
-    --surface: rgba(19, 27, 44, 0.72);
-    --surface-elev: rgba(30, 41, 66, 0.68);
-    --surface-hover: rgba(38, 52, 82, 0.78);
-    --surface-checked: rgba(16, 48, 42, 0.68);
-    --dock-bg: rgba(15, 23, 38, 0.82);
-    --text: #f8fafc;
-    --text-secondary: #cbd5e1;
-    --text-muted: #8b9bb4;
-    --border: rgba(148, 163, 184, 0.14);
-    --border-highlight: rgba(255, 255, 255, 0.09);
-    --accent: #38bdf8;
-    --accent-glow: rgba(56, 189, 248, 0.28);
-    --green: #10b981;
-    --green-bright: #34d399;
-    --green-glow: rgba(16, 185, 129, 0.28);
-    --amber: #f59e0b;
-    --red: #f43f5e;
-    --purple: #a855f7;
-    --shadow-card: 0 10px 30px -10px rgba(2, 6, 23, 0.55), inset 0 1px 0 var(--border-highlight);
-    --shadow-dock: 0 20px 50px -12px rgba(2, 6, 23, 0.82), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.16);
-    /* Non-linear light rebound & fluid spring curves */
-    --spring-rebound: cubic-bezier(0.34, 1.56, 0.64, 1);
-    --spring-soft: cubic-bezier(0.22, 1.28, 0.36, 1);
-    --ease-out-snappy: cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #f4f7fb;
-      --bg-ambient: radial-gradient(ellipse 85% 40% at 50% -10%, rgba(14, 165, 233, 0.12), rgba(99, 102, 241, 0.05) 55%, transparent 80%);
-      --surface: rgba(255, 255, 255, 0.84);
-      --surface-elev: rgba(241, 245, 249, 0.88);
-      --surface-hover: rgba(255, 255, 255, 0.96);
-      --surface-checked: rgba(236, 253, 245, 0.9);
-      --dock-bg: rgba(255, 255, 255, 0.86);
-      --text: #0f172a;
-      --text-secondary: #334155;
-      --text-muted: #64748b;
-      --border: rgba(15, 23, 42, 0.09);
-      --border-highlight: rgba(255, 255, 255, 0.8);
-      --accent: #0284c7;
-      --accent-glow: rgba(2, 132, 199, 0.18);
-      --green: #059669;
-      --green-bright: #10b981;
-      --green-glow: rgba(16, 185, 129, 0.2);
-      --amber: #d97706;
-      --red: #e11d48;
-      --purple: #9333ea;
-      --shadow-card: 0 8px 24px -8px rgba(15, 23, 42, 0.07), inset 0 1px 0 var(--border-highlight);
-      --shadow-dock: 0 18px 42px -10px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(15, 23, 42, 0.08), inset 0 1px 0 #ffffff;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    padding: 32px 18px 140px;
-    background-color: var(--bg);
-    background-image: var(--bg-ambient);
-    background-attachment: fixed;
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Hiragino Sans GB", sans-serif;
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-  }
-  .tabular { font-variant-numeric: tabular-nums; }
-  .container { max-width: 1140px; margin: 0 auto; }
+    /* Anthropic Editorial Warm Paper Palette (Light Default) */
+    --bg-page: #FAF9F5;
+    --bg-recessed: #F1EFE7;
+    --bg-card: #FFFFFF;
+    --bg-card-hover: #FCFBF8;
+    --bg-card-selected: #FBF6F3;
+    --bg-sticky: rgba(250, 249, 245, 0.92);
+    --ink-primary: #141413;
+    --ink-secondary: #52514C;
+    --ink-muted: #87857E;
+    --border-hairline: #E6E4DC;
+    --border-strong: #CFCBC0;
+    --accent-clay: #C96442;
+    --accent-clay-soft: rgba(201, 100, 66, 0.12);
+    --tone-sage: #2E6B4E;
+    --tone-sage-bg: #EBF3EE;
+    --tone-ochre: #B56A1E;
+    --tone-ochre-bg: #F8EFE4;
+    --tone-rust: #B83B2A;
+    --tone-rust-bg: #FBECE9;
+    --shadow-subtle: 0 1px 2px rgba(20, 20, 19, 0.04);
+    --shadow-modal: 0 24px 48px -12px rgba(20, 20, 19, 0.16);
 
-  /* Header */
-  header {
+    /* Typography */
+    --font-serif: "Newsreader", "Instrument Serif", "Iowan Old Style", "Charter", "Songti SC", "STSong", Georgia, serif;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    /* Non-linear light rebound curves (restrained ~3.5% overshoot, no cartoon bounce) */
+    --spring-rebound: cubic-bezier(0.28, 1.28, 0.56, 1);
+    --spring-soft: cubic-bezier(0.22, 1.18, 0.38, 1);
+    --ease-out-clean: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  [data-theme="dark"] {
+    --bg-page: #141413;
+    --bg-recessed: #1C1B19;
+    --bg-card: #201F1D;
+    --bg-card-hover: #252421;
+    --bg-card-selected: #26201D;
+    --bg-sticky: rgba(20, 20, 19, 0.92);
+    --ink-primary: #FAF9F5;
+    --ink-secondary: #B5B2A8;
+    --ink-muted: #7D7A72;
+    --border-hairline: #2E2D29;
+    --border-strong: #42403A;
+    --accent-clay: #D97757;
+    --accent-clay-soft: rgba(217, 119, 87, 0.16);
+    --tone-sage: #52A37A;
+    --tone-sage-bg: rgba(82, 163, 122, 0.14);
+    --tone-ochre: #D99242;
+    --tone-ochre-bg: rgba(217, 146, 66, 0.14);
+    --tone-rust: #E06352;
+    --tone-rust-bg: rgba(224, 99, 82, 0.15);
+    --shadow-subtle: 0 1px 3px rgba(0, 0, 0, 0.25);
+    --shadow-modal: 0 24px 48px -12px rgba(0, 0, 0, 0.65);
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-page);
+    color: var(--ink-primary);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    transition: background-color 220ms ease, color 220ms ease;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+  .mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .nowrap {
+    white-space: nowrap;
+  }
+
+  /* Top Sticky Editorial Command Bar (Never overlaps content) */
+  .top-bar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background: var(--bg-sticky);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-hairline);
+  }
+  .top-bar-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 12px 24px;
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     justify-content: space-between;
-    align-items: flex-end;
     gap: 16px;
-    margin-bottom: 24px;
-    padding-bottom: 18px;
-    border-bottom: 1px solid var(--border);
   }
-  .eyebrow {
+  .brand-cluster {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .brand-mark {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent-clay);
+    flex-shrink: 0;
+  }
+  .brand-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  .action-cluster {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .summary-stat {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    font-size: 0.75rem;
+    gap: 10px;
+    padding: 5px 12px;
+    background: var(--bg-recessed);
+    border: 1px solid var(--border-hairline);
+    border-radius: 6px;
+    font-size: 12.5px;
+    color: var(--ink-secondary);
+    transition: transform 280ms var(--spring-rebound);
+  }
+  .summary-stat.rebound {
+    transform: scale(1.035);
+  }
+  .summary-stat strong {
+    color: var(--ink-primary);
     font-weight: 600;
-    color: var(--accent);
-    background: var(--surface-elev);
-    border: 1px solid var(--border);
-    padding: 3px 10px;
-    border-radius: 999px;
-    margin-bottom: 8px;
-    box-shadow: inset 0 1px 0 var(--border-highlight);
-  }
-  .eyebrow-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--green-bright);
-    box-shadow: 0 0 8px var(--green-bright);
-  }
-  h1 {
-    margin: 0;
-    font-size: clamp(1.45rem, 2.4vw, 1.82rem);
-    font-weight: 760;
-    letter-spacing: -0.024em;
-    line-height: 1.15;
-  }
-  .subtitle {
-    margin: 6px 0 0;
-    font-size: 0.87rem;
-    color: var(--text-muted);
   }
 
-  /* Buttons with immediate pointer-down response & spring release */
+  /* Buttons: Crisp, Editorial, Tactile */
   button {
+    appearance: none;
     cursor: pointer;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    color: var(--text);
-    padding: 7px 13px;
-    border-radius: 10px;
-    font-size: 0.82rem;
-    font-weight: 560;
-    box-shadow: inset 0 1px 0 var(--border-highlight);
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--ink-primary);
+    background: var(--bg-card);
+    border: 1px solid var(--border-hairline);
+    border-radius: 6px;
+    padding: 6px 12px;
+    line-height: 1.35;
+    box-shadow: var(--shadow-subtle);
     transition:
-      transform 240ms var(--spring-rebound),
-      border-color 180ms var(--ease-out-snappy),
-      background-color 180ms var(--ease-out-snappy),
-      box-shadow 180ms var(--ease-out-snappy);
+      transform 220ms var(--spring-rebound),
+      border-color 160ms ease,
+      background-color 160ms ease,
+      color 160ms ease;
     user-select: none;
   }
   @media (hover: hover) and (pointer: fine) {
     button:hover {
-      border-color: var(--accent);
-      transform: translateY(-1px);
+      border-color: var(--border-strong);
+      background: var(--bg-card-hover);
     }
   }
   button:active {
-    transform: scale(0.95);
-    transition-duration: 75ms;
+    transform: scale(0.96);
+    transition-duration: 60ms;
   }
-  .quick-btns {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+  .btn-primary {
+    background: var(--ink-primary);
+    color: var(--bg-page);
+    border-color: var(--ink-primary);
+    font-weight: 550;
+    padding: 6px 14px;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .btn-primary:hover {
+      background: var(--accent-clay);
+      border-color: var(--accent-clay);
+      color: #FAF9F5;
+    }
+  }
+  .btn-ghost {
+    background: transparent;
+    box-shadow: none;
+    color: var(--ink-secondary);
   }
 
-  /* Glass Section Cards */
-  .section-card {
-    background: var(--surface);
-    backdrop-filter: blur(22px) saturate(180%);
-    -webkit-backdrop-filter: blur(22px) saturate(180%);
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    padding: 18px 20px;
-    margin-bottom: 18px;
-    box-shadow: var(--shadow-card);
+  /* Page Container & Editorial Header */
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 36px 24px 96px;
   }
-  .section-title {
-    margin: 0 0 14px;
-    font-size: 0.95rem;
-    font-weight: 650;
-    letter-spacing: -0.01em;
+  .editorial-header {
+    margin-bottom: 32px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border-hairline);
     display: flex;
     flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 20px;
+  }
+  .editorial-kicker {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-clay);
+    margin-bottom: 8px;
+  }
+  h1 {
+    font-family: var(--font-serif);
+    font-size: clamp(26px, 3vw, 34px);
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+    margin: 0 0 8px;
+    color: var(--ink-primary);
+  }
+  .editorial-subtitle {
+    margin: 0;
+    font-size: 14px;
+    color: var(--ink-secondary);
+    max-width: 680px;
+  }
+
+  /* Section Headers */
+  .section-block {
+    margin-bottom: 32px;
+  }
+  .section-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .section-title {
+    font-family: var(--font-serif);
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0;
+    color: var(--ink-primary);
+  }
+  .section-caption {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--ink-muted);
+  }
+
+  /* 5-Pool Balanced 3+2 Bento Matrix (Generous breathing room, zero cramped text or orphan gaps) */
+  .gauge-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .gauge-grid .gauge-card {
+    grid-column: span 2;
+  }
+  .gauge-grid .gauge-card:nth-child(4),
+  .gauge-grid .gauge-card:nth-child(5) {
+    grid-column: span 3;
+  }
+  @media (max-width: 680px) {
+    .gauge-grid {
+      grid-template-columns: 1fr;
+    }
+    .gauge-grid .gauge-card,
+    .gauge-grid .gauge-card:nth-child(4),
+    .gauge-grid .gauge-card:nth-child(5) {
+      grid-column: span 1;
+    }
+  }
+  .gauge-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-hairline);
+    border-radius: 10px;
+    padding: 15px 16px;
+    box-shadow: var(--shadow-subtle);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+    overflow: hidden;
+    transition: transform 260ms var(--spring-soft), border-color 180ms ease;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .gauge-card:hover {
+      transform: translateY(-1.5px);
+      border-color: var(--border-strong);
+    }
+  }
+  .gauge-top {
+    display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
   }
-  .sim-pill {
-    font-size: 0.82rem;
-    font-weight: 680;
-    color: var(--green-bright);
-    background: rgba(16, 185, 129, 0.12);
-    border: 1px solid rgba(16, 185, 129, 0.28);
-    padding: 4px 12px;
-    border-radius: 999px;
-    transition: transform 320ms var(--spring-rebound);
+  .gauge-index {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-muted);
+    letter-spacing: 0.04em;
   }
-  .sim-pill.bump {
-    transform: scale(1.08);
+  .status-pip {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    white-space: nowrap;
   }
+  .pip-crit { background: var(--tone-rust-bg); color: var(--tone-rust); }
+  .pip-warn { background: var(--tone-ochre-bg); color: var(--tone-ochre); }
+  .pip-ok { background: var(--tone-sage-bg); color: var(--tone-sage); }
 
-  /* Waterline Gauges */
-  .gauge-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(235px, 1fr));
-    gap: 12px;
+  .gauge-name {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--ink-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
   }
-  .gauge-item {
-    background: var(--surface-elev);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 14px 15px;
-    box-shadow: inset 0 1px 0 var(--border-highlight);
-    transition: transform 280ms var(--spring-soft), border-color 220ms ease;
-  }
-  @media (hover: hover) and (pointer: fine) {
-    .gauge-item:hover {
-      transform: translateY(-2px);
-      border-color: rgba(56, 189, 248, 0.35);
-    }
-  }
-  .gauge-head {
+  .gauge-Readout {
     display: flex;
-    justify-content: space-between;
     align-items: baseline;
-    gap: 8px;
-    font-size: 0.83rem;
-    font-weight: 620;
-    margin-bottom: 8px;
+    justify-content: space-between;
+    gap: 6px;
+    white-space: nowrap;
   }
-  .gauge-pct {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.8rem;
+  .gauge-pct-Transition {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--ink-primary);
+  }
+  .gauge-pct-before {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--ink-muted);
+    text-decoration: line-through;
+    margin-right: 4px;
   }
   .gauge-track {
     position: relative;
-    height: 11px;
-    background: rgba(148, 163, 184, 0.18);
+    height: 6px;
+    background: var(--bg-recessed);
     border-radius: 999px;
     overflow: hidden;
-    margin-bottom: 8px;
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+  }
+  .gauge-fill-ghost {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    background: var(--border-strong);
+    opacity: 0.45;
+    border-radius: 999px;
   }
   .gauge-fill {
+    position: relative;
     height: 100%;
     border-radius: 999px;
     will-change: width;
-    transition: background-color 280ms ease;
-    position: relative;
+    transition: background-color 240ms ease;
   }
-  .gauge-fill::after {
-    content: "";
+  .gauge-warn-tick {
     position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22));
-    border-radius: 999px;
-  }
-  .gauge-warn-line {
-    position: absolute;
-    top: -2px;
-    bottom: -2px;
-    width: 2px;
-    background: var(--red);
-    box-shadow: 0 0 6px var(--red);
+    top: 0;
+    bottom: 0;
+    width: 1.5px;
+    background: var(--ink-primary);
+    opacity: 0.35;
     z-index: 2;
   }
-  .gauge-meta {
-    font-size: 0.76rem;
-    color: var(--text-muted);
+  .gauge-foot {
     display: flex;
-    justify-content: space-between;
-  }
-
-  /* Diff Banner */
-  .diff-banner {
-    border-left: 4px solid var(--accent);
-  }
-  .diff-list {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 8px;
-    margin-top: 8px;
-  }
-  .diff-pill {
-    background: var(--surface-elev);
-    border: 1px solid var(--border);
-    padding: 8px 12px;
-    border-radius: 10px;
-    font-size: 0.8rem;
-    display: flex;
-    justify-content: space-between;
     align-items: center;
-    gap: 8px;
+    justify-content: space-between;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-secondary);
+    white-space: nowrap;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-hairline);
+  }
+  .gauge-saved-tag {
+    color: var(--tone-sage);
+    font-weight: 600;
   }
 
-  /* Segmented Control Domain Tabs with Spring Sliding Pill */
-  .toolbar {
+  /* Baseline Diff Ledger */
+  .diff-card {
+    background: var(--bg-recessed);
+    border: 1px solid var(--border-hairline);
+    border-radius: 10px;
+    padding: 16px 20px;
+  }
+  .diff-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+  }
+  #diff-growth.diff-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  @media (max-width: 920px) {
+    .diff-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 600px) {
+    .diff-grid,
+    #diff-growth.diff-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .diff-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border-hairline);
+    border-radius: 7px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12.5px;
+  }
+  .diff-item-label {
+    color: var(--ink-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .diff-item-val {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Segmented Filter Bar with Spring Pill Glider */
+  .filter-bar {
     display: flex;
     flex-wrap: wrap;
-    justify-content: space-between;
     align-items: center;
+    justify-content: space-between;
     gap: 12px;
     margin-bottom: 16px;
   }
-  .segmented-tabs {
+  .segmented-control {
     position: relative;
     display: inline-flex;
     flex-wrap: wrap;
-    gap: 4px;
-    padding: 5px;
-    background: var(--surface);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    box-shadow: var(--shadow-card);
+    gap: 2px;
+    padding: 4px;
+    background: var(--bg-recessed);
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
   }
   .tab-glider {
     position: absolute;
-    top: 5px;
+    top: 4px;
     left: 0;
-    height: calc(100% - 10px);
-    background: var(--accent);
-    border-radius: 10px;
-    box-shadow: 0 4px 14px var(--accent-glow);
+    height: calc(100% - 8px);
+    background: var(--bg-card);
+    border: 1px solid var(--border-hairline);
+    border-radius: 6px;
+    box-shadow: var(--shadow-subtle);
     z-index: 0;
     pointer-events: none;
     will-change: transform, width;
   }
-  .segmented-tabs button {
+  .segmented-control button {
     position: relative;
     z-index: 1;
     border: none;
     background: transparent;
     box-shadow: none;
-    padding: 7px 14px;
-    border-radius: 10px;
-    font-size: 0.82rem;
+    padding: 6px 13px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--ink-secondary);
+    transition: color 160ms ease, transform 160ms var(--spring-rebound);
+  }
+  .segmented-control button:hover {
+    color: var(--ink-primary);
+    background: transparent;
+  }
+  .segmented-control button.active {
+    color: var(--ink-primary);
     font-weight: 600;
-    color: var(--text-secondary);
-    transition: color 180ms ease, transform 160ms var(--spring-rebound);
   }
-  .segmented-tabs button:hover {
-    transform: none;
-    color: var(--text);
-  }
-  .segmented-tabs button:active {
-    transform: scale(0.95);
-  }
-  .segmented-tabs button.active {
-    color: #ffffff;
+  .tab-count {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-muted);
+    margin-left: 4px;
   }
 
-  /* Candidate Cards with Non-Linear Spring Entrance & Tactile Checkboxes */
+  /* Candidate List & Editorial Cards */
   .candidate-list {
     display: flex;
     flex-direction: column;
-    gap: 11px;
+    gap: 8px;
   }
-  @keyframes cardSpringIn {
+  @keyframes editorialSlideIn {
     0% {
       opacity: 0;
-      transform: translateY(12px) scale(0.982);
-      filter: blur(2px);
+      transform: translateY(8px);
     }
     70% {
       opacity: 1;
-      transform: translateY(-1.5px) scale(1.003);
-      filter: blur(0);
+      transform: translateY(-1px);
     }
     100% {
       opacity: 1;
-      transform: translateY(0) scale(1);
-      filter: blur(0);
+      transform: translateY(0);
     }
   }
   .candidate-card {
-    background: var(--surface);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    border: 1px solid var(--border);
-    border-radius: 15px;
-    padding: 15px 18px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-hairline);
+    border-radius: 9px;
+    padding: 14px 18px;
     display: flex;
     align-items: flex-start;
     gap: 14px;
-    box-shadow: var(--shadow-card);
-    animation: cardSpringIn 360ms var(--spring-soft) both;
+    box-shadow: var(--shadow-subtle);
+    animation: editorialSlideIn 280ms var(--spring-soft) both;
     transition:
-      transform 280ms var(--spring-soft),
-      border-color 200ms var(--ease-out-snappy),
-      background-color 220ms var(--ease-out-snappy),
-      box-shadow 220ms var(--ease-out-snappy);
+      transform 240ms var(--spring-soft),
+      border-color 160ms ease,
+      background-color 180ms ease;
   }
   @media (hover: hover) and (pointer: fine) {
     .candidate-card:hover {
-      transform: translateY(-2px);
-      border-color: rgba(148, 163, 184, 0.32);
+      border-color: var(--border-strong);
     }
   }
   .candidate-card.checked {
-    border-color: rgba(16, 185, 129, 0.55);
-    background: var(--surface-checked);
-    box-shadow: 0 12px 32px -12px var(--green-glow), inset 0 1px 0 var(--border-highlight);
+    background: var(--bg-card-selected);
+    border-color: rgba(201, 100, 66, 0.42);
   }
   .candidate-card.pulse {
-    transform: scale(1.012);
+    transform: scale(1.006);
   }
   .candidate-card.done {
-    opacity: 0.72;
-    border-color: var(--green);
+    opacity: 0.65;
   }
   .candidate-card.whitelisted {
-    opacity: 0.82;
+    opacity: 0.75;
     border-style: dashed;
-    border-color: rgba(168, 85, 247, 0.45);
   }
 
-  /* Custom Spring SVG Checkbox */
+  /* Tactile Checkbox with Non-Linear Spring Checkmark */
   .check-wrap {
     position: relative;
-    width: 22px;
-    height: 22px;
-    margin-top: 2px;
+    width: 18px;
+    height: 18px;
+    margin-top: 3px;
     flex-shrink: 0;
     cursor: pointer;
   }
@@ -450,89 +627,94 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     z-index: 2;
   }
   .check-box {
-    width: 22px;
-    height: 22px;
-    border-radius: 7px;
-    border: 1.8px solid var(--text-muted);
-    background: var(--surface-elev);
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1.5px solid var(--border-strong);
+    background: var(--bg-card);
     display: flex;
     align-items: center;
     justify-content: center;
     transition:
-      transform 320ms var(--spring-rebound),
-      background-color 180ms ease,
-      border-color 180ms ease,
-      box-shadow 220ms ease;
+      transform 260ms var(--spring-rebound),
+      background-color 150ms ease,
+      border-color 150ms ease;
   }
   .check-wrap:active .check-box {
     transform: scale(0.86);
-    transition-duration: 70ms;
+    transition-duration: 55ms;
   }
   .check-wrap input:checked + .check-box {
-    background: var(--green);
-    border-color: var(--green-bright);
-    transform: scale(1.06);
-    box-shadow: 0 0 12px var(--green-glow);
+    background: var(--accent-clay);
+    border-color: var(--accent-clay);
+    transform: scale(1.05);
   }
   .check-svg {
-    width: 13px;
-    height: 13px;
+    width: 11px;
+    height: 11px;
     fill: none;
-    stroke: #ffffff;
-    stroke-width: 2.5;
+    stroke: #FAF9F5;
+    stroke-width: 2.2;
     stroke-linecap: round;
     stroke-linejoin: round;
-    stroke-dasharray: 20;
-    stroke-dashoffset: 20;
-    transition: stroke-dashoffset 280ms var(--spring-rebound);
+    stroke-dasharray: 18;
+    stroke-dashoffset: 18;
+    transition: stroke-dashoffset 240ms var(--spring-rebound);
   }
   .check-wrap input:checked + .check-box .check-svg {
     stroke-dashoffset: 0;
   }
 
-  .candidate-body { flex: 1; min-width: 0; }
-  .candidate-top {
+  .candidate-body {
+    flex: 1;
+    min-width: 0;
+  }
+  .candidate-head {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
+    align-items: baseline;
     gap: 8px;
-    margin-bottom: 5px;
+    margin-bottom: 4px;
   }
-  .badge {
-    font-size: 0.72rem;
-    font-weight: 660;
-    padding: 2px 9px;
-    border-radius: 999px;
-    transition: transform 240ms var(--spring-rebound);
+  .item-id {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-muted);
   }
-  .tier-A { background: rgba(16, 185, 129, 0.16); color: var(--green-bright); border: 1px solid rgba(16, 185, 129, 0.28); }
-  .tier-B { background: rgba(56, 189, 248, 0.16); color: var(--accent); border: 1px solid rgba(56, 189, 248, 0.28); }
-  .tier-C { background: rgba(245, 158, 11, 0.16); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.28); }
-  .badge-wl { background: rgba(168, 85, 247, 0.16); color: var(--purple); border: 1px solid rgba(168, 85, 247, 0.3); }
-  .badge-done { background: rgba(16, 185, 129, 0.22); color: var(--green-bright); }
+  .tier-tag {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 1px 7px;
+    border-radius: 4px;
+  }
+  .tier-A { background: var(--tone-sage-bg); color: var(--tone-sage); }
+  .tier-B { background: var(--accent-clay-soft); color: var(--accent-clay); }
+  .tier-C { background: var(--tone-ochre-bg); color: var(--tone-ochre); }
   .candidate-title {
-    font-weight: 650;
-    font-size: 0.95rem;
-    letter-spacing: -0.01em;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--ink-primary);
     cursor: pointer;
   }
   .candidate-size {
     margin-left: auto;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-weight: 720;
-    font-size: 0.88rem;
-    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-primary);
+    white-space: nowrap;
   }
   .candidate-path {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.76rem;
-    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--ink-muted);
     word-break: break-all;
-    margin-bottom: 5px;
+    margin-bottom: 4px;
   }
   .candidate-evidence {
-    font-size: 0.83rem;
-    color: var(--text-secondary);
+    font-size: 13px;
+    color: var(--ink-secondary);
     margin-bottom: 10px;
   }
   .candidate-controls {
@@ -544,119 +726,54 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .note-input {
     flex: 1;
     min-width: 220px;
-    background: var(--surface-elev);
-    border: 1px solid var(--border);
-    color: var(--text);
-    padding: 6px 11px;
-    border-radius: 9px;
-    font-size: 0.8rem;
-    transition: border-color 180ms ease, box-shadow 220ms var(--spring-soft), transform 200ms var(--spring-soft);
+    background: var(--bg-recessed);
+    border: 1px solid var(--border-hairline);
+    color: var(--ink-primary);
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    transition: border-color 150ms ease, background-color 150ms ease;
+  }
+  .note-input::placeholder {
+    color: var(--ink-muted);
   }
   .note-input:focus {
     outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-glow);
-    transform: translateY(-1px);
+    background: var(--bg-card);
+    border-color: var(--accent-clay);
   }
 
-  /* Floating Dynamic-Island Glass Dock */
-  .floating-dock-wrap {
-    position: fixed;
-    bottom: 20px;
-    left: 0;
-    right: 0;
-    display: flex;
-    justify-content: center;
-    padding: 0 16px;
-    z-index: 50;
-    pointer-events: none;
-  }
-  .floating-dock {
-    pointer-events: auto;
-    max-width: 880px;
-    width: 100%;
-    background: var(--dock-bg);
-    backdrop-filter: blur(26px) saturate(190%);
-    -webkit-backdrop-filter: blur(26px) saturate(190%);
-    border-radius: 20px;
-    padding: 12px 18px;
-    box-shadow: var(--shadow-dock);
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    align-items: center;
-    gap: 14px;
-    transition: transform 340ms var(--spring-rebound);
-  }
-  .floating-dock.dock-bump {
-    transform: translateY(-3px) scale(1.012);
-  }
-  .dock-stats {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .dock-count-badge {
-    background: var(--surface-elev);
-    border: 1px solid var(--border);
-    padding: 4px 11px;
-    border-radius: 999px;
-    font-size: 0.84rem;
-    font-weight: 700;
-    transition: transform 300ms var(--spring-rebound);
-  }
-  .primary-btn {
-    background: linear-gradient(135deg, var(--green), var(--green-bright));
-    color: #ffffff;
-    border-color: rgba(255, 255, 255, 0.22);
-    font-weight: 660;
-    padding: 9px 18px;
-    border-radius: 12px;
-    box-shadow: 0 6px 20px -4px var(--green-glow), inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  }
-  @media (hover: hover) and (pointer: fine) {
-    .primary-btn:hover {
-      border-color: #ffffff;
-      transform: translateY(-1.5px) scale(1.01);
-      box-shadow: 0 10px 26px -4px var(--green-glow), inset 0 1px 0 rgba(255, 255, 255, 0.45);
-    }
-  }
-  .primary-btn:active {
-    transform: scale(0.95);
-  }
-
-  /* Spring Modal */
+  /* Modal Dialog */
   .modal-backdrop {
     display: flex;
     position: fixed;
     inset: 0;
-    background: rgba(2, 6, 23, 0.62);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    background: rgba(20, 20, 19, 0.45);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     z-index: 100;
     align-items: center;
     justify-content: center;
-    padding: 16px;
+    padding: 20px;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 220ms ease;
+    transition: opacity 180ms ease;
   }
   .modal-backdrop.open {
     opacity: 1;
     pointer-events: auto;
   }
   .modal {
-    background: var(--surface);
-    backdrop-filter: blur(28px) saturate(190%);
-    -webkit-backdrop-filter: blur(28px) saturate(190%);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    max-width: 720px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    max-width: 680px;
     width: 100%;
-    padding: 20px;
-    box-shadow: var(--shadow-dock);
-    transform: scale(0.92) translateY(16px);
-    transition: transform 360ms var(--spring-rebound);
+    padding: 24px;
+    box-shadow: var(--shadow-modal);
+    transform: scale(0.95) translateY(10px);
+    transition: transform 280ms var(--spring-rebound);
   }
   .modal-backdrop.open .modal {
     transform: scale(1) translateY(0);
@@ -664,99 +781,117 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   textarea.prompt-box {
     width: 100%;
     height: 220px;
-    background: var(--surface-elev);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 12px;
+    background: var(--bg-recessed);
+    color: var(--ink-primary);
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
     padding: 12px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.8rem;
-    margin: 10px 0 14px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    margin: 12px 0 16px;
     resize: vertical;
   }
 
-  /* Reduced Motion Accessibility */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       animation-duration: 0.01ms !important;
-      transition-duration: 120ms !important;
+      transition-duration: 80ms !important;
       transition-timing-function: ease !important;
     }
   }
 </style>
 </head>
 <body>
-<div class="container">
-  <header>
-    <div>
-      <div class="eyebrow">
-        <span class="eyebrow-dot"></span>
-        <span>FULL-STACK MAINTENANCE · WATERLINE SIMULATOR</span>
-      </div>
-      <h1>__HEADING__</h1>
-      <p class="subtitle">生成时间：__GENERATED_AT__ ｜ 勾选下方项目将实时弹性模拟顶部水位变化，刷新页面不会丢失勾选和备注</p>
-    </div>
-    <div class="quick-btns">
-      <button onclick="selectByTier(['A'])">✨ 全选 A 级（安全立省）</button>
-      <button onclick="selectByTier(['A', 'B'])">⚡ 选 A + B 级</button>
-      <button onclick="clearSelections()">清空勾选</button>
-      <button onclick="resetSavedState()">重置缓存状态</button>
-    </div>
-  </header>
 
-  <section class="section-card">
-    <div class="section-title">
-      <span>📊 核心存储池实时水位模拟器（勾选下方卡片体验非线性轻回弹水位动态预览）</span>
-      <span id="sim-summary" class="sim-pill tabular">预计释放：0.00 GiB</span>
+<header class="top-bar">
+  <div class="top-bar-inner">
+    <div class="brand-cluster">
+      <span class="brand-mark"></span>
+      <span class="brand-meta">FULL-STACK MAINTENANCE · INSPECTION LEDGER</span>
+    </div>
+    <div class="action-cluster">
+      <div class="summary-stat tabular" id="sticky-summary">
+        <span>已选 <strong id="selected-count">0</strong> 项</span>
+        <span style="color:var(--border-strong)">|</span>
+        <span>预计释放 <strong id="selected-gib" style="color:var(--tone-sage)">0.00 GiB</strong></span>
+      </div>
+      <button onclick="selectByTier(['A'])">全选 A 级（零风险）</button>
+      <button onclick="selectByTier(['A', 'B'])">选推荐方案 (A+B)</button>
+      <button onclick="clearSelections()">清空</button>
+      <button class="btn-ghost" onclick="toggleTheme()" id="theme-btn" title="切换浅色/深色外观">深色</button>
+      <button class="btn-primary" onclick="copyExecutionPrompt()">导出执行指令</button>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+  <div class="editorial-header">
+    <div>
+      <div class="editorial-kicker">SYSTEM &amp; REPOSITORY HEALTH REPORT</div>
+      <h1>__HEADING__</h1>
+      <p class="editorial-subtitle">
+        记录时间：__GENERATED_AT__。勾选下方条目可实时模拟顶部存储池水位变化；所有勾选状态、微调备注与豁免项均自动保存在本地浏览器。
+      </p>
+    </div>
+    <div>
+      <button class="btn-ghost" onclick="resetSavedState()">重置本地缓存状态</button>
+    </div>
+  </div>
+
+  <section class="section-block">
+    <div class="section-header">
+      <h2 class="section-title">核心存储池水位模拟</h2>
+      <span class="section-caption">勾选下方清理项后，水位条与剩余百分比将按欠阻尼弹簧物理实时回落</span>
     </div>
     <div class="gauge-grid" id="gauge-grid"></div>
   </section>
 
-  <section class="section-card diff-banner" id="diff-section" style="display:none">
-    <div class="section-title">
-      <span>📈 距上次巡检基线变化（自动揪出是谁偷偷占了空间）</span>
-      <span id="diff-time" style="font-size:0.78rem;color:var(--text-muted)"></span>
+  <section class="section-block" id="diff-section" style="display:none">
+    <div class="section-header">
+      <h2 class="section-title">距上次巡检基线变化</h2>
+      <span class="section-caption" id="diff-time"></span>
     </div>
-    <div id="diff-gauges" class="diff-list"></div>
-    <div id="diff-growth" class="diff-list" style="margin-top:8px"></div>
+    <div class="diff-card">
+      <div id="diff-gauges" class="diff-grid" style="margin-top:0"></div>
+      <div id="diff-growth" class="diff-grid"></div>
+    </div>
   </section>
 
-  <div class="toolbar">
-    <div class="segmented-tabs" id="domain-tabs">
-      <div class="tab-glider" id="tab-glider"></div>
-      <button class="active" data-domain="all" onclick="setDomain('all', this)">全部项目</button>
-      <button data-domain="mac" onclick="setDomain('mac', this)">💻 Mac 与备份</button>
-      <button data-domain="projects" onclick="setDomain('projects', this)">📂 本地项目群</button>
-      <button data-domain="github" onclick="setDomain('github', this)">🐙 GitHub 远端</button>
-      <button data-domain="nas" onclick="setDomain('nas', this)">🏠 NAS 与 PVE</button>
-      <button data-domain="whitelisted" onclick="setDomain('whitelisted', this)">🛡️ 已豁免白名单</button>
+  <section class="section-block">
+    <div class="section-header">
+      <h2 class="section-title">可执行优化与清理清单</h2>
+      <span class="section-caption" id="visible-count-caption"></span>
     </div>
-  </div>
 
-  <main class="candidate-list" id="candidate-list"></main>
-</div>
+    <div class="filter-bar">
+      <div class="segmented-control" id="domain-tabs" role="tablist">
+        <div class="tab-glider" id="tab-glider"></div>
+        <button class="active" data-domain="all" onclick="setDomain('all', this)">全部条目 <span class="tab-count" id="cnt-all"></span></button>
+        <button data-domain="mac" onclick="setDomain('mac', this)">Mac 与备份 <span class="tab-count" id="cnt-mac"></span></button>
+        <button data-domain="projects" onclick="setDomain('projects', this)">本地项目群 <span class="tab-count" id="cnt-projects"></span></button>
+        <button data-domain="github" onclick="setDomain('github', this)">GitHub 远端 <span class="tab-count" id="cnt-github"></span></button>
+        <button data-domain="nas" onclick="setDomain('nas', this)">NAS 与 PVE <span class="tab-count" id="cnt-nas"></span></button>
+        <button data-domain="whitelisted" onclick="setDomain('whitelisted', this)">豁免白名单 <span class="tab-count" id="cnt-whitelisted"></span></button>
+      </div>
+    </div>
 
-<div class="floating-dock-wrap">
-  <div class="floating-dock" id="floating-dock">
-    <div class="dock-stats">
-      <span class="dock-count-badge tabular" id="selected-count">已勾选 0 项</span>
-      <span class="tabular" style="font-size:0.88rem;color:var(--text-secondary)" id="selected-gib">预计释放 0.00 GiB</span>
-    </div>
-    <div class="quick-btns">
-      <button class="primary-btn" onclick="copyExecutionPrompt()">📋 一键复制执行指令（含微调备注与白名单）</button>
-    </div>
-  </div>
+    <main class="candidate-list" id="candidate-list"></main>
+  </section>
 </div>
 
 <div class="modal-backdrop" id="prompt-modal" onclick="if(event.target===this)closeModal()">
   <div class="modal">
-    <div class="section-title">
-      <span>📋 已生成执行指令（可直接粘贴回对话框交给 AI 执行）</span>
+    <div class="section-header" style="margin-bottom:4px">
+      <h2 class="section-title">已生成执行指令</h2>
       <button onclick="closeModal()">关闭</button>
     </div>
+    <p style="margin:0;font-size:12.5px;color:var(--ink-secondary)">
+      以下文本已自动复制到剪贴板，可直接粘贴回对话框交给 Agent 执行：
+    </p>
     <textarea class="prompt-box" id="prompt-textarea" readonly></textarea>
     <div style="display:flex;justify-content:flex-end;gap:8px">
-      <button class="primary-btn" id="copy-confirm-btn" onclick="copyModalText()">复制文本</button>
+      <button class="btn-primary" id="copy-confirm-btn" onclick="copyModalText()">复制指令文本</button>
     </div>
   </div>
 </div>
@@ -764,55 +899,61 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <script>
 const REPORT_DATA = __REPORT_JSON__;
 const STORAGE_KEY = "full_stack_maint_" + REPORT_DATA.report_id;
+const THEME_KEY = "full_stack_maint_theme";
 const REDUCED_MOTION = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /**
- * Interruptible Under-Damped Harmonic Spring Solver (Apple Fluid Interface style)
- * Preserves live velocity when retargeted mid-flight and settles with a subtle light rebound.
+ * Closed-form Analytical Underdamped Spring Evaluator.
+ * Unlike Euler integration (which can overshoot wildly on frame drops), this evaluates the exact
+ * analytical solution of an underdamped harmonic oscillator (zeta = 0.72, omega0 = 15, ~3.8% light
+ * rebound) so values never go out of bounds and always settle cleanly.
  */
-class SpringNumber {
+class AnalyticalSpring {
   constructor(initialValue, onUpdate, config = {}) {
     this.current = initialValue;
+    this.startVal = initialValue;
     this.target = initialValue;
-    this.velocity = 0;
-    this.stiffness = config.stiffness || 240;
-    this.damping = config.damping || 19; // damping ratio ~0.61 -> crisp non-linear light rebound
-    this.mass = config.mass || 1;
+    this.zeta = config.zeta || 0.72; // ~3.8% subtle light rebound
+    this.omega0 = config.omega0 || 15.0;
+    this.omegaD = this.omega0 * Math.sqrt(1 - this.zeta * this.zeta);
+    this.durationMs = config.durationMs || 460;
     this.onUpdate = onUpdate;
     this.rafId = null;
-    this.lastTime = 0;
+    this.startTime = 0;
   }
   set(newTarget) {
-    if (REDUCED_MOTION) {
+    if (REDUCED_MOTION || Math.abs(newTarget - this.current) < 0.001) {
       this.current = newTarget;
+      this.startVal = newTarget;
       this.target = newTarget;
-      this.velocity = 0;
+      if (this.rafId) {
+        cancelAnimationFrame(this.rafId);
+        this.rafId = null;
+      }
       this.onUpdate(this.current);
       return;
     }
+    this.startVal = this.current;
     this.target = newTarget;
+    this.startTime = performance.now();
     if (!this.rafId) {
-      this.lastTime = performance.now();
       this.rafId = requestAnimationFrame(ts => this._step(ts));
     }
   }
   _step(now) {
-    const dt = Math.min((now - this.lastTime) / 1000, 0.032);
-    this.lastTime = now;
-    const displacement = this.current - this.target;
-    const springForce = -this.stiffness * displacement;
-    const dampingForce = -this.damping * this.velocity;
-    const acceleration = (springForce + dampingForce) / this.mass;
-    this.velocity += acceleration * dt;
-    this.current += this.velocity * dt;
-
-    if (Math.abs(this.velocity) < 0.02 && Math.abs(this.target - this.current) < 0.02) {
+    const elapsedMs = Math.max(0, now - this.startTime);
+    if (elapsedMs >= this.durationMs) {
       this.current = this.target;
-      this.velocity = 0;
       this.rafId = null;
       this.onUpdate(this.current);
       return;
     }
+    const t = elapsedMs / 1000;
+    const decay = Math.exp(-this.zeta * this.omega0 * t);
+    const cosPart = Math.cos(this.omegaD * t);
+    const sinPart = (this.zeta / Math.sqrt(1 - this.zeta * this.zeta)) * Math.sin(this.omegaD * t);
+    const progress = 1 - decay * (cosPart + sinPart);
+    this.current = this.startVal + (this.target - this.startVal) * progress;
     this.onUpdate(this.current);
     this.rafId = requestAnimationFrame(ts => this._step(ts));
   }
@@ -824,6 +965,30 @@ const gaugeSprings = {};
 let totalSavingsSpring = null;
 let tabGliderSpringX = null;
 let tabGliderSpringW = null;
+
+function initTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const theme = saved || (prefersDark ? "dark" : "light");
+  applyTheme(theme);
+}
+
+function applyTheme(theme) {
+  if (theme === "dark") {
+    document.documentElement.setAttribute("data-theme", "dark");
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+  }
+  const btn = document.getElementById("theme-btn");
+  if (btn) btn.textContent = theme === "dark" ? "浅色" : "深色";
+}
+
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+  const next = isDark ? "light" : "dark";
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+}
 
 function loadState() {
   try {
@@ -852,13 +1017,28 @@ function saveState() {
   } catch (e) {}
 }
 
+function stripLeadingEmoji(str) {
+  return String(str || "").replace(/^[\\u{1F300}-\\u{1FAFF}\\u{2600}-\\u{27BF}\\u{FE0F}\\s]+/u, "").trim();
+}
+
 function formatBytes(bytes) {
   const b = Number(bytes) || 0;
   const abs = Math.abs(b);
+  if (abs >= 1024 ** 4) return (b / (1024 ** 4)).toFixed(2) + " TiB";
   if (abs >= 1024 ** 3) return (b / (1024 ** 3)).toFixed(2) + " GiB";
   if (abs >= 1024 ** 2) return (b / (1024 ** 2)).toFixed(1) + " MiB";
   if (abs > 0) return (b / 1024).toFixed(0) + " KiB";
-  return "规则项";
+  return "规则与配置";
+}
+
+function formatCompactBytes(bytes) {
+  const b = Number(bytes) || 0;
+  const abs = Math.abs(b);
+  if (abs >= 1024 ** 4) return (b / (1024 ** 4)).toFixed(1) + " TiB";
+  if (abs >= 1024 ** 3) return (b / (1024 ** 3)).toFixed(1) + " GiB";
+  if (abs >= 1024 ** 2) return (b / (1024 ** 2)).toFixed(0) + " MiB";
+  if (abs > 0) return (b / 1024).toFixed(0) + " KiB";
+  return "0 GiB";
 }
 
 function escapeHtml(str) {
@@ -867,7 +1047,7 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function pulseElement(el, cls = "bump", ms = 260) {
+function pulseElement(el, cls = "rebound", ms = 240) {
   if (!el || REDUCED_MOTION) return;
   el.classList.remove(cls);
   void el.offsetWidth;
@@ -878,81 +1058,114 @@ function pulseElement(el, cls = "bump", ms = 260) {
 function initGaugesDOM() {
   const grid = document.getElementById("gauge-grid");
   grid.innerHTML = "";
-  (REPORT_DATA.storage_gauges || []).forEach(g => {
+  (REPORT_DATA.storage_gauges || []).forEach((g, idx) => {
     const total = Number(g.total_bytes) || 0;
     const used = Number(g.used_bytes) || 0;
     const freeBytes = g.free_bytes != null ? Number(g.free_bytes) : Math.max(0, total - used);
     const curPct = total > 0 ? (used / total) * 100 : (Number(g.used_pct) || 0);
     const warnPct = Number(g.warn_used_pct || g.warn_pct) || 85;
+    const cleanLabel = stripLeadingEmoji(g.label || g.id);
+    const indexStr = String(idx + 1).padStart(2, "0");
 
     const card = document.createElement("div");
-    card.className = "gauge-item";
+    card.className = "gauge-card";
     card.innerHTML = `
-      <div class="gauge-head">
-        <span>${escapeHtml(g.label || g.id)}</span>
-        <span class="gauge-pct tabular">${curPct.toFixed(1)}% → <strong id="gpct-${escapeHtml(g.id)}">${curPct.toFixed(1)}%</strong></span>
+      <div>
+        <div class="gauge-top">
+          <span class="gauge-index">POOL ${indexStr} · ${formatCompactBytes(total)}</span>
+          <span class="status-pip" id="gpip-${escapeHtml(g.id)}"></span>
+        </div>
+        <div class="gauge-name" title="${escapeHtml(cleanLabel)}">${escapeHtml(cleanLabel)}</div>
       </div>
-      <div class="gauge-track">
-        <div class="gauge-warn-line" style="left:${Math.min(100, warnPct)}%" title="警戒水位 ${warnPct}%"></div>
-        <div class="gauge-fill" id="gfill-${escapeHtml(g.id)}" style="width:${Math.min(100, curPct)}%"></div>
+      <div>
+        <div class="gauge-Readout">
+          <div class="gauge-pct-Transition tabular">
+            <span class="gauge-pct-before" id="gbefore-${escapeHtml(g.id)}">${curPct.toFixed(1)}%</span>
+            <span id="gpct-${escapeHtml(g.id)}">${curPct.toFixed(1)}%</span>
+          </div>
+          <span class="gauge-saved-tag mono" style="font-size:11.5px" id="gsaved-${escapeHtml(g.id)}">+0.0 GiB</span>
+        </div>
+        <div class="gauge-track" style="margin-top:8px">
+          <div class="gauge-fill-ghost" style="width:${Math.min(100, curPct).toFixed(2)}%"></div>
+          <div class="gauge-warn-tick" style="left:${Math.min(100, warnPct)}%" title="警戒线 ${warnPct}%"></div>
+          <div class="gauge-fill" id="gfill-${escapeHtml(g.id)}" style="width:${Math.min(100, curPct).toFixed(2)}%"></div>
+        </div>
       </div>
-      <div class="gauge-meta tabular">
-        <span>当前可用：${formatBytes(freeBytes)}</span>
-        <span id="gsaved-${escapeHtml(g.id)}">模拟释放：+0.00 GiB</span>
+      <div class="gauge-foot tabular">
+        <span>模拟后可用</span>
+        <strong id="gfree-${escapeHtml(g.id)}" style="color:var(--ink-primary)">${formatCompactBytes(freeBytes)}</strong>
       </div>
     `;
     grid.appendChild(card);
 
-    gaugeSprings[g.id] = new SpringNumber(curPct, val => {
+    gaugeSprings[g.id] = new AnalyticalSpring(curPct, val => {
       const clamped = Math.max(0, Math.min(100, val));
       const fillEl = document.getElementById("gfill-" + g.id);
       const pctEl = document.getElementById("gpct-" + g.id);
+      const pipEl = document.getElementById("gpip-" + g.id);
+      const isCrit = clamped >= warnPct;
+      const isWarn = !isCrit && clamped >= warnPct - 10;
+
       if (fillEl) {
         fillEl.style.width = clamped.toFixed(2) + "%";
-        fillEl.style.backgroundColor =
-          clamped >= warnPct ? "var(--red)" : (clamped >= warnPct - 10 ? "var(--amber)" : "var(--green-bright)");
+        fillEl.style.backgroundColor = isCrit ? "var(--tone-rust)" : (isWarn ? "var(--tone-ochre)" : "var(--tone-sage)");
       }
       if (pctEl) pctEl.textContent = clamped.toFixed(1) + "%";
+      if (pipEl) {
+        pipEl.className = "status-pip " + (isCrit ? "pip-crit" : (isWarn ? "pip-warn" : "pip-ok"));
+        pipEl.textContent = isCrit ? "水位告警" : (isWarn ? "接近阈值" : "水位健康");
+      }
     });
   });
 
-  totalSavingsSpring = new SpringNumber(0, val => {
-    const safeVal = Math.max(0, val);
-    const simEl = document.getElementById("sim-summary");
+  totalSavingsSpring = new AnalyticalSpring(0, val => {
+    const safeGiB = Math.max(0, val);
     const dockEl = document.getElementById("selected-gib");
-    if (simEl) simEl.textContent = "预计释放：" + formatBytes(safeVal);
-    if (dockEl) dockEl.textContent = "预计释放 " + formatBytes(safeVal);
+    if (dockEl) dockEl.textContent = safeGiB.toFixed(2) + " GiB";
   });
 }
 
 function updateGaugesTargets() {
   const savingsByGauge = {};
-  let totalSavings = 0;
+  let totalSavingsBytes = 0;
 
   (REPORT_DATA.candidates || []).forEach(c => {
     if (c.status === "done" || state.whitelisted[c.id]) return;
     if (state.checked[c.id]) {
       const sz = Number(c.size_bytes) || 0;
-      totalSavings += sz;
+      totalSavingsBytes += sz;
       const gid = c.gauge_id || "";
       if (gid) savingsByGauge[gid] = (savingsByGauge[gid] || 0) + sz;
     }
   });
 
-  if (totalSavingsSpring) totalSavingsSpring.set(totalSavings);
-  pulseElement(document.getElementById("sim-summary"), "bump", 260);
+  if (totalSavingsSpring) {
+    totalSavingsSpring.set(totalSavingsBytes / (1024 ** 3));
+  }
+  pulseElement(document.getElementById("sticky-summary"), "rebound", 240);
 
   (REPORT_DATA.storage_gauges || []).forEach(g => {
     const total = Number(g.total_bytes) || 0;
     const used = Number(g.used_bytes) || 0;
+    const baseFree = g.free_bytes != null ? Number(g.free_bytes) : Math.max(0, total - used);
     const saved = savingsByGauge[g.id] || 0;
     const newUsed = Math.max(0, used - saved);
+    const newFree = baseFree + saved;
     const curPct = total > 0 ? (used / total) * 100 : (Number(g.used_pct) || 0);
     const newPct = total > 0 ? (newUsed / total) * 100 : curPct;
 
     if (gaugeSprings[g.id]) gaugeSprings[g.id].set(newPct);
+    const beforeEl = document.getElementById("gbefore-" + g.id);
+    if (beforeEl) {
+      beforeEl.style.display = saved > 0 ? "inline" : "none";
+    }
+    const freeEl = document.getElementById("gfree-" + g.id);
+    if (freeEl) freeEl.textContent = formatCompactBytes(newFree);
     const savedEl = document.getElementById("gsaved-" + g.id);
-    if (savedEl) savedEl.textContent = "模拟释放：+" + formatBytes(saved);
+    if (savedEl) {
+      savedEl.textContent = saved > 0 ? ("释放 +" + formatCompactBytes(saved)) : "无待释放";
+      savedEl.style.color = saved > 0 ? "var(--tone-sage)" : "var(--ink-muted)";
+    }
   });
 }
 
@@ -965,26 +1178,50 @@ function renderDiff() {
   }
   sec.style.display = "block";
   document.getElementById("diff-time").textContent =
-    `对比基线：${diff.before_generated_at || "上次"} → ${diff.after_generated_at || "本次"}`;
+    `${diff.before_generated_at || "上次快照"} → ${diff.after_generated_at || "当前快照"}`;
 
   const gBox = document.getElementById("diff-gauges");
   gBox.innerHTML = "";
   (diff.gauge_deltas || []).forEach(gd => {
-    const sign = gd.used_delta_bytes > 0 ? "+" : "";
-    const pill = document.createElement("div");
-    pill.className = "diff-pill tabular";
-    pill.innerHTML = `<span>${escapeHtml(gd.label)}</span><strong>已用变化：${sign}${formatBytes(gd.used_delta_bytes)}</strong>`;
-    gBox.appendChild(pill);
+    const delta = Number(gd.used_delta_bytes) || 0;
+    const sign = delta > 0 ? "+" : "";
+    const color = delta <= 0 ? "var(--tone-sage)" : "var(--tone-ochre)";
+    const item = document.createElement("div");
+    item.className = "diff-item tabular";
+    item.innerHTML = `
+      <span class="diff-item-label">${escapeHtml(stripLeadingEmoji(gd.label))}</span>
+      <span class="diff-item-val" style="color:${color}">${sign}${formatBytes(delta)}</span>
+    `;
+    gBox.appendChild(item);
   });
 
   const pBox = document.getElementById("diff-growth");
   pBox.innerHTML = "";
   (diff.top_growth_paths || []).slice(0, 6).forEach(row => {
-    const pill = document.createElement("div");
-    pill.className = "diff-pill tabular";
-    const tag = row.is_new ? "[新增] " : "[增长] ";
-    pill.innerHTML = `<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(row.path)}">${tag}${escapeHtml(row.path)}</span><strong style="color:var(--amber)">+${formatBytes(row.delta_bytes)}</strong>`;
-    pBox.appendChild(pill);
+    const item = document.createElement("div");
+    item.className = "diff-item tabular";
+    const tag = row.is_new ? "新增" : "变动";
+    item.innerHTML = `
+      <span class="diff-item-label" title="${escapeHtml(row.path)}">[${tag}] ${escapeHtml(row.path)}</span>
+      <span class="diff-item-val" style="color:var(--accent-clay)">${formatBytes(row.delta_bytes)}</span>
+    `;
+    pBox.appendChild(item);
+  });
+}
+
+function updateTabCounts() {
+  const counts = { all: 0, mac: 0, projects: 0, github: 0, nas: 0, whitelisted: 0 };
+  (REPORT_DATA.candidates || []).forEach(c => {
+    if (state.whitelisted[c.id]) {
+      counts.whitelisted++;
+    } else {
+      counts.all++;
+      if (counts[c.domain] != null) counts[c.domain]++;
+    }
+  });
+  Object.keys(counts).forEach(k => {
+    const el = document.getElementById("cnt-" + k);
+    if (el) el.textContent = String(counts[k]);
   });
 }
 
@@ -996,8 +1233,8 @@ function updateSelectionTotals() {
     }
   });
   const countEl = document.getElementById("selected-count");
-  if (countEl) countEl.textContent = `已勾选 ${checkedCount} 项`;
-  pulseElement(document.getElementById("floating-dock"), "dock-bump", 280);
+  if (countEl) countEl.textContent = String(checkedCount);
+  updateTabCounts();
   updateGaugesTargets();
 }
 
@@ -1019,17 +1256,17 @@ function renderCandidates() {
     }
 
     const tier = c.tier || "B";
-    const tierLabel = tier === "A" ? "A级·安全立省" : (tier === "B" ? "B级·整理升级" : "C级·需拍板确认");
+    const tierLabel = tier === "A" ? "A 级 · 零风险可重建" : (tier === "B" ? "B 级 · 推荐整理" : "C 级 · 需确认时机");
     const noteVal = state.notes[c.id] || c.whitelist_note || "";
 
     const card = document.createElement("div");
     card.id = "card-" + c.id;
     card.className = "candidate-card" + (isChecked ? " checked" : "") + (isDone ? " done" : "") + (isWl ? " whitelisted" : "");
-    card.style.animationDelay = `${Math.min(visibleIndex * 28, 220)}ms`;
+    card.style.animationDelay = `${Math.min(visibleIndex * 22, 180)}ms`;
     visibleIndex++;
 
     card.innerHTML = `
-      <label class="check-wrap" title="勾选/取消">
+      <label class="check-wrap" title="勾选或取消">
         <input type="checkbox" id="chk-${escapeHtml(c.id)}"
           ${isChecked ? "checked" : ""} ${isDone || isWl ? "disabled" : ""}
           onchange="toggleItem('${escapeHtml(c.id)}', this.checked)">
@@ -1038,21 +1275,22 @@ function renderCandidates() {
         </span>
       </label>
       <div class="candidate-body">
-        <div class="candidate-top">
-          <span class="badge tier-${escapeHtml(tier)}">${tierLabel}</span>
-          ${isDone ? '<span class="badge badge-done">🎉 已完成</span>' : ""}
-          ${isWl ? '<span class="badge badge-wl">🛡️ 已豁免白名单</span>' : ""}
-          <span class="candidate-title" onclick="clickCardTitle('${escapeHtml(c.id)}')">${escapeHtml(c.title)}</span>
+        <div class="candidate-head">
+          <span class="item-id">${escapeHtml(c.id)}</span>
+          <span class="tier-tag tier-${escapeHtml(tier)}">${tierLabel}</span>
+          ${isDone ? '<span class="tier-tag tier-A">已执行</span>' : ""}
+          ${isWl ? '<span class="tier-tag tier-C">已豁免</span>' : ""}
+          <span class="candidate-title" onclick="clickCardTitle('${escapeHtml(c.id)}')">${escapeHtml(stripLeadingEmoji(c.title))}</span>
           <span class="candidate-size tabular">${formatBytes(c.size_bytes)}</span>
         </div>
         ${c.path ? `<div class="candidate-path">${escapeHtml(c.path)}</div>` : ""}
         <div class="candidate-evidence">${escapeHtml(c.evidence || "")}</div>
         <div class="candidate-controls">
-          <input type="text" class="note-input" placeholder="✏️ 微调备注（如：留最近 3 个版本 / 移到 NAS 别直接删）"
+          <input type="text" class="note-input" placeholder="添加执行微调说明（如：保留最近 2 个版本 / 移至归档目录）"
             value="${escapeHtml(noteVal)}"
             oninput="updateNote('${escapeHtml(c.id)}', this.value)">
-          <button onclick="toggleWhitelist('${escapeHtml(c.id)}')">
-            ${isWl ? "取消豁免" : "🛡️ 长期豁免"}
+          <button class="btn-ghost" onclick="toggleWhitelist('${escapeHtml(c.id)}')">
+            ${isWl ? "移出白名单" : "加入白名单"}
           </button>
         </div>
       </div>
@@ -1060,6 +1298,8 @@ function renderCandidates() {
     list.appendChild(card);
   });
 
+  const capEl = document.getElementById("visible-count-caption");
+  if (capEl) capEl.textContent = `当前显示 ${visibleIndex} 项`;
   updateSelectionTotals();
 }
 
@@ -1076,7 +1316,7 @@ function toggleItem(id, checked) {
   const card = document.getElementById("card-" + id);
   if (card) {
     card.classList.toggle("checked", !!checked);
-    pulseElement(card, "pulse", 220);
+    pulseElement(card, "pulse", 200);
   }
   updateSelectionTotals();
 }
@@ -1091,6 +1331,10 @@ function toggleWhitelist(id) {
   if (state.whitelisted[id]) state.checked[id] = false;
   saveState();
   renderCandidates();
+  requestAnimationFrame(() => {
+    const activeBtn = document.querySelector("#domain-tabs button.active");
+    if (activeBtn) moveTabGlider(activeBtn);
+  });
 }
 
 function moveTabGlider(activeBtn) {
@@ -1099,12 +1343,12 @@ function moveTabGlider(activeBtn) {
   const x = activeBtn.offsetLeft;
   const w = activeBtn.offsetWidth;
   if (!tabGliderSpringX) {
-    tabGliderSpringX = new SpringNumber(x, val => {
+    tabGliderSpringX = new AnalyticalSpring(x, val => {
       glider.style.transform = `translate3d(${val.toFixed(1)}px, 0, 0)`;
-    }, { stiffness: 280, damping: 21 });
-    tabGliderSpringW = new SpringNumber(w, val => {
+    }, { zeta: 0.74, omega0: 17, durationMs: 380 });
+    tabGliderSpringW = new AnalyticalSpring(w, val => {
       glider.style.width = `${Math.max(20, val).toFixed(1)}px`;
-    }, { stiffness: 280, damping: 22 });
+    }, { zeta: 0.78, omega0: 17, durationMs: 380 });
     glider.style.transform = `translate3d(${x}px, 0, 0)`;
     glider.style.width = `${w}px`;
   } else {
@@ -1153,14 +1397,14 @@ function buildExecutionPrompt() {
   (REPORT_DATA.candidates || []).forEach(c => {
     const note = (state.notes[c.id] || "").trim();
     if (state.whitelisted[c.id] && !c.whitelisted) {
-      newlyWhitelisted.push({ id: c.id, title: c.title, path: c.path || "", note });
+      newlyWhitelisted.push({ id: c.id, title: stripLeadingEmoji(c.title), path: c.path || "", note });
     } else if (state.checked[c.id] && c.status !== "done" && !state.whitelisted[c.id]) {
-      selected.push({ id: c.id, title: c.title, path: c.path || "", note });
+      selected.push({ id: c.id, title: stripLeadingEmoji(c.title), path: c.path || "", note });
     }
   });
 
   const lines = [
-    "请按我在全栈巡检 HTML 看板上的勾选执行清理与优化（动手前请先用 `full_stack_tool.py preflight` 复查并发活跃状态）：",
+    "请按我在全栈巡检看板上的勾选执行清理与优化（动手前请先用 `full_stack_tool.py preflight` 复查并发活跃状态）：",
     ""
   ];
   if (selected.length === 0) {
@@ -1178,10 +1422,10 @@ function buildExecutionPrompt() {
     lines.push("### 新增长期豁免白名单（请写入 `config/topology.local.json` 的 `whitelist`）");
     newlyWhitelisted.forEach(item => {
       const notePart = item.note ? `（备注：${item.note}）` : "";
-      lines.push(`- 🛡️ \`${item.id}\`: ${item.path || item.title}${notePart}`);
+      lines.push(`- \`${item.id}\`: ${item.path || item.title}${notePart}`);
     });
   }
-  return lines.join("\\n");
+  return lines.join(__JOIN_NEWLINE__);
 }
 
 function copyExecutionPrompt() {
@@ -1206,7 +1450,7 @@ function copyModalText() {
   }
   if (btn) {
     const old = btn.textContent;
-    btn.textContent = "✅ 已复制到剪贴板";
+    btn.textContent = "已复制到剪贴板";
     setTimeout(() => { btn.textContent = old; }, 1400);
   }
 }
@@ -1220,6 +1464,7 @@ window.addEventListener("resize", () => {
   if (activeBtn) moveTabGlider(activeBtn);
 });
 
+initTheme();
 initGaugesDOM();
 renderDiff();
 renderCandidates();
@@ -1257,6 +1502,7 @@ def render_dashboard_html(
     out = out.replace("__HEADING__", html.escape(title))
     out = out.replace("__GENERATED_AT__", html.escape(generated_at or "刚刚"))
     out = out.replace("__REPORT_JSON__", report_json)
+    out = out.replace("__JOIN_NEWLINE__", '"\\n"')
     return out
 
 
