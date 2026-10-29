@@ -25,7 +25,7 @@ from typing import Any
 
 
 HTML_TEMPLATE = """<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -179,26 +179,34 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     font-weight: 600;
   }
 
-  /* Buttons: Crisp, Editorial, Tactile */
+  /* Buttons: Crisp, Editorial, Tactile, No Ugly Native Focus Box */
   button {
     appearance: none;
     cursor: pointer;
     font-family: var(--font-sans);
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--ink-primary);
     background: var(--bg-card);
     border: 1px solid var(--border-hairline);
     border-radius: 6px;
-    padding: 6px 12px;
+    padding: 5px 10px;
     line-height: 1.35;
     box-shadow: var(--shadow-subtle);
+    outline: none;
     transition:
       transform 220ms var(--spring-rebound),
       border-color 160ms ease,
       background-color 160ms ease,
       color 160ms ease;
     user-select: none;
+  }
+  button:focus {
+    outline: none;
+  }
+  button:focus-visible {
+    outline: 1.5px solid var(--accent-clay);
+    outline-offset: 1px;
   }
   @media (hover: hover) and (pointer: fine) {
     button:hover {
@@ -479,12 +487,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     justify-content: space-between;
     gap: 10px;
     font-size: 12.5px;
+    min-width: 0;
+    overflow: hidden;
   }
   .diff-item-label {
     color: var(--ink-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 0;
+    flex: 1;
   }
   .diff-item-val {
     font-family: var(--font-mono);
@@ -493,37 +505,36 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     flex-shrink: 0;
   }
 
-  /* Segmented Filter Bar with Spring Pill Glider */
+  /* Segmented Filter Bar with 2D (X/Y/W/H) Spring Pill Glider */
   .filter-bar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 16px;
+    gap: 10px;
+    margin-bottom: 14px;
   }
   .segmented-control {
     position: relative;
     display: inline-flex;
     flex-wrap: wrap;
     gap: 2px;
-    padding: 4px;
+    padding: 3px;
     background: var(--bg-recessed);
     border: 1px solid var(--border-hairline);
-    border-radius: 8px;
+    border-radius: 7px;
   }
   .tab-glider {
     position: absolute;
-    top: 4px;
+    top: 0;
     left: 0;
-    height: calc(100% - 8px);
     background: var(--bg-card);
     border: 1px solid var(--border-hairline);
-    border-radius: 6px;
+    border-radius: 5px;
     box-shadow: var(--shadow-subtle);
     z-index: 0;
     pointer-events: none;
-    will-change: transform, width;
+    will-change: transform, width, height;
   }
   .segmented-control button {
     position: relative;
@@ -531,12 +542,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     border: none;
     background: transparent;
     box-shadow: none;
-    padding: 6px 13px;
-    border-radius: 6px;
-    font-size: 12.5px;
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--ink-secondary);
+    outline: none;
     transition: color 160ms ease, transform 160ms var(--spring-rebound);
+  }
+  .segmented-control button:focus,
+  .segmented-control button:focus-visible {
+    outline: none;
   }
   .segmented-control button:hover {
     color: var(--ink-primary);
@@ -548,9 +564,34 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   }
   .tab-count {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 10.5px;
     color: var(--ink-muted);
-    margin-left: 4px;
+    margin-left: 3px;
+  }
+
+  /* Theme Toggle Pill in Top Bar */
+  .theme-switch {
+    display: inline-flex;
+    padding: 2px;
+    background: var(--bg-recessed);
+    border: 1px solid var(--border-hairline);
+    border-radius: 6px;
+    gap: 2px;
+  }
+  .theme-switch button {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    color: var(--ink-muted);
+  }
+  .theme-switch button.active {
+    background: var(--bg-card);
+    color: var(--ink-primary);
+    font-weight: 600;
+    box-shadow: var(--shadow-subtle);
   }
 
   /* Candidate List & Editorial Cards */
@@ -577,10 +618,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     background: var(--bg-card);
     border: 1px solid var(--border-hairline);
     border-radius: 9px;
-    padding: 14px 18px;
+    padding: 13px 16px;
     display: flex;
     align-items: flex-start;
-    gap: 14px;
+    gap: 12px;
     box-shadow: var(--shadow-subtle);
     animation: editorialSlideIn 280ms var(--spring-soft) both;
     transition:
@@ -608,12 +649,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     border-style: dashed;
   }
 
-  /* Tactile Checkbox with Non-Linear Spring Checkmark */
+  /* Sleek 15px Tactile Checkbox with Non-Linear Spring Checkmark */
   .check-wrap {
     position: relative;
-    width: 18px;
-    height: 18px;
-    margin-top: 3px;
+    width: 15px;
+    height: 15px;
+    margin-top: 2px;
     flex-shrink: 0;
     cursor: pointer;
   }
@@ -627,39 +668,39 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     z-index: 2;
   }
   .check-box {
-    width: 18px;
-    height: 18px;
-    border-radius: 4px;
+    width: 15px;
+    height: 15px;
+    border-radius: 3.5px;
     border: 1.5px solid var(--border-strong);
     background: var(--bg-card);
     display: flex;
     align-items: center;
     justify-content: center;
     transition:
-      transform 260ms var(--spring-rebound),
+      transform 240ms var(--spring-rebound),
       background-color 150ms ease,
       border-color 150ms ease;
   }
   .check-wrap:active .check-box {
-    transform: scale(0.86);
+    transform: scale(0.88);
     transition-duration: 55ms;
   }
   .check-wrap input:checked + .check-box {
     background: var(--accent-clay);
     border-color: var(--accent-clay);
-    transform: scale(1.05);
+    transform: scale(1.03);
   }
   .check-svg {
-    width: 11px;
-    height: 11px;
+    width: 9.5px;
+    height: 9.5px;
     fill: none;
     stroke: #FAF9F5;
-    stroke-width: 2.2;
+    stroke-width: 2.3;
     stroke-linecap: round;
     stroke-linejoin: round;
     stroke-dasharray: 18;
     stroke-dashoffset: 18;
-    transition: stroke-dashoffset 240ms var(--spring-rebound);
+    transition: stroke-dashoffset 220ms var(--spring-rebound);
   }
   .check-wrap input:checked + .check-box .check-svg {
     stroke-dashoffset: 0;
@@ -672,8 +713,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .candidate-head {
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
-    gap: 8px;
+    align-items: center;
+    gap: 7px;
     margin-bottom: 4px;
   }
   .item-id {
@@ -819,7 +860,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <button onclick="selectByTier(['A'])">全选 A 级（零风险）</button>
       <button onclick="selectByTier(['A', 'B'])">选推荐方案 (A+B)</button>
       <button onclick="clearSelections()">清空</button>
-      <button class="btn-ghost" onclick="toggleTheme()" id="theme-btn" title="切换浅色/深色外观">深色</button>
+      <div class="theme-switch" role="group" aria-label="外观模式切换">
+        <button type="button" id="theme-dark-btn" class="active" onclick="setTheme('dark')">深色</button>
+        <button type="button" id="theme-light-btn" onclick="setTheme('light')">浅色</button>
+      </div>
       <button class="btn-primary" onclick="copyExecutionPrompt()">导出执行指令</button>
     </div>
   </div>
@@ -867,12 +911,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="filter-bar">
       <div class="segmented-control" id="domain-tabs" role="tablist">
         <div class="tab-glider" id="tab-glider"></div>
-        <button class="active" data-domain="all" onclick="setDomain('all', this)">全部条目 <span class="tab-count" id="cnt-all"></span></button>
+        <button class="active" data-domain="all" onclick="setDomain('all', this)">全部 <span class="tab-count" id="cnt-all"></span></button>
         <button data-domain="mac" onclick="setDomain('mac', this)">Mac 与备份 <span class="tab-count" id="cnt-mac"></span></button>
-        <button data-domain="projects" onclick="setDomain('projects', this)">本地项目群 <span class="tab-count" id="cnt-projects"></span></button>
-        <button data-domain="github" onclick="setDomain('github', this)">GitHub 远端 <span class="tab-count" id="cnt-github"></span></button>
+        <button data-domain="projects" onclick="setDomain('projects', this)">本地项目 <span class="tab-count" id="cnt-projects"></span></button>
+        <button data-domain="github" onclick="setDomain('github', this)">GitHub <span class="tab-count" id="cnt-github"></span></button>
         <button data-domain="nas" onclick="setDomain('nas', this)">NAS 与 PVE <span class="tab-count" id="cnt-nas"></span></button>
-        <button data-domain="whitelisted" onclick="setDomain('whitelisted', this)">豁免白名单 <span class="tab-count" id="cnt-whitelisted"></span></button>
+        <button data-domain="whitelisted" onclick="setDomain('whitelisted', this)">白名单 <span class="tab-count" id="cnt-whitelisted"></span></button>
       </div>
     </div>
 
@@ -964,12 +1008,15 @@ let state = loadState();
 const gaugeSprings = {};
 let totalSavingsSpring = null;
 let tabGliderSpringX = null;
+let tabGliderSpringY = null;
 let tabGliderSpringW = null;
+let tabGliderSpringH = null;
+let tabGliderX = 0;
+let tabGliderY = 0;
 
 function initTheme() {
   const saved = localStorage.getItem(THEME_KEY);
-  const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const theme = saved || (prefersDark ? "dark" : "light");
+  const theme = saved === "light" ? "light" : "dark";
   applyTheme(theme);
 }
 
@@ -979,15 +1026,15 @@ function applyTheme(theme) {
   } else {
     document.documentElement.removeAttribute("data-theme");
   }
-  const btn = document.getElementById("theme-btn");
-  if (btn) btn.textContent = theme === "dark" ? "浅色" : "深色";
+  const darkBtn = document.getElementById("theme-dark-btn");
+  const lightBtn = document.getElementById("theme-light-btn");
+  if (darkBtn) darkBtn.classList.toggle("active", theme === "dark");
+  if (lightBtn) lightBtn.classList.toggle("active", theme !== "dark");
 }
 
-function toggleTheme() {
-  const isDark = document.documentElement.getAttribute("data-theme") === "dark";
-  const next = isDark ? "light" : "dark";
-  localStorage.setItem(THEME_KEY, next);
-  applyTheme(next);
+function setTheme(theme) {
+  localStorage.setItem(THEME_KEY, theme);
+  applyTheme(theme);
 }
 
 function loadState() {
@@ -1280,9 +1327,9 @@ function renderCandidates() {
           <span class="tier-tag tier-${escapeHtml(tier)}">${tierLabel}</span>
           ${isDone ? '<span class="tier-tag tier-A">已执行</span>' : ""}
           ${isWl ? '<span class="tier-tag tier-C">已豁免</span>' : ""}
-          <span class="candidate-title" onclick="clickCardTitle('${escapeHtml(c.id)}')">${escapeHtml(stripLeadingEmoji(c.title))}</span>
           <span class="candidate-size tabular">${formatBytes(c.size_bytes)}</span>
         </div>
+        <div class="candidate-title" style="margin-bottom:4px" onclick="clickCardTitle('${escapeHtml(c.id)}')">${escapeHtml(stripLeadingEmoji(c.title))}</div>
         ${c.path ? `<div class="candidate-path">${escapeHtml(c.path)}</div>` : ""}
         <div class="candidate-evidence">${escapeHtml(c.evidence || "")}</div>
         <div class="candidate-controls">
@@ -1341,19 +1388,39 @@ function moveTabGlider(activeBtn) {
   const glider = document.getElementById("tab-glider");
   if (!glider || !activeBtn) return;
   const x = activeBtn.offsetLeft;
+  const y = activeBtn.offsetTop;
   const w = activeBtn.offsetWidth;
+  const h = activeBtn.offsetHeight;
+
+  const updateTransform = () => {
+    glider.style.transform = `translate3d(${tabGliderX.toFixed(1)}px, ${tabGliderY.toFixed(1)}px, 0)`;
+  };
+
   if (!tabGliderSpringX) {
+    tabGliderX = x;
+    tabGliderY = y;
     tabGliderSpringX = new AnalyticalSpring(x, val => {
-      glider.style.transform = `translate3d(${val.toFixed(1)}px, 0, 0)`;
-    }, { zeta: 0.74, omega0: 17, durationMs: 380 });
+      tabGliderX = val;
+      updateTransform();
+    }, { zeta: 0.74, omega0: 17, durationMs: 360 });
+    tabGliderSpringY = new AnalyticalSpring(y, val => {
+      tabGliderY = val;
+      updateTransform();
+    }, { zeta: 0.78, omega0: 17, durationMs: 360 });
     tabGliderSpringW = new AnalyticalSpring(w, val => {
       glider.style.width = `${Math.max(20, val).toFixed(1)}px`;
-    }, { zeta: 0.78, omega0: 17, durationMs: 380 });
-    glider.style.transform = `translate3d(${x}px, 0, 0)`;
+    }, { zeta: 0.78, omega0: 17, durationMs: 360 });
+    tabGliderSpringH = new AnalyticalSpring(h, val => {
+      glider.style.height = `${Math.max(18, val).toFixed(1)}px`;
+    }, { zeta: 0.82, omega0: 17, durationMs: 360 });
+    updateTransform();
     glider.style.width = `${w}px`;
+    glider.style.height = `${h}px`;
   } else {
     tabGliderSpringX.set(x);
+    tabGliderSpringY.set(y);
     tabGliderSpringW.set(w);
+    tabGliderSpringH.set(h);
   }
 }
 
