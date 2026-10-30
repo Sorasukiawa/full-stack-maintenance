@@ -1,174 +1,274 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 610" width="100%" height="100%">
-  <defs>
-    <linearGradient id="cardBg" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#0f141c"/>
-      <stop offset="100%" stop-color="#131b26"/>
-    </linearGradient>
-    <linearGradient id="greenBar" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#16a34a"/>
-      <stop offset="100%" stop-color="#22c55e"/>
-    </linearGradient>
-    <linearGradient id="amberBar" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#d97706"/>
-      <stop offset="100%" stop-color="#f59e0b"/>
-    </linearGradient>
-  </defs>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 640" width="100%" height="100%">
+  <!-- Window Frame (Anthropic Warm Obsidian Palette) -->
+  <rect width="1120" height="640" rx="16" fill="#141413" stroke="#3D3C37" stroke-width="1.5"/>
 
-  <!-- Window Frame -->
-  <rect width="1120" height="610" rx="18" fill="url(#cardBg)" stroke="#334155" stroke-width="1.5"/>
-  
-  <!-- Browser Title Bar -->
-  <rect x="1" y="1" width="1118" height="42" rx="17" fill="#171f2c"/>
-  <line x1="1" y1="43" x2="1119" y2="43" stroke="#334155" stroke-width="1"/>
-  <circle cx="24" cy="22" r="6" fill="#ef4444"/>
-  <circle cx="44" cy="22" r="6" fill="#f59e0b"/>
-  <circle cx="64" cy="22" r="6" fill="#22c55e"/>
-  <text x="560" y="26.5" fill="#94a3b8" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" text-anchor="middle">inspection-dashboard.html — Single-File Zero-Dependency Interactive Approval Board</text>
+  <!-- Top Sticky Navigation Bar -->
+  <rect x="1" y="1" width="1118" height="46" rx="15" fill="#1C1B19"/>
+  <line x1="1" y1="47" x2="1119" y2="47" stroke="#2C2B28" stroke-width="1"/>
+  <circle cx="28" cy="24" r="5" fill="#D97757"/>
+  <text x="44" y="28" fill="#8C8980" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" letter-spacing="0.6">FULL-STACK MAINTENANCE · STORAGE VISUALIZER</text>
 
-  <!-- Dashboard Header -->
-  <g transform="translate(32, 62)">
-    <text x="0" y="22" fill="#f8fafc" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="20" font-weight="700">全栈健康巡检与空间水位交互看板</text>
-    <text x="0" y="42" fill="#94a3b8" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="12">勾选下方项目将实时模拟顶部水位变化 · 浏览器 localStorage 自动保存勾选、单项微调备注与豁免白名单</text>
+  <!-- Top Action Cluster -->
+  <g transform="translate(470, 10)" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="11.5" font-weight="500">
+    <rect x="0" y="0" width="194" height="27" rx="6" fill="#191816" stroke="#2C2B28"/>
+    <text x="12" y="17.5" fill="#B5B2A8">已选 <tspan fill="#F0EFEA" font-weight="700">14</tspan> 项  |  释放 <tspan fill="#52A37A" font-weight="700" font-family="ui-monospace, monospace">195.63 GiB</tspan></text>
 
-    <!-- Quick Action Buttons -->
-    <g transform="translate(656, 8)" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="12" font-weight="600">
-      <rect x="0" y="0" width="144" height="30" rx="7" fill="#171f2c" stroke="#38bdf8"/>
-      <text x="72" y="19.5" fill="#38bdf8" text-anchor="middle">全选 A 级（安全立省）</text>
-      <rect x="152" y="0" width="108" height="30" rx="7" fill="#171f2c" stroke="#334155"/>
-      <text x="206" y="19.5" fill="#e2e8f0" text-anchor="middle">选 A + B 级</text>
-      <rect x="268" y="0" width="132" height="30" rx="7" fill="#171f2c" stroke="#334155"/>
-      <text x="334" y="19.5" fill="#94a3b8" text-anchor="middle">重置缓存状态</text>
+    <rect x="202" y="0" width="68" height="27" rx="6" fill="#23221F" stroke="#2C2B28"/>
+    <text x="236" y="17.5" fill="#F0EFEA" text-anchor="middle">全选 A 级</text>
+
+    <rect x="276" y="0" width="60" height="27" rx="6" fill="#23221F" stroke="#2C2B28"/>
+    <text x="306" y="17.5" fill="#F0EFEA" text-anchor="middle">选 A+B</text>
+
+    <rect x="342" y="0" width="48" height="27" rx="6" fill="#23221F" stroke="#2C2B28"/>
+    <text x="366" y="17.5" fill="#B5B2A8" text-anchor="middle">清空</text>
+
+    <!-- Theme Switch -->
+    <rect x="398" y="0" width="90" height="27" rx="6" fill="#191816" stroke="#2C2B28"/>
+    <rect x="400" y="2" width="43" height="23" rx="4" fill="#23221F"/>
+    <text x="421.5" y="17.5" fill="#F0EFEA" font-weight="600" text-anchor="middle">深色</text>
+    <text x="465" y="17.5" fill="#8C8980" text-anchor="middle">浅色</text>
+
+    <rect x="496" y="0" width="118" height="27" rx="6" fill="#F0EFEA"/>
+    <text x="555" y="17.5" fill="#141413" font-weight="600" text-anchor="middle">导出执行指令</text>
+  </g>
+
+  <!-- Main Visualizer Studio Card -->
+  <g transform="translate(28, 62)">
+    <rect x="0" y="0" width="1064" height="292" rx="12" fill="#23221F" stroke="#2C2B28"/>
+
+    <!-- 5-Pool Selector Strip -->
+    <g transform="translate(14, 14)" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif">
+      <!-- Pool 01 Active -->
+      <rect x="0" y="0" width="198" height="62" rx="8" fill="#2B2723" stroke="#D97757" stroke-width="1.3"/>
+      <text x="10" y="16" fill="#8C8980" font-family="ui-monospace, monospace" font-size="9.5">POOL 01</text>
+      <text x="142" y="16" fill="#52A37A" font-family="ui-monospace, monospace" font-size="9.5" font-weight="600" text-anchor="end">-102.23 GiB</text>
+      <rect x="150" y="5" width="38" height="14" rx="4" fill="#1D2E25"/>
+      <text x="169" y="15" fill="#52A37A" font-size="9.5" font-weight="600" text-anchor="middle">健康</text>
+      <text x="10" y="33" fill="#F0EFEA" font-size="12" font-weight="600">Mac 内置 SSD (APFS)</text>
+      <text x="10" y="47" fill="#8C8980" font-family="ui-monospace, monospace" font-size="10">总 460.43 GiB</text>
+      <text x="188" y="47" fill="#B5B2A8" font-family="ui-monospace, monospace" font-size="10" text-anchor="end">已用 <tspan fill="#F0EFEA" font-weight="600">220.49 GiB</tspan></text>
+      <rect x="10" y="52" width="178" height="5" rx="2.5" fill="#252421"/>
+      <rect x="10" y="52" width="85" height="5" rx="2.5" fill="#5C5A54"/>
+      <rect x="95" y="52" width="12" height="5" fill="#D97757"/>
+      <rect x="107" y="52" width="28" height="5" fill="#52A37A"/>
+
+      <!-- Pool 02 -->
+      <g transform="translate(208, 0)">
+        <rect x="0" y="0" width="198" height="62" rx="8" fill="#191816" stroke="#2C2B28"/>
+        <text x="10" y="16" fill="#8C8980" font-family="ui-monospace, monospace" font-size="9.5">POOL 02</text>
+        <text x="142" y="16" fill="#52A37A" font-family="ui-monospace, monospace" font-size="9.5" font-weight="600" text-anchor="end">-81.40 GiB</text>
+        <rect x="150" y="5" width="38" height="14" rx="4" fill="#1D2E25"/>
+        <text x="169" y="15" fill="#52A37A" font-size="9.5" font-weight="600" text-anchor="middle">健康</text>
+        <text x="10" y="33" fill="#F0EFEA" font-size="12" font-weight="600">NAS 主存储池 (/volume1)</text>
+        <text x="10" y="47" fill="#8C8980" font-family="ui-monospace, monospace" font-size="10">总 14.55 TiB</text>
+        <text x="188" y="47" fill="#B5B2A8" font-family="ui-monospace, monospace" font-size="10" text-anchor="end">已用 <tspan fill="#F0EFEA" font-weight="600">9.82 TiB</tspan></text>
+        <rect x="10" y="52" width="178" height="5" rx="2.5" fill="#252421"/>
+        <rect x="10" y="52" width="120" height="5" rx="2.5" fill="#5C5A54"/>
+      </g>
+
+      <!-- Pool 03 -->
+      <g transform="translate(416, 0)">
+        <rect x="0" y="0" width="198" height="62" rx="8" fill="#191816" stroke="#2C2B28"/>
+        <text x="10" y="16" fill="#8C8980" font-family="ui-monospace, monospace" font-size="9.5">POOL 03</text>
+        <text x="142" y="16" fill="#52A37A" font-family="ui-monospace, monospace" font-size="9.5" font-weight="600" text-anchor="end">-12.00 GiB</text>
+        <rect x="150" y="5" width="38" height="14" rx="4" fill="#1D2E25"/>
+        <text x="169" y="15" fill="#52A37A" font-size="9.5" font-weight="600" text-anchor="middle">健康</text>
+        <text x="10" y="33" fill="#F0EFEA" font-size="12" font-weight="600">NAS NVMe 池 (/volume3)</text>
+        <text x="10" y="47" fill="#8C8980" font-family="ui-monospace, monospace" font-size="10">总 1.74 TiB</text>
+        <text x="188" y="47" fill="#B5B2A8" font-family="ui-monospace, monospace" font-size="10" text-anchor="end">已用 <tspan fill="#F0EFEA" font-weight="600">1.27 TiB</tspan></text>
+        <rect x="10" y="52" width="178" height="5" rx="2.5" fill="#252421"/>
+        <rect x="10" y="52" width="130" height="5" rx="2.5" fill="#5C5A54"/>
+      </g>
+
+      <!-- Pool 04 -->
+      <g transform="translate(624, 0)">
+        <rect x="0" y="0" width="198" height="62" rx="8" fill="#191816" stroke="#2C2B28"/>
+        <text x="10" y="16" fill="#8C8980" font-family="ui-monospace, monospace" font-size="9.5">POOL 04</text>
+        <rect x="150" y="5" width="38" height="14" rx="4" fill="#1D2E25"/>
+        <text x="169" y="15" fill="#52A37A" font-size="9.5" font-weight="600" text-anchor="middle">健康</text>
+        <text x="10" y="33" fill="#F0EFEA" font-size="12" font-weight="600">PVE 引导分区 (/boot/efi)</text>
+        <text x="10" y="47" fill="#8C8980" font-family="ui-monospace, monospace" font-size="10">总 1.00 GiB</text>
+        <text x="188" y="47" fill="#B5B2A8" font-family="ui-monospace, monospace" font-size="10" text-anchor="end">已用 <tspan fill="#F0EFEA" font-weight="600">340.0 MiB</tspan></text>
+        <rect x="10" y="52" width="178" height="5" rx="2.5" fill="#252421"/>
+        <rect x="10" y="52" width="60" height="5" rx="2.5" fill="#5C5A54"/>
+      </g>
+
+      <!-- Pool 05 -->
+      <g transform="translate(832, 0)">
+        <rect x="0" y="0" width="204" height="62" rx="8" fill="#191816" stroke="#2C2B28"/>
+        <text x="10" y="16" fill="#8C8980" font-family="ui-monospace, monospace" font-size="9.5">POOL 05</text>
+        <rect x="156" y="5" width="38" height="14" rx="4" fill="#1D2E25"/>
+        <text x="175" y="15" fill="#52A37A" font-size="9.5" font-weight="600" text-anchor="middle">健康</text>
+        <text x="10" y="33" fill="#F0EFEA" font-size="12" font-weight="600">PVE Docker VM110 根卷</text>
+        <text x="10" y="47" fill="#8C8980" font-family="ui-monospace, monospace" font-size="10">总 96.00 GiB</text>
+        <text x="194" y="47" fill="#B5B2A8" font-family="ui-monospace, monospace" font-size="10" text-anchor="end">已用 <tspan fill="#F0EFEA" font-weight="600">42.10 GiB</tspan></text>
+        <rect x="10" y="52" width="184" height="5" rx="2.5" fill="#252421"/>
+        <rect x="10" y="52" width="80" height="5" rx="2.5" fill="#5C5A54"/>
+      </g>
+    </g>
+
+    <!-- Active Pool Anatomy Panel -->
+    <g transform="translate(14, 86)" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif">
+      <rect x="0" y="0" width="1036" height="192" rx="9" fill="#191816" stroke="#2C2B28"/>
+
+      <!-- Anatomy Header -->
+      <text x="16" y="24" fill="#F0EFEA" font-size="13.5" font-weight="600">Mac 内置 SSD</text>
+      <rect x="114" y="10" width="208" height="19" rx="5" fill="#2E221D" stroke="#6E3B2B"/>
+      <text x="218" y="23" fill="#D97757" font-family="ui-monospace, monospace" font-size="11" font-weight="600" text-anchor="middle">当前项目 M-A1 -31.11 GiB (6.8%)</text>
+      <rect x="330" y="10" width="188" height="19" rx="5" fill="#1D2E25" stroke="#2A4D3B"/>
+      <text x="424" y="23" fill="#52A37A" font-family="ui-monospace, monospace" font-size="11" font-weight="600" text-anchor="middle">本池总清理 -102.23 GiB (22.2%)</text>
+      <text x="1020" y="23" fill="#8C8980" font-family="ui-monospace, monospace" font-size="11" text-anchor="end">清理前已用 322.72 GiB (70.1%) → 清理后已用 220.49 GiB (47.9%)</text>
+
+      <!-- Main Storage Row: Left = Total Capacity, Middle = Segmented Bar, Right = Used Capacity -->
+      <text x="16" y="52" fill="#B5B2A8" font-family="ui-monospace, monospace" font-size="12" font-weight="600">总容量 460.43 GiB</text>
+      <g transform="translate(148, 36)">
+        <rect x="0" y="0" width="708" height="24" rx="6" fill="#252421" stroke="#2C2B28"/>
+        <!-- Retained Used (47.9%) -->
+        <rect x="1" y="1" width="339" height="22" rx="5" fill="#5C5A54"/>
+        <text x="14" y="15.5" fill="#FAF9F5" font-family="ui-monospace, monospace" font-size="11" font-weight="600">清理后已用 220.49 GiB (47.9%)</text>
+        <!-- Current Focus Item (6.8%) -->
+        <rect x="340" y="1" width="48" height="22" fill="#D97757"/>
+        <!-- Other Selected Pool Cleanup (15.4%) -->
+        <rect x="389" y="1" width="109" height="22" fill="#52A37A"/>
+        <text x="443.5" y="15.5" fill="#FAF9F5" font-family="ui-monospace, monospace" font-size="11" font-weight="600" text-anchor="middle">其他 -71.12 GiB</text>
+        <!-- Originally Free (29.9%) -->
+        <text x="696" y="15.5" fill="#8C8980" font-family="ui-monospace, monospace" font-size="11" text-anchor="end">原本空闲 137.71 GiB (29.9%)</text>
+      </g>
+      <text x="1020" y="52" fill="#B5B2A8" font-family="ui-monospace, monospace" font-size="12" text-anchor="end">已用 <tspan fill="#F0EFEA" font-weight="700" font-size="13">220.49 GiB</tspan> (47.9%)</text>
+
+      <!-- Legend Row -->
+      <g transform="translate(16, 78)" font-family="ui-monospace, monospace" font-size="11">
+        <rect x="0" y="-8" width="8" height="8" rx="2" fill="#5C5A54"/>
+        <text x="13" y="0" fill="#B5B2A8">清理后已用 <tspan fill="#F0EFEA" font-weight="600">220.49 GiB (47.9%)</tspan></text>
+
+        <rect x="208" y="-8" width="8" height="8" rx="2" fill="#D97757"/>
+        <text x="221" y="0" fill="#B5B2A8">当前项目 <tspan fill="#D97757" font-weight="600">M-A1 -31.11 GiB (6.8%)</tspan></text>
+
+        <rect x="424" y="-8" width="8" height="8" rx="2" fill="#52A37A"/>
+        <text x="437" y="0" fill="#B5B2A8">本池总清理 <tspan fill="#52A37A" font-weight="600">-102.23 GiB (22.2%)</tspan></text>
+
+        <rect x="640" y="-8" width="8" height="8" rx="2" fill="#252421" stroke="#3D3C37"/>
+        <text x="653" y="0" fill="#B5B2A8">原本空闲 <tspan fill="#F0EFEA" font-weight="600">137.71 GiB (29.9%)</tspan></text>
+
+        <rect x="836" y="-12" width="168" height="18" rx="4" fill="#23221F" stroke="#2C2B28"/>
+        <text x="920" y="0.5" fill="#B5B2A8" text-anchor="middle">清理后总可用 239.94 GiB (52.1%)</text>
+      </g>
+
+      <!-- Directory Breakdown Mini-Charts (3 Columns) -->
+      <g transform="translate(16, 98)" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif">
+        <!-- Cat 1 (Focused) -->
+        <rect x="0" y="0" width="326" height="48" rx="7" fill="#23221F" stroke="#D97757" stroke-opacity="0.6"/>
+        <text x="10" y="18" fill="#F0EFEA" font-size="11.5" font-weight="600">~/Library (iCloud 与容器)</text>
+        <text x="316" y="18" fill="#52A37A" font-family="ui-monospace, monospace" font-size="10.5" font-weight="600" text-anchor="end">清理 -31.11 GiB (39.7%)</text>
+        <text x="10" y="37" fill="#8C8980" font-family="ui-monospace, monospace" font-size="10">原占 78.40 GiB</text>
+        <rect x="96" y="30" width="84" height="7" rx="3.5" fill="#252421"/>
+        <rect x="96" y="30" width="50" height="7" rx="3.5" fill="#5C5A54"/>
+        <rect x="146" y="30" width="34" height="7" rx="3.5" fill="#D97757"/>
+        <text x="316" y="37" fill="#B5B2A8" font-family="ui-monospace, monospace" font-size="10" text-anchor="end">已用 <tspan fill="#F0EFEA" font-weight="600">47.29 GiB</tspan> (60.3%)</text>
+
+        <!-- Cat 2 -->
+        <g transform="translate(339, 0)">
+          <rect x="0" y="0" width="326" height="48" rx="7" fill="#23221F" stroke="#2C2B28"/>
+          <text x="10" y="18" fill="#F0EFEA" font-size="11.5" font-weight="600">~/Library (模拟器与缓存)</text>
+          <text x="316" y="18" fill="#52A37A" font-family="ui-monospace, monospace" font-size="10.5" font-weight="600" text-anchor="end">清理 -27.91 GiB (43.5%)</text>
+          <text x="10" y="37" fill="#8C8980" font-family="ui-monospace, monospace" font-size="10">原占 64.20 GiB</text>
+          <rect x="96" y="30" width="84" height="7" rx="3.5" fill="#252421"/>
+          <rect x="96" y="30" width="47" height="7" rx="3.5" fill="#5C5A54"/>
+          <rect x="143" y="30" width="37" height="7" rx="3.5" fill="#52A37A"/>
+          <text x="316" y="37" fill="#B5B2A8" font-family="ui-monospace, monospace" font-size="10" text-anchor="end">已用 <tspan fill="#F0EFEA" font-weight="600">36.29 GiB</tspan> (56.5%)</text>
+        </g>
+
+        <!-- Cat 3 -->
+        <g transform="translate(678, 0)">
+          <rect x="0" y="0" width="326" height="48" rx="7" fill="#23221F" stroke="#2C2B28"/>
+          <text x="10" y="18" fill="#F0EFEA" font-size="11.5" font-weight="600">~/Codex (本地项目与构建)</text>
+          <text x="316" y="18" fill="#52A37A" font-family="ui-monospace, monospace" font-size="10.5" font-weight="600" text-anchor="end">清理 -20.12 GiB (47.8%)</text>
+          <text x="10" y="37" fill="#8C8980" font-family="ui-monospace, monospace" font-size="10">原占 42.10 GiB</text>
+          <rect x="96" y="30" width="84" height="7" rx="3.5" fill="#252421"/>
+          <rect x="96" y="30" width="44" height="7" rx="3.5" fill="#5C5A54"/>
+          <rect x="140" y="30" width="40" height="7" rx="3.5" fill="#52A37A"/>
+          <text x="316" y="37" fill="#B5B2A8" font-family="ui-monospace, monospace" font-size="10" text-anchor="end">已用 <tspan fill="#F0EFEA" font-weight="600">21.98 GiB</tspan> (52.2%)</text>
+        </g>
+      </g>
+
+      <!-- Live Action Spotlight Banner -->
+      <rect x="16" y="156" width="1004" height="26" rx="6" fill="#23221F" stroke="#2C2B28"/>
+      <rect x="16" y="156" width="3" height="26" rx="1.5" fill="#52A37A"/>
+      <text x="28" y="173" fill="#B5B2A8" font-size="11">悬停或切换下方任意项目，上方主存储池、目录分项与卡片内嵌条将同步以「陶土橙（本项）＋ 鼠尾草绿（其他已选）」联动。</text>
+      <text x="1008" y="173" fill="#52A37A" font-family="ui-monospace, monospace" font-size="11" font-weight="600" text-anchor="end">实时联动</text>
     </g>
   </g>
 
-  <!-- Section 1: Storage Waterline Gauges -->
-  <g transform="translate(32, 118)">
-    <rect x="0" y="0" width="1056" height="108" rx="12" fill="#171f2c" stroke="#334155"/>
-    <text x="18" y="26" fill="#f1f5f9" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="13.5" font-weight="600">📊 核心存储池实时水位模拟器（红线为警戒阈值，勾选卡片动态回落）</text>
-    <text x="1038" y="26" fill="#22c55e" font-family="ui-monospace, SFMono-Regular, monospace" font-size="13" font-weight="700" text-anchor="end">预计释放：+161.54 GiB</text>
+  <!-- Filter & Sort Bar -->
+  <g transform="translate(28, 368)" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="12" font-weight="500">
+    <rect x="0" y="0" width="504" height="32" rx="8" fill="#191816" stroke="#2C2B28"/>
+    <rect x="3" y="3" width="72" height="26" rx="6" fill="#23221F" stroke="#3D3C37"/>
+    <text x="39" y="20" fill="#F0EFEA" font-weight="600" text-anchor="middle">全部 <tspan fill="#8C8980" font-family="ui-monospace, monospace" font-size="11">16</tspan></text>
+    <text x="122" y="20" fill="#8C8980" text-anchor="middle">Mac 与备份 9</text>
+    <text x="208" y="20" fill="#8C8980" text-anchor="middle">本地项目 2</text>
+    <text x="282" y="20" fill="#8C8980" text-anchor="middle">GitHub 1</text>
+    <text x="364" y="20" fill="#8C8980" text-anchor="middle">NAS 与 PVE 4</text>
+    <text x="452" y="20" fill="#8C8980" text-anchor="middle">白名单 2</text>
 
-    <!-- 4 Mini Gauges -->
-    <g transform="translate(18, 38)">
-      <!-- G1 -->
-      <rect x="0" y="0" width="246" height="56" rx="8" fill="#1e293b" stroke="#334155"/>
-      <text x="10" y="18" fill="#e2e8f0" font-family="-apple-system, sans-serif" font-size="11.5" font-weight="600">Mac Data (/System/Volumes/Data)</text>
-      <text x="236" y="18" fill="#22c55e" font-family="ui-monospace, monospace" font-size="11" font-weight="700" text-anchor="end">97% → 71%</text>
-      <rect x="10" y="26" width="226" height="8" rx="4" fill="#0f172a"/>
-      <rect x="10" y="26" width="160" height="8" rx="4" fill="url(#greenBar)"/>
-      <line x1="191" y1="24" x2="191" y2="36" stroke="#ef4444" stroke-width="2"/>
-      <text x="10" y="47" fill="#94a3b8" font-family="-apple-system, sans-serif" font-size="10.5">可用：13 GiB → 127 GiB</text>
-
-      <!-- G2 -->
-      <g transform="translate(258, 0)">
-        <rect x="0" y="0" width="246" height="56" rx="8" fill="#1e293b" stroke="#334155"/>
-        <text x="10" y="18" fill="#e2e8f0" font-family="-apple-system, sans-serif" font-size="11.5" font-weight="600">iCloud AI 加密备份池</text>
-        <text x="236" y="18" fill="#22c55e" font-family="ui-monospace, monospace" font-size="11" font-weight="700" text-anchor="end">62.7G → 15.1G</text>
-        <rect x="10" y="26" width="226" height="8" rx="4" fill="#0f172a"/>
-        <rect x="10" y="26" width="72" height="8" rx="4" fill="url(#greenBar)"/>
-        <line x1="191" y1="24" x2="191" y2="36" stroke="#ef4444" stroke-width="2"/>
-        <text x="10" y="47" fill="#94a3b8" font-family="-apple-system, sans-serif" font-size="10.5">模拟释放：+47.54 GiB</text>
-      </g>
-
-      <!-- G3 -->
-      <g transform="translate(516, 0)">
-        <rect x="0" y="0" width="246" height="56" rx="8" fill="#1e293b" stroke="#334155"/>
-        <text x="10" y="18" fill="#e2e8f0" font-family="-apple-system, sans-serif" font-size="11.5" font-weight="600">PVE local-lvm &amp; Docker VM</text>
-        <text x="236" y="18" fill="#22c55e" font-family="ui-monospace, monospace" font-size="11" font-weight="700" text-anchor="end">84% → 59%</text>
-        <rect x="10" y="26" width="226" height="8" rx="4" fill="#0f172a"/>
-        <rect x="10" y="26" width="133" height="8" rx="4" fill="url(#greenBar)"/>
-        <line x1="191" y1="24" x2="191" y2="36" stroke="#ef4444" stroke-width="2"/>
-        <text x="10" y="47" fill="#94a3b8" font-family="-apple-system, sans-serif" font-size="10.5">薄池回收：+88.3 GiB</text>
-      </g>
-
-      <!-- G4 -->
-      <g transform="translate(774, 0)">
-        <rect x="0" y="0" width="246" height="56" rx="8" fill="#1e293b" stroke="#334155"/>
-        <text x="10" y="18" fill="#e2e8f0" font-family="-apple-system, sans-serif" font-size="11.5" font-weight="600">NAS NVMe 高速池 (/Volumes/Scratch)</text>
-        <text x="236" y="18" fill="#22c55e" font-family="ui-monospace, monospace" font-size="11" font-weight="700" text-anchor="end">可用 459 GiB</text>
-        <rect x="10" y="26" width="226" height="8" rx="4" fill="#0f172a"/>
-        <rect x="10" y="26" width="175" height="8" rx="4" fill="url(#greenBar)"/>
-        <line x1="198" y1="24" x2="198" y2="36" stroke="#ef4444" stroke-width="2"/>
-        <text x="10" y="47" fill="#94a3b8" font-family="-apple-system, sans-serif" font-size="10.5">跨过 450 GiB 安全门槛</text>
-      </g>
+    <g transform="translate(838, 0)">
+      <rect x="0" y="0" width="226" height="32" rx="8" fill="#191816" stroke="#2C2B28"/>
+      <rect x="3" y="3" width="72" height="26" rx="6" fill="#23221F"/>
+      <text x="39" y="20" fill="#F0EFEA" font-weight="600" font-size="11.5" text-anchor="middle">默认顺序</text>
+      <text x="114" y="20" fill="#8C8980" font-size="11.5" text-anchor="middle">按释放空间</text>
+      <text x="188" y="20" fill="#8C8980" font-size="11.5" text-anchor="middle">按存储池</text>
     </g>
   </g>
 
-  <!-- Section 2: Snapshot Diff Banner -->
-  <g transform="translate(32, 238)">
-    <rect x="0" y="0" width="1056" height="54" rx="10" fill="#171f2c" stroke="#334155"/>
-    <rect x="0" y="0" width="5" height="54" rx="2" fill="#38bdf8"/>
-    <text x="18" y="22" fill="#f1f5f9" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="12.5" font-weight="600">📈 距上次巡检基线变化（自动揪出是谁偷偷占了空间）</text>
-    <text x="18" y="41" fill="#94a3b8" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11.5">Top 增长路径: [新增] ~/Projects/desktop-app/src-tauri/target (+7.56 GiB)  ·  [增长] Xcode/DerivedData (+11.31 GiB)  ·  [增长] Docker Build Cache (+29.58 GiB)</text>
-  </g>
+  <!-- Candidate Card 1 (With Dual-Color Inline Impact Bar) -->
+  <g transform="translate(28, 412)" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif">
+    <rect x="0" y="0" width="1064" height="204" rx="10" fill="#26231F" stroke="#D97757" stroke-opacity="0.45"/>
+    <rect x="0" y="0" width="3.5" height="204" rx="1.75" fill="#D97757"/>
 
-  <!-- Domain Tabs -->
-  <g transform="translate(32, 304)" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="12" font-weight="600">
-    <rect x="0" y="0" width="90" height="30" rx="7" fill="#38bdf8"/>
-    <text x="45" y="19.5" fill="#ffffff" text-anchor="middle">全部项目</text>
+    <!-- Compact 15px Checkbox -->
+    <rect x="16" y="15" width="15" height="15" rx="3.5" fill="#D97757"/>
+    <polyline points="19.5 22.5 22.5 25.5 27.8 19" fill="none" stroke="#FAF9F5" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
 
-    <rect x="98" y="0" width="118" height="30" rx="7" fill="#171f2c" stroke="#334155"/>
-    <text x="157" y="19.5" fill="#cbd5e1" text-anchor="middle">💻 Mac 与备份</text>
+    <!-- Card Header -->
+    <text x="44" y="27" fill="#8C8980" font-family="ui-monospace, monospace" font-size="11.5" font-weight="600">M-A1</text>
+    <rect x="84" y="13" width="84" height="19" rx="4" fill="#191816" stroke="#2C2B28"/>
+    <text x="126" y="26" fill="#B5B2A8" font-size="10.5" font-weight="500" text-anchor="middle">Mac 内置 SSD</text>
+    <rect x="176" y="13" width="118" height="19" rx="4" fill="#1D2E25" stroke="#2A4D3B"/>
+    <text x="235" y="26" fill="#52A37A" font-size="10.5" font-weight="600" text-anchor="middle">A 级 · 零风险可重建</text>
+    <text x="1046" y="28" fill="#F0EFEA" font-family="ui-monospace, monospace" font-size="15" font-weight="600" text-anchor="end">31.11 GiB</text>
 
-    <rect x="224" y="0" width="118" height="30" rx="7" fill="#171f2c" stroke="#334155"/>
-    <text x="283" y="19.5" fill="#cbd5e1" text-anchor="middle">📂 本地项目群</text>
+    <!-- Card Title -->
+    <text x="44" y="52" fill="#F0EFEA" font-size="14" font-weight="600">移除 AI_Backups 中冗余的 .codex_icloud_archive.tar.gz 单文件归档</text>
 
-    <rect x="350" y="0" width="118" height="30" rx="7" fill="#171f2c" stroke="#334155"/>
-    <text x="409" y="19.5" fill="#cbd5e1" text-anchor="middle">🐙 GitHub 远端</text>
+    <!-- Inline Per-Card Proportional Impact Meter -->
+    <g transform="translate(44, 62)">
+      <rect x="0" y="0" width="1002" height="44" rx="7" fill="#191816" stroke="#2C2B28"/>
+      <text x="12" y="18" fill="#8C8980" font-family="ui-monospace, monospace" font-size="11">总容量 460.43 GiB</text>
 
-    <rect x="476" y="0" width="118" height="30" rx="7" fill="#171f2c" stroke="#334155"/>
-    <text x="535" y="19.5" fill="#cbd5e1" text-anchor="middle">🏠 NAS 与 PVE</text>
+      <!-- Dual-Color Mid Tag -->
+      <rect x="268" y="10" width="7" height="7" rx="2" fill="#D97757"/>
+      <text x="280" y="18" fill="#D97757" font-family="ui-monospace, monospace" font-size="11" font-weight="600">当前项目 -31.11 GiB (6.8%)</text>
+      <text x="462" y="18" fill="#8C8980" font-family="ui-monospace, monospace" font-size="11">｜</text>
+      <rect x="480" y="10" width="7" height="7" rx="2" fill="#52A37A"/>
+      <text x="492" y="18" fill="#52A37A" font-family="ui-monospace, monospace" font-size="11" font-weight="600">本池总清理 -102.23 GiB (22.2%)</text>
 
-    <rect x="602" y="0" width="136" height="30" rx="7" fill="#171f2c" stroke="#334155"/>
-    <text x="670" y="19.5" fill="#c084fc" text-anchor="middle">🛡️ 已豁免白名单 (4)</text>
-  </g>
+      <text x="990" y="18" fill="#B5B2A8" font-family="ui-monospace, monospace" font-size="11" text-anchor="end">已用 <tspan fill="#F0EFEA" font-weight="700">220.49 GiB</tspan> (47.9%)</text>
 
-  <!-- Candidate Card 1 (Checked A-Tier) -->
-  <g transform="translate(32, 346)">
-    <rect x="0" y="0" width="1056" height="92" rx="12" fill="#142623" stroke="#22c55e" stroke-width="1.2"/>
-    <rect x="16" y="16" width="18" height="18" rx="4" fill="#22c55e"/>
-    <path d="M20 25 l3.5 3.5 l6.5 -7" stroke="#ffffff" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+      <!-- Inline Track (100% = 978px) -->
+      <rect x="12" y="25" width="978" height="10" rx="5" fill="#252421" stroke="#2C2B28"/>
+      <rect x="12" y="25" width="468" height="10" rx="5" fill="#5C5A54"/>
+      <rect x="480" y="25" width="66" height="10" fill="#D97757"/>
+      <rect x="548" y="25" width="150" height="10" fill="#52A37A"/>
+    </g>
 
-    <rect x="46" y="14" width="92" height="20" rx="10" fill="#14532d"/>
-    <text x="92" y="28" fill="#4ade80" font-family="-apple-system, sans-serif" font-size="11" font-weight="700" text-anchor="middle">A级·安全立省</text>
-    <text x="148" y="29" fill="#f8fafc" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="14" font-weight="600">清理可重建构建缓存与淘汰模拟器运行时 (Rust target / Swift .build / Unavailable Simulators)</text>
-    <text x="1038" y="29" fill="#38bdf8" font-family="ui-monospace, monospace" font-size="13.5" font-weight="700" text-anchor="end">34.71 GiB</text>
-
-    <text x="46" y="49" fill="#94a3b8" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11.5">~/Projects/desktop-app/src-tauri/target · ~/Library/Developer/CoreSimulator/Devices (19 Unavailable)</text>
+    <!-- Path & Evidence -->
+    <rect x="44" y="114" width="532" height="20" rx="4" fill="#191816" stroke="#2C2B28"/>
+    <text x="52" y="128" fill="#8C8980" font-family="ui-monospace, monospace" font-size="11">~/Library/Mobile Documents/com~apple~CloudDocs/AI_Backups/.codex_icloud_archive.tar.gz</text>
+    <text x="44" y="152" fill="#B5B2A8" font-size="12.5">与 AI_Sessions_Backup.tar.gz 重复且混入了 31 GiB 构建缓存；清理后完全保留全部 Codex / Claude 会话记录。</text>
 
     <!-- Note Input & Whitelist Button -->
-    <rect x="46" y="58" width="874" height="24" rx="5" fill="#0f172a" stroke="#334155"/>
-    <text x="56" y="74" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="11">✏️ 微调备注：清理前请用 preflight 检查是否有后台正在跑的 cargo build 进程</text>
-    <rect x="930" y="58" width="108" height="24" rx="5" fill="#171f2c" stroke="#334155"/>
-    <text x="984" y="74" fill="#e2e8f0" font-family="-apple-system, sans-serif" font-size="11" text-anchor="middle">🛡️ 长期豁免</text>
-  </g>
-
-  <!-- Candidate Card 2 (Checked B-Tier with User Note) -->
-  <g transform="translate(32, 448)">
-    <rect x="0" y="0" width="1056" height="92" rx="12" fill="#142623" stroke="#22c55e" stroke-width="1.2"/>
-    <rect x="16" y="16" width="18" height="18" rx="4" fill="#22c55e"/>
-    <path d="M20 25 l3.5 3.5 l6.5 -7" stroke="#ffffff" stroke-width="2.2" fill="none" stroke-linecap="round"/>
-
-    <rect x="46" y="14" width="92" height="20" rx="10" fill="#0c4a6e"/>
-    <text x="92" y="28" fill="#38bdf8" font-family="-apple-system, sans-serif" font-size="11" font-weight="700" text-anchor="middle">B级·整理升级</text>
-    <text x="148" y="29" fill="#f8fafc" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="14" font-weight="600">升级备份排除规则防呆拦截 + 裁剪历史膨胀备份分块与旧构建归档</text>
-    <text x="1038" y="29" fill="#38bdf8" font-family="ui-monospace, monospace" font-size="13.5" font-weight="700" text-anchor="end">56.47 GiB</text>
-
-    <text x="46" y="49" fill="#94a3b8" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11.5">~/.local/share/cloud-backup/backup.py · ~/Projects/mobile-app-builds (beta.64 ~ beta.70.2)</text>
-
-    <rect x="46" y="58" width="874" height="24" rx="5" fill="#0f172a" stroke="#38bdf8" stroke-opacity="0.6"/>
-    <text x="56" y="74" fill="#38bdf8" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="11">✏️ 微调备注：mobile-app-builds 保留最新已发布版本，只清理早期历史 beta；备份脚本加上通配后缀拦截</text>
-    <rect x="930" y="58" width="108" height="24" rx="5" fill="#171f2c" stroke="#334155"/>
-    <text x="984" y="74" fill="#e2e8f0" font-family="-apple-system, sans-serif" font-size="11" text-anchor="middle">🛡️ 长期豁免</text>
-  </g>
-
-  <!-- Sticky Footer Bar -->
-  <g transform="translate(1, 554)">
-    <rect x="0" y="0" width="1118" height="55" rx="16" fill="#171f2c"/>
-    <line x1="0" y1="0" x2="1118" y2="0" stroke="#334155" stroke-width="1"/>
-    <text x="32" y="33" fill="#f8fafc" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="14" font-weight="700">已勾选 28 项</text>
-    <text x="136" y="33" fill="#94a3b8" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="13">预计总释放 161.54 GiB（含单项微调备注 2 条 · 新增白名单 1 项）</text>
-
-    <rect x="766" y="11" width="322" height="34" rx="8" fill="#16a34a"/>
-    <text x="927" y="33" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif" font-size="13" font-weight="700" text-anchor="middle">📋 一键复制执行指令（含微调备注与白名单）</text>
+    <rect x="44" y="164" width="908" height="28" rx="5" fill="#191816" stroke="#2C2B28"/>
+    <text x="54" y="182" fill="#8C8980" font-size="11.5">添加执行微调说明（如：保留最近 2 个版本 / 移至归档目录）</text>
+    <rect x="960" y="164" width="86" height="28" rx="5" fill="#191816" stroke="#2C2B28"/>
+    <text x="1003" y="182" fill="#B5B2A8" font-size="11.5" text-anchor="middle">加入白名单</text>
   </g>
 </svg>

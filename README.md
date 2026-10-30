@@ -28,13 +28,17 @@
   <img src="assets/dashboard-preview.svg" alt="Interactive HTML Waterline Dashboard Preview" width="100%" />
 </div>
 
-Every audit generates a self-contained single-file `inspection-dashboard.html` that opens in any browser or IDE preview pane:
+Every audit generates a self-contained single-file `inspection-dashboard.html` crafted in an **Anthropic-inspired editorial Warm Obsidian / Warm Paper aesthetic** that opens in any standalone browser or sandboxed IDE preview pane:
 
-- 📊 **Live Storage Waterline Simulator** — Top storage gauges with red-line warning thresholds dynamically recalculate projected usage and reclaimed GiB as you check or uncheck candidate cards below.
+- 📊 **3-Level Dual-Color Proportional Storage Visualizer** — Uses a unified `Left = Total Capacity | Middle Progress Bar = [Post-Cleanup Used][Current Focused Item (Terracotta Clay #D97757)][Other Pool Cleanup (Sage Green #52A37A)][Originally Free] | Right = Post-Cleanup Used (%)` scale across all three layers:
+  1. **5-Pool Selector Strip & Main Storage Anatomy Bar** — Switch across local APFS volumes, NAS storage pools, and Proxmox VE disks with real-time byte-accurate percentages.
+  2. **Directory / Category Breakdown Mini-Charts** — Visualizes how much each directory group (`~/Library`, `~/Codex`, `/private/var`, NAS archives, PVE guests) shrinks relative to its pre-cleanup footprint.
+  3. **Inline Per-Card Proportional Impact Meter** — Every candidate card embeds its own proportional bar and dual-color badge (`当前项目 -X GiB | 本池总清理 -Y GiB`), linked via hover and checkbox toggles with spring-physics transitions.
+- 🌗 **Warm Obsidian Dark & Warm Paper Light Themes** — Defaults to low-glare Warm Obsidian dark mode (`#141413`) with one-click switching to Warm Paper light mode (`#FAF9F5`), plus multi-mode sorting (`Default`, `By Reclaimed Size`, `By Storage Pool`).
 - 📈 **Baseline Snapshot Diff Banner** — Automatically compares against your previous audit snapshot (`diff`) to spotlight which volumes grew and the top newly bloated directories.
-- ✏️ **`localStorage` State & Per-Item Custom Notes** — Checkboxes and inline adjustment notes (e.g., *"keep latest 3 builds"*, *"move to NAS instead of deleting"*) persist across browser refreshes.
-- 🛡️ **Persistent Exemption Whitelist** — One-click `🛡️ 长期豁免` collapses intentionally kept directories into a Whitelisted tab and exports them to your Git-ignored `config/topology.local.json`.
-- 📋 **One-Click Execution Prompt Copy** — Packages your checked item IDs, per-item custom notes, and newly whitelisted paths into a structured Markdown instruction ready to paste back into your AI agent.
+- ✏️ **Sandboxed-Safe `localStorage` State & Per-Item Custom Notes** — Checkboxes and inline adjustment notes (e.g., *"keep latest 2 versions"*, *"move to archive folder"*) persist across refreshes and degrade gracefully inside restricted `iframe[sandbox="allow-scripts"]` previews.
+- 🛡️ **Persistent Exemption Whitelist** — One-click `加入白名单` collapses intentionally kept directories into a Whitelisted tab and exports them to your Git-ignored `config/topology.local.json`.
+- 📋 **One-Click Execution Prompt Export** — Packages your checked item IDs, per-item custom notes, and newly whitelisted paths into a structured Markdown instruction ready to paste back into your AI agent.
 
 ---
 
