@@ -405,6 +405,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   }
   .pool-mini-fill {
     height: 100%;
+    transition: width 320ms var(--spring-soft), background-color 180ms ease;
     will-change: width;
   }
   .pool-mini-focus {
@@ -523,6 +524,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     font-size: 11px;
     white-space: nowrap;
     overflow: hidden;
+    transition: width 320ms var(--spring-soft);
     will-change: width;
   }
   .seg-reclaim-item {
@@ -553,6 +555,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
+    transition: width 320ms var(--spring-rebound);
     will-change: width;
   }
   .seg-free {
@@ -779,21 +782,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     border-radius: 7px;
   }
   .tab-glider {
-    position: absolute;
-    top: 0;
-    left: 0;
-    background: var(--bg-card);
-    border: 1px solid var(--border-hairline);
-    border-radius: 5px;
-    box-shadow: var(--shadow-subtle);
-    z-index: 0;
-    pointer-events: none;
-    will-change: transform, width, height;
+    display: none;
   }
   .segmented-control button {
     position: relative;
     z-index: 1;
-    border: none;
+    border: 1px solid transparent;
     background: transparent;
     box-shadow: none;
     padding: 4px 10px;
@@ -802,11 +796,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     font-weight: 500;
     color: var(--ink-secondary);
     outline: none;
-    transition: color 160ms ease, transform 160ms var(--spring-rebound);
+    transition:
+      background-color 160ms ease,
+      border-color 160ms ease,
+      color 160ms ease,
+      transform 220ms var(--spring-rebound);
   }
   .segmented-control button.active {
+    background: var(--bg-card);
+    border-color: var(--border-hairline);
     color: var(--ink-primary);
     font-weight: 600;
+    box-shadow: var(--shadow-subtle);
   }
   .tab-count {
     font-family: var(--font-mono);
@@ -847,9 +848,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     gap: 9px;
   }
   @keyframes editorialSlideIn {
-    0% { opacity: 0; transform: translateY(6px); }
-    70% { opacity: 1; transform: translateY(-1px); }
-    100% { opacity: 1; transform: translateY(0); }
+    0% { transform: translateY(3px); }
+    100% { transform: translateY(0); }
   }
   .candidate-card {
     background: var(--bg-card);
@@ -860,7 +860,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     align-items: flex-start;
     gap: 12px;
     box-shadow: var(--shadow-subtle);
-    animation: editorialSlideIn 260ms var(--spring-soft) both;
+    animation: editorialSlideIn 220ms var(--spring-soft);
     transition:
       transform 220ms var(--spring-soft),
       border-color 150ms ease,
@@ -1370,7 +1370,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 const REPORT_DATA = __REPORT_JSON__;
 const STORAGE_KEY = "full_stack_maint_" + REPORT_DATA.report_id;
 const THEME_KEY = "full_stack_maint_theme";
-const REDUCED_MOTION = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const REDUCED_MOTION = Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
 // Warm Anthropic-inspired categorical palette for proportional chart slices
 const SLICE_PALETTE = [
@@ -1378,78 +1378,34 @@ const SLICE_PALETTE = [
   "#8CA878", "#C96442", "#4B8F8C", "#C48F45", "#7B88A8"
 ];
 
-/**
- * Closed-form Analytical Underdamped Spring Evaluator (zeta = 0.72 -> ~3.8% light rebound).
- */
-class AnalyticalSpring {
-  constructor(initialValue, onUpdate, config = {}) {
-    this.current = initialValue;
-    this.startVal = initialValue;
-    this.target = initialValue;
-    this.zeta = config.zeta || 0.72;
-    this.omega0 = config.omega0 || 15.0;
-    this.omegaD = this.omega0 * Math.sqrt(1 - this.zeta * this.zeta);
-    this.durationMs = config.durationMs || 440;
-    this.onUpdate = onUpdate;
-    this.rafId = null;
-    this.startTime = 0;
+// Safe storage helpers: sandboxed iframes (without allow-same-origin) throw SecurityError on window.localStorage access
+function safeStorageGet(key) {
+  try {
+    return window.localStorage ? window.localStorage.getItem(key) : null;
+  } catch (e) {
+    return null;
   }
-  set(newTarget) {
-    if (REDUCED_MOTION || Math.abs(newTarget - this.current) < 0.001) {
-      this.current = newTarget;
-      this.startVal = newTarget;
-      this.target = newTarget;
-      if (this.rafId) {
-        cancelAnimationFrame(this.rafId);
-        this.rafId = null;
-      }
-      this.onUpdate(this.current);
-      return;
-    }
-    this.startVal = this.current;
-    this.target = newTarget;
-    this.startTime = performance.now();
-    if (!this.rafId) {
-      this.rafId = requestAnimationFrame(ts => this._step(ts));
-    }
-  }
-  _step(now) {
-    const elapsedMs = Math.max(0, now - this.startTime);
-    if (elapsedMs >= this.durationMs) {
-      this.current = this.target;
-      this.rafId = null;
-      this.onUpdate(this.current);
-      return;
-    }
-    const t = elapsedMs / 1000;
-    const decay = Math.exp(-this.zeta * this.omega0 * t);
-    const cosPart = Math.cos(this.omegaD * t);
-    const sinPart = (this.zeta / Math.sqrt(1 - this.zeta * this.zeta)) * Math.sin(this.omegaD * t);
-    const progress = 1 - decay * (cosPart + sinPart);
-    this.current = this.startVal + (this.target - this.startVal) * progress;
-    this.onUpdate(this.current);
-    this.rafId = requestAnimationFrame(ts => this._step(ts));
-  }
+}
+
+function safeStorageSet(key, val) {
+  try {
+    if (window.localStorage) window.localStorage.setItem(key, val);
+  } catch (e) {}
+}
+
+function safeStorageRemove(key) {
+  try {
+    if (window.localStorage) window.localStorage.removeItem(key);
+  } catch (e) {}
 }
 
 let currentDomain = "all";
 let currentSort = "default";
 let activePoolId = ((REPORT_DATA.storage_gauges || [])[0] || {}).id || "mac";
 let state = loadState();
-const gaugeSprings = {};
-let anatomyRetainedSpring = null;
-let anatomyReclaimSpring = null;
-let anatomyUnselectedSpring = null;
-let totalSavingsSpring = null;
-let tabGliderSpringX = null;
-let tabGliderSpringY = null;
-let tabGliderSpringW = null;
-let tabGliderSpringH = null;
-let tabGliderX = 0;
-let tabGliderY = 0;
 
 function initTheme() {
-  const saved = localStorage.getItem(THEME_KEY);
+  const saved = safeStorageGet(THEME_KEY);
   const theme = saved === "light" ? "light" : "dark";
   applyTheme(theme);
 }
@@ -1467,20 +1423,22 @@ function applyTheme(theme) {
 }
 
 function setTheme(theme) {
-  localStorage.setItem(THEME_KEY, theme);
+  safeStorageSet(THEME_KEY, theme);
   applyTheme(theme);
 }
 
 function loadState() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = safeStorageGet(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      return {
-        checked: parsed.checked || {},
-        notes: parsed.notes || {},
-        whitelisted: parsed.whitelisted || {}
-      };
+      if (parsed && typeof parsed === "object") {
+        return {
+          checked: parsed.checked || {},
+          notes: parsed.notes || {},
+          whitelisted: parsed.whitelisted || {}
+        };
+      }
     }
   } catch (e) {}
   const initialChecked = {};
@@ -1493,9 +1451,7 @@ function loadState() {
 }
 
 function saveState() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {}
+  safeStorageSet(STORAGE_KEY, JSON.stringify(state));
 }
 
 function stripLeadingEmoji(str) {
@@ -1547,8 +1503,26 @@ function getColorForIndex(idx) {
   return SLICE_PALETTE[idx % SLICE_PALETTE.length];
 }
 
+function updatePoolMiniBarState(poolId, pctVal, warnPct) {
+  const clamped = Math.max(0, Math.min(100, pctVal));
+  const fillEl = document.getElementById("gfill-" + poolId);
+  const pipEl = document.getElementById("gpip-" + poolId);
+  const isCrit = clamped >= warnPct;
+  const isWarn = !isCrit && clamped >= warnPct - 10;
+
+  if (fillEl) {
+    fillEl.style.width = clamped.toFixed(2) + "%";
+    fillEl.style.backgroundColor = isCrit ? "var(--tone-rust)" : (isWarn ? "var(--tone-ochre)" : "var(--bar-retained)");
+  }
+  if (pipEl) {
+    pipEl.className = "status-pip " + (isCrit ? "pip-crit" : (isWarn ? "pip-warn" : "pip-ok"));
+    pipEl.textContent = isCrit ? "告警" : (isWarn ? "偏高" : "健康");
+  }
+}
+
 function initGaugesDOM() {
   const strip = document.getElementById("pool-selector-strip");
+  if (!strip) return;
   strip.innerHTML = "";
   (REPORT_DATA.storage_gauges || []).forEach((g, idx) => {
     const total = Number(g.total_bytes) || 0;
@@ -1580,42 +1554,7 @@ function initGaugesDOM() {
       </div>
     `;
     strip.appendChild(card);
-
-    gaugeSprings[g.id] = new AnalyticalSpring(curPct, val => {
-      const clamped = Math.max(0, Math.min(100, val));
-      const fillEl = document.getElementById("gfill-" + g.id);
-      const pipEl = document.getElementById("gpip-" + g.id);
-      const isCrit = clamped >= warnPct;
-      const isWarn = !isCrit && clamped >= warnPct - 10;
-
-      if (fillEl) {
-        fillEl.style.width = clamped.toFixed(2) + "%";
-        fillEl.style.backgroundColor = isCrit ? "var(--tone-rust)" : (isWarn ? "var(--tone-ochre)" : "var(--bar-retained)");
-      }
-      if (pipEl) {
-        pipEl.className = "status-pip " + (isCrit ? "pip-crit" : (isWarn ? "pip-warn" : "pip-ok"));
-        pipEl.textContent = isCrit ? "告警" : (isWarn ? "偏高" : "健康");
-      }
-    });
-  });
-
-  anatomyRetainedSpring = new AnalyticalSpring(50, val => {
-    const el = document.getElementById("seg-retained");
-    if (el) el.style.width = Math.max(0, Math.min(100, val)).toFixed(2) + "%";
-  });
-  anatomyReclaimSpring = new AnalyticalSpring(0, val => {
-    const el = document.getElementById("seg-reclaim-mid");
-    if (el) {
-      const w = Math.max(0, Math.min(100, val));
-      el.style.width = w.toFixed(2) + "%";
-      el.style.padding = w > 12 ? "0 8px" : "0";
-    }
-  });
-
-  totalSavingsSpring = new AnalyticalSpring(0, val => {
-    const safeGiB = Math.max(0, val);
-    const dockEl = document.getElementById("selected-gib");
-    if (dockEl) dockEl.textContent = safeGiB.toFixed(2) + " GiB";
+    updatePoolMiniBarState(g.id, curPct, warnPct);
   });
 }
 
@@ -1719,6 +1658,11 @@ function updateAllCardBars(savingsByGauge) {
 }
 
 function updateVisualCharts(lastToggledItem = null) {
+  const strip = document.getElementById("pool-selector-strip");
+  if (strip && strip.children.length === 0 && (REPORT_DATA.storage_gauges || []).length > 0) {
+    initGaugesDOM();
+  }
+
   const savingsByGauge = {};
   let totalSavingsBytes = 0;
 
@@ -1732,7 +1676,8 @@ function updateVisualCharts(lastToggledItem = null) {
     }
   });
 
-  if (totalSavingsSpring) totalSavingsSpring.set(totalSavingsBytes / (1024 ** 3));
+  const dockEl = document.getElementById("selected-gib");
+  if (dockEl) dockEl.textContent = Math.max(0, totalSavingsBytes / (1024 ** 3)).toFixed(2) + " GiB";
   pulseElement(document.getElementById("sticky-summary"), "rebound", 220);
 
   // Active Pool Main Bar: Left = Total Capacity, Middle Progress Bar = [Used][Current Item][Other Cleaned][Free], Right = Used Capacity
@@ -1746,6 +1691,7 @@ function updateVisualCharts(lastToggledItem = null) {
     const saved = Math.min(used, savingsByGauge[g.id] || 0);
     const newUsed = Math.max(0, used - saved);
     const newPct = (newUsed / total) * 100;
+    const warnPct = Number(g.warn_used_pct || g.warn_pct) || 85;
 
     const poolChecked = (REPORT_DATA.candidates || []).filter(
       c => c.gauge_id === g.id && state.checked[c.id] && !state.whitelisted[c.id] && c.status !== "done" && Number(c.size_bytes) > 0
@@ -1762,7 +1708,7 @@ function updateVisualCharts(lastToggledItem = null) {
     const fPct = (fBytes / total) * 100;
     const oPct = (oBytes / total) * 100;
 
-    if (gaugeSprings[g.id]) gaugeSprings[g.id].set(newPct);
+    updatePoolMiniBarState(g.id, newPct, warnPct);
     const focusMiniEl = document.getElementById("gfocus-" + g.id);
     if (focusMiniEl) {
       focusMiniEl.style.width = fPct.toFixed(2) + "%";
@@ -1814,16 +1760,26 @@ function updateVisualCharts(lastToggledItem = null) {
     const focusPct = (focusBytes / total) * 100;
     const restReclaimPct = Math.max(0, reclaimPct - focusPct);
 
-    if (anatomyRetainedSpring) anatomyRetainedSpring.set(retainedPct);
+    const retEl = document.getElementById("seg-retained");
+    if (retEl) {
+      retEl.style.width = Math.max(0, Math.min(100, retainedPct)).toFixed(2) + "%";
+    }
     const itemSegEl = document.getElementById("seg-reclaim-item");
     if (itemSegEl) {
       itemSegEl.style.width = focusPct.toFixed(2) + "%";
       itemSegEl.style.minWidth = focusBytes > 0 ? "3px" : "0px";
     }
-    if (anatomyReclaimSpring) anatomyReclaimSpring.set(restReclaimPct);
+    const recEl = document.getElementById("seg-reclaim-mid");
+    if (recEl) {
+      const w = Math.max(0, Math.min(100, restReclaimPct));
+      recEl.style.width = w.toFixed(2) + "%";
+      recEl.style.padding = w > 12 ? "0 8px" : "0";
+      recEl.style.minWidth = otherSavedBytes > 0 ? "2px" : "0px";
+    }
 
     const cleanPoolName = stripLeadingEmoji(activePool.label || activePool.id);
-    document.getElementById("anatomy-pool-title").textContent = cleanPoolName;
+    const titleEl = document.getElementById("anatomy-pool-title");
+    if (titleEl) titleEl.textContent = cleanPoolName;
     const focusBadgeEl = document.getElementById("anatomy-focus-badge");
     if (focusBadgeEl) {
       if (focusItem && focusBytes > 0) {
@@ -1835,25 +1791,27 @@ function updateVisualCharts(lastToggledItem = null) {
     }
     const mainTotalEl = document.getElementById("main-storage-total");
     if (mainTotalEl) mainTotalEl.textContent = `总容量 ${formatBytes(total)}`;
-    document.getElementById("anatomy-mid-badge").textContent =
-      `本池总清理 -${formatBytes(saved)} (${reclaimPct.toFixed(1)}%)`;
+    const midBadgeEl = document.getElementById("anatomy-mid-badge");
+    if (midBadgeEl) {
+      midBadgeEl.textContent = `本池总清理 -${formatBytes(saved)} (${reclaimPct.toFixed(1)}%)`;
+    }
     const subEl = document.getElementById("anatomy-pool-sub");
     if (subEl) {
       subEl.textContent =
         `清理前已用 ${formatBytes(used)} (${usedBeforePct.toFixed(1)}%) → 清理后已用 ${formatBytes(retained)} (${retainedPct.toFixed(1)}%)`;
     }
-    document.getElementById("anatomy-pool-readout").innerHTML =
-      `已用 <strong style="color:var(--ink-primary);font-size:13px">${formatBytes(retained)}</strong> (${retainedPct.toFixed(1)}%)`;
+    const readoutEl = document.getElementById("anatomy-pool-readout");
+    if (readoutEl) {
+      readoutEl.innerHTML =
+        `已用 <strong style="color:var(--ink-primary);font-size:13px">${formatBytes(retained)}</strong> (${retainedPct.toFixed(1)}%)`;
+    }
 
     const isWideBar = window.innerWidth >= 760;
-    const retEl = document.getElementById("seg-retained");
     if (retEl) retEl.textContent = (isWideBar && retainedPct > 22) ? `清理后已用 ${formatBytes(retained)} (${retainedPct.toFixed(1)}%)` : "";
     if (itemSegEl) {
       itemSegEl.textContent = (isWideBar && focusPct >= 14) ? `${focusItem ? focusItem.id : ""} -${formatCompactBytes(focusBytes)}` : ((isWideBar && focusPct >= 10.5) ? `-${formatCompactBytes(focusBytes)}` : "");
     }
-    const recEl = document.getElementById("seg-reclaim-mid");
     if (recEl) {
-      recEl.style.minWidth = otherSavedBytes > 0 ? "2px" : "0px";
       if (isWideBar && restReclaimPct > 18) {
         recEl.textContent = focusBytes > 0
           ? `其他已选 -${formatBytes(otherSavedBytes)} (${restReclaimPct.toFixed(1)}%)`
@@ -1867,17 +1825,22 @@ function updateVisualCharts(lastToggledItem = null) {
     const freeEl = document.getElementById("seg-free");
     if (freeEl) freeEl.textContent = (isWideBar && freePct > 20) ? `原本空闲 ${formatBytes(free)} (${freePct.toFixed(1)}%)` : "";
 
-    document.getElementById("leg-retained").textContent = `${formatBytes(retained)} (${retainedPct.toFixed(1)}%)`;
+    const legRetEl = document.getElementById("leg-retained");
+    if (legRetEl) legRetEl.textContent = `${formatBytes(retained)} (${retainedPct.toFixed(1)}%)`;
     const focusLegEl = document.getElementById("leg-focus-item");
     if (focusLegEl) {
       focusLegEl.textContent = focusItem
         ? `${focusItem.id} -${formatBytes(focusBytes)} (${focusPct.toFixed(1)}%)`
         : "0 GiB (0%)";
     }
-    document.getElementById("leg-reclaim").textContent = `-${formatBytes(saved)} (${reclaimPct.toFixed(1)}%)`;
-    document.getElementById("leg-free").textContent = `${formatBytes(free)} (${freePct.toFixed(1)}%)`;
-    document.getElementById("leg-total-free-after").textContent =
-      `清理后总可用 ${formatBytes(free + saved)} (${freeAfterPct.toFixed(1)}%)`;
+    const legRecEl = document.getElementById("leg-reclaim");
+    if (legRecEl) legRecEl.textContent = `-${formatBytes(saved)} (${reclaimPct.toFixed(1)}%)`;
+    const legFreeEl = document.getElementById("leg-free");
+    if (legFreeEl) legFreeEl.textContent = `${formatBytes(free)} (${freePct.toFixed(1)}%)`;
+    const legTotalFreeEl = document.getElementById("leg-total-free-after");
+    if (legTotalFreeEl) {
+      legTotalFreeEl.textContent = `清理后总可用 ${formatBytes(free + saved)} (${freeAfterPct.toFixed(1)}%)`;
+    }
 
     renderPoolCategoryBreakdown(activePool, focusItem);
   }
@@ -1910,6 +1873,7 @@ function updateVisualCharts(lastToggledItem = null) {
 
 function renderPoolCategoryBreakdown(pool, focusItem = null) {
   const box = document.getElementById("category-breakdown-grid");
+  if (!box) return;
   box.innerHTML = "";
   const poolItems = (REPORT_DATA.candidates || []).filter(c => c.gauge_id === pool.id && Number(c.size_bytes) > 0);
   const baseCategories = Array.isArray(pool.breakdown) ? pool.breakdown : null;
@@ -1994,41 +1958,48 @@ function scrollToCard(itemId) {
 function renderDiff() {
   const diff = REPORT_DATA.diff;
   const sec = document.getElementById("diff-section");
+  if (!sec) return;
   if (!diff || ((!diff.gauge_deltas || !diff.gauge_deltas.length) && (!diff.top_growth_paths || !diff.top_growth_paths.length))) {
     sec.style.display = "none";
     return;
   }
   sec.style.display = "block";
-  document.getElementById("diff-time").textContent =
-    `${diff.before_generated_at || "上次快照"} → ${diff.after_generated_at || "当前快照"}`;
+  const dtEl = document.getElementById("diff-time");
+  if (dtEl) {
+    dtEl.textContent = `${diff.before_generated_at || "上次快照"} → ${diff.after_generated_at || "当前快照"}`;
+  }
 
   const gBox = document.getElementById("diff-gauges");
-  gBox.innerHTML = "";
-  (diff.gauge_deltas || []).forEach(gd => {
-    const delta = Number(gd.used_delta_bytes) || 0;
-    const sign = delta > 0 ? "+" : "";
-    const color = delta <= 0 ? "var(--tone-sage)" : "var(--tone-ochre)";
-    const item = document.createElement("div");
-    item.className = "diff-item tabular";
-    item.innerHTML = `
-      <span class="diff-item-label">${escapeHtml(stripLeadingEmoji(gd.label))}</span>
-      <span class="diff-item-val" style="color:${color}">${sign}${formatBytes(delta)}</span>
-    `;
-    gBox.appendChild(item);
-  });
+  if (gBox) {
+    gBox.innerHTML = "";
+    (diff.gauge_deltas || []).forEach(gd => {
+      const delta = Number(gd.used_delta_bytes) || 0;
+      const sign = delta > 0 ? "+" : "";
+      const color = delta <= 0 ? "var(--tone-sage)" : "var(--tone-ochre)";
+      const item = document.createElement("div");
+      item.className = "diff-item tabular";
+      item.innerHTML = `
+        <span class="diff-item-label">${escapeHtml(stripLeadingEmoji(gd.label))}</span>
+        <span class="diff-item-val" style="color:${color}">${sign}${formatBytes(delta)}</span>
+      `;
+      gBox.appendChild(item);
+    });
+  }
 
   const pBox = document.getElementById("diff-growth");
-  pBox.innerHTML = "";
-  (diff.top_growth_paths || []).slice(0, 6).forEach(row => {
-    const item = document.createElement("div");
-    item.className = "diff-item tabular";
-    const tag = row.is_new ? "新增" : "变动";
-    item.innerHTML = `
-      <span class="diff-item-label" title="${escapeHtml(row.path)}">[${tag}] ${escapeHtml(row.path)}</span>
-      <span class="diff-item-val" style="color:var(--accent-clay)">${formatBytes(row.delta_bytes)}</span>
-    `;
-    pBox.appendChild(item);
-  });
+  if (pBox) {
+    pBox.innerHTML = "";
+    (diff.top_growth_paths || []).slice(0, 6).forEach(row => {
+      const item = document.createElement("div");
+      item.className = "diff-item tabular";
+      const tag = row.is_new ? "新增" : "变动";
+      item.innerHTML = `
+        <span class="diff-item-label" title="${escapeHtml(row.path)}">[${tag}] ${escapeHtml(row.path)}</span>
+        <span class="diff-item-val" style="color:var(--accent-clay)">${formatBytes(row.delta_bytes)}</span>
+      `;
+      pBox.appendChild(item);
+    });
+  }
 }
 
 function updateTabCounts() {
@@ -2070,6 +2041,7 @@ function setSortMode(mode, btnEl) {
 
 function renderCandidates() {
   const list = document.getElementById("candidate-list");
+  if (!list) return;
   list.innerHTML = "";
   let visibleIndex = 0;
 
@@ -2213,61 +2185,14 @@ function toggleWhitelist(id) {
   if (state.whitelisted[id]) state.checked[id] = false;
   saveState();
   renderCandidates();
-  requestAnimationFrame(() => {
-    const activeBtn = document.querySelector("#domain-tabs button.active");
-    if (activeBtn) moveTabGlider(activeBtn);
-  });
-}
-
-function moveTabGlider(activeBtn) {
-  const glider = document.getElementById("tab-glider");
-  if (!glider || !activeBtn) return;
-  const x = activeBtn.offsetLeft;
-  const y = activeBtn.offsetTop;
-  const w = activeBtn.offsetWidth;
-  const h = activeBtn.offsetHeight;
-
-  const updateTransform = () => {
-    glider.style.transform = `translate3d(${tabGliderX.toFixed(1)}px, ${tabGliderY.toFixed(1)}px, 0)`;
-  };
-
-  if (!tabGliderSpringX) {
-    tabGliderX = x;
-    tabGliderY = y;
-    tabGliderSpringX = new AnalyticalSpring(x, val => {
-      tabGliderX = val;
-      updateTransform();
-    }, { zeta: 0.74, omega0: 17, durationMs: 360 });
-    tabGliderSpringY = new AnalyticalSpring(y, val => {
-      tabGliderY = val;
-      updateTransform();
-    }, { zeta: 0.78, omega0: 17, durationMs: 360 });
-    tabGliderSpringW = new AnalyticalSpring(w, val => {
-      glider.style.width = `${Math.max(20, val).toFixed(1)}px`;
-    }, { zeta: 0.78, omega0: 17, durationMs: 360 });
-    tabGliderSpringH = new AnalyticalSpring(h, val => {
-      glider.style.height = `${Math.max(18, val).toFixed(1)}px`;
-    }, { zeta: 0.82, omega0: 17, durationMs: 360 });
-    updateTransform();
-    glider.style.width = `${w}px`;
-    glider.style.height = `${h}px`;
-  } else {
-    tabGliderSpringX.set(x);
-    tabGliderSpringY.set(y);
-    tabGliderSpringW.set(w);
-    tabGliderSpringH.set(h);
-  }
 }
 
 function setDomain(domain, btnEl) {
   currentDomain = domain;
-  let targetBtn = btnEl;
   document.querySelectorAll("#domain-tabs button").forEach(btn => {
     const isAct = btn.getAttribute("data-domain") === domain;
     btn.classList.toggle("active", isAct);
-    if (isAct && !targetBtn) targetBtn = btn;
   });
-  if (targetBtn) moveTabGlider(targetBtn);
   renderCandidates();
 }
 
@@ -2288,7 +2213,7 @@ function clearSelections() {
 }
 
 function resetSavedState() {
-  localStorage.removeItem(STORAGE_KEY);
+  safeStorageRemove(STORAGE_KEY);
   state = loadState();
   renderCandidates();
 }
@@ -2361,18 +2286,19 @@ function closeModal() {
   document.getElementById("prompt-modal").classList.remove("open");
 }
 
-window.addEventListener("resize", () => {
-  const activeBtn = document.querySelector("#domain-tabs button.active");
-  if (activeBtn) moveTabGlider(activeBtn);
-});
+function bootstrapDashboard() {
+  try { initTheme(); } catch (e) {}
+  try { initGaugesDOM(); } catch (e) {}
+  try { renderDiff(); } catch (e) {}
+  try { renderCandidates(); } catch (e) {}
+}
 
-initTheme();
-initGaugesDOM();
-renderDiff();
-renderCandidates();
-requestAnimationFrame(() => {
-  const activeBtn = document.querySelector("#domain-tabs button.active");
-  if (activeBtn) moveTabGlider(activeBtn);
+bootstrapDashboard();
+window.addEventListener("DOMContentLoaded", () => {
+  const list = document.getElementById("candidate-list");
+  if (list && list.children.length === 0 && (REPORT_DATA.candidates || []).length > 0) {
+    bootstrapDashboard();
+  }
 });
 </script>
 </body>
