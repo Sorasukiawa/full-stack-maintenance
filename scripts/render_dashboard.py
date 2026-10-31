@@ -762,14 +762,96 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     flex-shrink: 0;
   }
 
-  /* Segmented Filter Bar */
+  /* Two-Level Segmented Filter Bar (Domain Row + Action Category Row) */
+  .filter-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
   .filter-bar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    margin-bottom: 12px;
+  }
+  .filter-subbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 10px;
+    background: var(--bg-recessed);
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
+  }
+  .subbar-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .subbar-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-muted);
+    letter-spacing: 0.03em;
+    padding: 0 4px 0 2px;
+  }
+  .sub-pills {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .sub-pills button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid transparent;
+    background: transparent;
+    box-shadow: none;
+    padding: 3.5px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--ink-secondary);
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease,
+      transform 200ms var(--spring-rebound);
+  }
+  .sub-pills button:hover {
+    color: var(--ink-primary);
+    background: rgba(125, 122, 114, 0.08);
+  }
+  .sub-pills button.active {
+    background: var(--bg-card);
+    border-color: var(--border-strong);
+    color: var(--ink-primary);
+    font-weight: 600;
+    box-shadow: var(--shadow-subtle);
+  }
+  .sub-dot {
+    width: 6.5px;
+    height: 6.5px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .btn-sub-select {
+    font-size: 11.5px;
+    padding: 3.5px 10px;
+    border-radius: 6px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-hairline);
+    color: var(--ink-secondary);
+  }
+  .btn-sub-select:hover {
+    color: var(--ink-primary);
+    border-color: var(--border-strong);
   }
   .segmented-control {
     position: relative;
@@ -1342,22 +1424,49 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <span class="section-caption" id="visible-count-caption"></span>
     </div>
 
-    <div class="filter-bar">
-      <div class="segmented-control" id="domain-tabs" role="tablist">
-        <div class="tab-glider" id="tab-glider"></div>
-        <button class="active" data-domain="all" onclick="setDomain('all', this)">全部 <span class="tab-count" id="cnt-all"></span></button>
-        <button data-domain="opt" onclick="setDomain('opt', this)">优化·整理·更新 <span class="tab-count" id="cnt-opt"></span></button>
-        <button data-domain="mac" onclick="setDomain('mac', this)">Mac 与备份 <span class="tab-count" id="cnt-mac"></span></button>
-        <button data-domain="projects" onclick="setDomain('projects', this)">本地项目 <span class="tab-count" id="cnt-projects"></span></button>
-        <button data-domain="github" onclick="setDomain('github', this)">GitHub <span class="tab-count" id="cnt-github"></span></button>
-        <button data-domain="nas" onclick="setDomain('nas', this)">NAS 与 PVE <span class="tab-count" id="cnt-nas"></span></button>
-        <button data-domain="whitelisted" onclick="setDomain('whitelisted', this)">白名单 <span class="tab-count" id="cnt-whitelisted"></span></button>
+    <div class="filter-stack">
+      <!-- Level 1: Primary Domain Menu + Sort Control -->
+      <div class="filter-bar">
+        <div class="segmented-control" id="domain-tabs" role="tablist" aria-label="一级巡检领域">
+          <div class="tab-glider" id="tab-glider"></div>
+          <button class="active" data-domain="all" onclick="setDomain('all', this)">全部领域 <span class="tab-count" id="cnt-all"></span></button>
+          <button data-domain="mac" onclick="setDomain('mac', this)">Mac 与备份 <span class="tab-count" id="cnt-mac"></span></button>
+          <button data-domain="projects" onclick="setDomain('projects', this)">本地项目 <span class="tab-count" id="cnt-projects"></span></button>
+          <button data-domain="github" onclick="setDomain('github', this)">GitHub <span class="tab-count" id="cnt-github"></span></button>
+          <button data-domain="nas" onclick="setDomain('nas', this)">NAS 与 PVE <span class="tab-count" id="cnt-nas"></span></button>
+          <button data-domain="whitelisted" onclick="setDomain('whitelisted', this)">白名单 <span class="tab-count" id="cnt-whitelisted"></span></button>
+        </div>
+        <div class="sort-control" role="group" aria-label="排序方式">
+          <button type="button" class="active" data-sort="default" onclick="setSortMode('default', this)">默认顺序</button>
+          <button type="button" data-sort="opt" onclick="setSortMode('opt', this)">优化/更新优先</button>
+          <button type="button" data-sort="size" onclick="setSortMode('size', this)">按释放空间</button>
+          <button type="button" data-sort="pool" onclick="setSortMode('pool', this)">按存储池</button>
+        </div>
       </div>
-      <div class="sort-control" role="group" aria-label="排序方式">
-        <button type="button" class="active" data-sort="default" onclick="setSortMode('default', this)">默认顺序</button>
-        <button type="button" data-sort="opt" onclick="setSortMode('opt', this)">优化/更新优先</button>
-        <button type="button" data-sort="size" onclick="setSortMode('size', this)">按释放空间</button>
-        <button type="button" data-sort="pool" onclick="setSortMode('pool', this)">按存储池</button>
+
+      <!-- Level 2: Secondary Action Category Menu (Cleanup / Organize / Optimize / Update) -->
+      <div class="filter-subbar" id="action-subbar">
+        <div class="subbar-group">
+          <span class="subbar-label">二级分类</span>
+          <div class="sub-pills" id="action-tabs" role="tablist" aria-label="二级动作分类">
+            <button class="active" data-action="all" onclick="setActionFilter('all', this)">
+              全部动作 <span class="tab-count" id="acnt-all"></span>
+            </button>
+            <button data-action="cleanup" onclick="setActionFilter('cleanup', this)">
+              <i class="sub-dot" style="background:var(--accent-clay)"></i>空间清理 <span class="tab-count" id="acnt-cleanup"></span>
+            </button>
+            <button data-action="organize" onclick="setActionFilter('organize', this)">
+              <i class="sub-dot" style="background:var(--tone-ochre)"></i>结构整理 <span class="tab-count" id="acnt-organize"></span>
+            </button>
+            <button data-action="optimize" onclick="setActionFilter('optimize', this)">
+              <i class="sub-dot" style="background:var(--tone-sage)"></i>性能优化 <span class="tab-count" id="acnt-optimize"></span>
+            </button>
+            <button data-action="update" onclick="setActionFilter('update', this)">
+              <i class="sub-dot" style="background:#6E98B8"></i>版本更新 <span class="tab-count" id="acnt-update"></span>
+            </button>
+          </div>
+        </div>
+        <button type="button" class="btn-sub-select" onclick="selectVisibleCategory()">勾选当前筛选分类</button>
       </div>
     </div>
 
@@ -1415,6 +1524,7 @@ function safeStorageRemove(key) {
 }
 
 let currentDomain = "all";
+let currentAction = "all";
 let currentSort = "default";
 let activePoolId = ((REPORT_DATA.storage_gauges || [])[0] || {}).id || "mac";
 let state = loadState();
@@ -2046,19 +2156,38 @@ function isOptOrUpdate(c) {
 }
 
 function updateTabCounts() {
-  const counts = { all: 0, opt: 0, mac: 0, projects: 0, github: 0, nas: 0, whitelisted: 0 };
+  const domainCounts = { all: 0, mac: 0, projects: 0, github: 0, nas: 0, whitelisted: 0 };
+  const actionCounts = { all: 0, cleanup: 0, organize: 0, optimize: 0, update: 0 };
+
   (REPORT_DATA.candidates || []).forEach(c => {
-    if (state.whitelisted[c.id]) {
-      counts.whitelisted++;
-    } else {
-      counts.all++;
-      if (isOptOrUpdate(c)) counts.opt++;
-      if (counts[c.domain] != null) counts[c.domain]++;
+    const isWl = !!state.whitelisted[c.id];
+    const act = inferActionType(c);
+
+    // 1. Domain counts (respecting currentAction filter for non-whitelisted tabs)
+    if (isWl) {
+      domainCounts.whitelisted++;
+    } else if (currentAction === "all" || act === currentAction) {
+      domainCounts.all++;
+      if (domainCounts[c.domain] != null) domainCounts[c.domain]++;
+    }
+
+    // 2. Secondary action counts (respecting currentDomain filter)
+    const matchesDomain = currentDomain === "whitelisted"
+      ? isWl
+      : (!isWl && (currentDomain === "all" || c.domain === currentDomain));
+    if (matchesDomain) {
+      actionCounts.all++;
+      if (actionCounts[act] != null) actionCounts[act]++;
     }
   });
-  Object.keys(counts).forEach(k => {
+
+  Object.keys(domainCounts).forEach(k => {
     const el = document.getElementById("cnt-" + k);
-    if (el) el.textContent = String(counts[k]);
+    if (el) el.textContent = String(domainCounts[k]);
+  });
+  Object.keys(actionCounts).forEach(k => {
+    const el = document.getElementById("acnt-" + k);
+    if (el) el.textContent = String(actionCounts[k]);
   });
 }
 
@@ -2115,16 +2244,16 @@ function renderCandidates() {
 
     if (currentDomain === "whitelisted") {
       if (!isWl) return;
-    } else if (currentDomain === "opt") {
-      if (isWl || !isOptOrUpdate(c)) return;
     } else {
       if (isWl) return;
       if (currentDomain !== "all" && c.domain !== currentDomain) return;
     }
 
+    const actMeta = actionTypeMeta(c);
+    if (currentAction !== "all" && actMeta.key !== currentAction) return;
+
     const tier = c.tier || "B";
     const tierLabel = tier === "A" ? "A 级 · 零风险可重建" : (tier === "B" ? "B 级 · 推荐整理" : "C 级 · 需确认时机");
-    const actMeta = actionTypeMeta(c);
     const noteVal = state.notes[c.id] || c.whitelist_note || "";
     const sz = Number(c.size_bytes) || 0;
     const rightBadge = sz > 0 ? formatBytes(sz) : (c.metric_badge || formatBytes(0));
@@ -2249,6 +2378,28 @@ function setDomain(domain, btnEl) {
     const isAct = btn.getAttribute("data-domain") === domain;
     btn.classList.toggle("active", isAct);
   });
+  renderCandidates();
+}
+
+function setActionFilter(action, btnEl) {
+  currentAction = action;
+  document.querySelectorAll("#action-tabs button").forEach(btn => {
+    const isAct = btn.getAttribute("data-action") === action;
+    btn.classList.toggle("active", isAct);
+  });
+  renderCandidates();
+}
+
+function selectVisibleCategory() {
+  (REPORT_DATA.candidates || []).forEach(c => {
+    const isWl = !!state.whitelisted[c.id];
+    if (c.status === "done" || isWl) return;
+    if (currentDomain !== "all" && currentDomain !== "whitelisted" && c.domain !== currentDomain) return;
+    const act = inferActionType(c);
+    if (currentAction !== "all" && act !== currentAction) return;
+    state.checked[c.id] = true;
+  });
+  saveState();
   renderCandidates();
 }
 
