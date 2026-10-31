@@ -976,6 +976,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .tier-A { background: var(--tone-sage-bg); color: var(--tone-sage); }
   .tier-B { background: var(--accent-clay-soft); color: var(--accent-clay); }
   .tier-C { background: var(--tone-ochre-bg); color: var(--tone-ochre); }
+  .action-tag {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border-hairline);
+  }
+  .action-update { background: rgba(110, 152, 184, 0.16); color: #6E98B8; border-color: rgba(110, 152, 184, 0.32); }
+  .action-optimize { background: var(--tone-sage-bg); color: var(--tone-sage); border-color: rgba(82, 163, 122, 0.3); }
+  .action-organize { background: var(--tone-ochre-bg); color: var(--tone-ochre); border-color: rgba(217, 146, 66, 0.3); }
+  .action-cleanup { background: var(--bg-recessed); color: var(--ink-secondary); }
   .status-pip {
     font-family: var(--font-mono);
     font-size: 10px;
@@ -1233,6 +1245,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       </div>
       <button onclick="selectByTier(['A'])">全选 A 级</button>
       <button onclick="selectByTier(['A', 'B'])">选 A+B</button>
+      <button onclick="selectOptimizations()">选优化/整理/更新</button>
       <button onclick="clearSelections()">清空</button>
       <div class="theme-switch" role="group" aria-label="外观模式切换">
         <button type="button" id="theme-dark-btn" class="active" onclick="setTheme('dark')">深色</button>
@@ -1333,6 +1346,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div class="segmented-control" id="domain-tabs" role="tablist">
         <div class="tab-glider" id="tab-glider"></div>
         <button class="active" data-domain="all" onclick="setDomain('all', this)">全部 <span class="tab-count" id="cnt-all"></span></button>
+        <button data-domain="opt" onclick="setDomain('opt', this)">优化·整理·更新 <span class="tab-count" id="cnt-opt"></span></button>
         <button data-domain="mac" onclick="setDomain('mac', this)">Mac 与备份 <span class="tab-count" id="cnt-mac"></span></button>
         <button data-domain="projects" onclick="setDomain('projects', this)">本地项目 <span class="tab-count" id="cnt-projects"></span></button>
         <button data-domain="github" onclick="setDomain('github', this)">GitHub <span class="tab-count" id="cnt-github"></span></button>
@@ -1341,6 +1355,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       </div>
       <div class="sort-control" role="group" aria-label="排序方式">
         <button type="button" class="active" data-sort="default" onclick="setSortMode('default', this)">默认顺序</button>
+        <button type="button" data-sort="opt" onclick="setSortMode('opt', this)">优化/更新优先</button>
         <button type="button" data-sort="size" onclick="setSortMode('size', this)">按释放空间</button>
         <button type="button" data-sort="pool" onclick="setSortMode('pool', this)">按存储池</button>
       </div>
@@ -2002,13 +2017,42 @@ function renderDiff() {
   }
 }
 
+function inferActionType(c) {
+  if (c.action_type) return c.action_type;
+  const text = `${c.id || ""} ${c.title || ""} ${c.category || ""}`.toLowerCase();
+  if (text.includes("更新") || text.includes("升级") || text.includes("outdated") || text.includes("upgrade") || text.includes("rustup")) {
+    return "update";
+  }
+  if (text.includes("优化") || text.includes("压缩") || text.includes("pack") || text.includes("fstrim") || text.includes("规则") || text.includes("drift") || text.includes("修复") || text.includes("ci_failure")) {
+    return "optimize";
+  }
+  if (text.includes("整理") || text.includes("归档") || text.includes("合入") || text.includes("推送") || text.includes("纳管") || text.includes("规范") || text.includes("软链") || text.includes("governance") || text.includes("unpushed") || text.includes("unlinked")) {
+    return "organize";
+  }
+  return "cleanup";
+}
+
+function actionTypeMeta(c) {
+  const t = inferActionType(c);
+  if (t === "update") return { key: "update", label: "版本更新", cls: "action-update", rank: 1 };
+  if (t === "optimize") return { key: "optimize", label: "性能优化", cls: "action-optimize", rank: 2 };
+  if (t === "organize") return { key: "organize", label: "结构整理", cls: "action-organize", rank: 3 };
+  return { key: "cleanup", label: "空间清理", cls: "action-cleanup", rank: 4 };
+}
+
+function isOptOrUpdate(c) {
+  const t = inferActionType(c);
+  return t === "update" || t === "optimize" || t === "organize";
+}
+
 function updateTabCounts() {
-  const counts = { all: 0, mac: 0, projects: 0, github: 0, nas: 0, whitelisted: 0 };
+  const counts = { all: 0, opt: 0, mac: 0, projects: 0, github: 0, nas: 0, whitelisted: 0 };
   (REPORT_DATA.candidates || []).forEach(c => {
     if (state.whitelisted[c.id]) {
       counts.whitelisted++;
     } else {
       counts.all++;
+      if (isOptOrUpdate(c)) counts.opt++;
       if (counts[c.domain] != null) counts[c.domain]++;
     }
   });
@@ -2046,7 +2090,14 @@ function renderCandidates() {
   let visibleIndex = 0;
 
   const items = (REPORT_DATA.candidates || []).slice();
-  if (currentSort === "size") {
+  if (currentSort === "opt") {
+    items.sort((a, b) => {
+      const ra = actionTypeMeta(a).rank;
+      const rb = actionTypeMeta(b).rank;
+      if (ra !== rb) return ra - rb;
+      return (Number(b.size_bytes) || 0) - (Number(a.size_bytes) || 0);
+    });
+  } else if (currentSort === "size") {
     items.sort((a, b) => (Number(b.size_bytes) || 0) - (Number(a.size_bytes) || 0));
   } else if (currentSort === "pool") {
     items.sort((a, b) => {
@@ -2064,6 +2115,8 @@ function renderCandidates() {
 
     if (currentDomain === "whitelisted") {
       if (!isWl) return;
+    } else if (currentDomain === "opt") {
+      if (isWl || !isOptOrUpdate(c)) return;
     } else {
       if (isWl) return;
       if (currentDomain !== "all" && c.domain !== currentDomain) return;
@@ -2071,8 +2124,10 @@ function renderCandidates() {
 
     const tier = c.tier || "B";
     const tierLabel = tier === "A" ? "A 级 · 零风险可重建" : (tier === "B" ? "B 级 · 推荐整理" : "C 级 · 需确认时机");
+    const actMeta = actionTypeMeta(c);
     const noteVal = state.notes[c.id] || c.whitelist_note || "";
     const sz = Number(c.size_bytes) || 0;
+    const rightBadge = sz > 0 ? formatBytes(sz) : (c.metric_badge || formatBytes(0));
     const pShort = shortPoolName(c.gauge_id);
 
     // Left = Total Capacity, Middle Progress Bar = [Retained][Preview][This Item Cleaned][Other Checked][Free], Right = Used Capacity
@@ -2119,11 +2174,12 @@ function renderCandidates() {
       <div class="candidate-body">
         <div class="candidate-head">
           <span class="item-id">${escapeHtml(c.id)}</span>
+          <span class="action-tag ${actMeta.cls}">${actMeta.label}</span>
           ${pShort ? `<span class="pool-badge">${escapeHtml(pShort)}</span>` : ""}
           <span class="tier-tag tier-${escapeHtml(tier)}">${tierLabel}</span>
           ${isDone ? '<span class="tier-tag tier-A">已执行</span>' : ""}
           ${isWl ? '<span class="tier-tag tier-C">已豁免</span>' : ""}
-          <span class="candidate-size tabular">${formatBytes(sz)}</span>
+          <span class="candidate-size tabular">${escapeHtml(rightBadge)}</span>
         </div>
         <div class="candidate-title" onclick="clickCardTitle('${escapeHtml(c.id)}')">${escapeHtml(stripLeadingEmoji(c.title))}</div>
         ${impactBarHtml}
@@ -2201,6 +2257,15 @@ function selectByTier(tiers) {
   (REPORT_DATA.candidates || []).forEach(c => {
     if (c.status === "done" || state.whitelisted[c.id]) return;
     state.checked[c.id] = set.has(c.tier || "B");
+  });
+  saveState();
+  renderCandidates();
+}
+
+function selectOptimizations() {
+  (REPORT_DATA.candidates || []).forEach(c => {
+    if (c.status === "done" || state.whitelisted[c.id]) return;
+    if (isOptOrUpdate(c)) state.checked[c.id] = true;
   });
   saveState();
   renderCandidates();
