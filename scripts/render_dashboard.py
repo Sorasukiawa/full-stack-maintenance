@@ -776,35 +776,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     justify-content: space-between;
     gap: 10px;
   }
-  .filter-subbar {
+  .filter-subrow {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 6px 10px;
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-radius: 8px;
-  }
-  .subbar-group {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-  }
-  .subbar-label {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--ink-muted);
-    letter-spacing: 0.03em;
-    padding: 0 4px 0 2px;
   }
   .sub-pills {
     display: inline-flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 2px;
+    padding: 3px;
+    background: var(--bg-recessed);
+    border: 1px solid var(--border-hairline);
+    border-radius: 7px;
   }
   .sub-pills button {
     display: inline-flex;
@@ -813,24 +799,24 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     border: 1px solid transparent;
     background: transparent;
     box-shadow: none;
-    padding: 3.5px 10px;
-    border-radius: 999px;
-    font-size: 11.5px;
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 12px;
     font-weight: 500;
     color: var(--ink-secondary);
+    outline: none;
     transition:
-      background-color 150ms ease,
-      border-color 150ms ease,
-      color 150ms ease,
-      transform 200ms var(--spring-rebound);
+      background-color 160ms ease,
+      border-color 160ms ease,
+      color 160ms ease,
+      transform 220ms var(--spring-rebound);
   }
   .sub-pills button:hover {
     color: var(--ink-primary);
-    background: rgba(125, 122, 114, 0.08);
   }
   .sub-pills button.active {
     background: var(--bg-card);
-    border-color: var(--border-strong);
+    border-color: var(--border-hairline);
     color: var(--ink-primary);
     font-weight: 600;
     box-shadow: var(--shadow-subtle);
@@ -843,9 +829,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   }
   .btn-sub-select {
     font-size: 11.5px;
-    padding: 3.5px 10px;
+    padding: 4px 10px;
     border-radius: 6px;
-    background: var(--bg-card);
+    background: var(--bg-recessed);
     border: 1px solid var(--border-hairline);
     color: var(--ink-secondary);
   }
@@ -1444,29 +1430,26 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
       </div>
 
-      <!-- Level 2: Secondary Action Category Menu (Cleanup / Organize / Optimize / Update) -->
-      <div class="filter-subbar" id="action-subbar">
-        <div class="subbar-group">
-          <span class="subbar-label">二级分类</span>
-          <div class="sub-pills" id="action-tabs" role="tablist" aria-label="二级动作分类">
-            <button class="active" data-action="all" onclick="setActionFilter('all', this)">
-              全部动作 <span class="tab-count" id="acnt-all"></span>
-            </button>
-            <button data-action="cleanup" onclick="setActionFilter('cleanup', this)">
-              <i class="sub-dot" style="background:var(--accent-clay)"></i>空间清理 <span class="tab-count" id="acnt-cleanup"></span>
-            </button>
-            <button data-action="organize" onclick="setActionFilter('organize', this)">
-              <i class="sub-dot" style="background:var(--tone-ochre)"></i>结构整理 <span class="tab-count" id="acnt-organize"></span>
-            </button>
-            <button data-action="optimize" onclick="setActionFilter('optimize', this)">
-              <i class="sub-dot" style="background:var(--tone-sage)"></i>性能优化 <span class="tab-count" id="acnt-optimize"></span>
-            </button>
-            <button data-action="update" onclick="setActionFilter('update', this)">
-              <i class="sub-dot" style="background:#6E98B8"></i>版本更新 <span class="tab-count" id="acnt-update"></span>
-            </button>
-          </div>
+      <!-- Level 2: Clean Secondary Action Category Row -->
+      <div class="filter-subrow" id="action-subbar">
+        <div class="sub-pills" id="action-tabs" role="tablist" aria-label="动作分类">
+          <button class="active" data-action="all" onclick="setActionFilter('all', this)">
+            全部 <span class="tab-count" id="acnt-all"></span>
+          </button>
+          <button data-action="cleanup" onclick="setActionFilter('cleanup', this)">
+            <i class="sub-dot" style="background:var(--accent-clay)"></i>空间清理 <span class="tab-count" id="acnt-cleanup"></span>
+          </button>
+          <button data-action="organize" onclick="setActionFilter('organize', this)">
+            <i class="sub-dot" style="background:var(--tone-ochre)"></i>结构整理 <span class="tab-count" id="acnt-organize"></span>
+          </button>
+          <button data-action="optimize" onclick="setActionFilter('optimize', this)">
+            <i class="sub-dot" style="background:var(--tone-sage)"></i>性能优化 <span class="tab-count" id="acnt-optimize"></span>
+          </button>
+          <button data-action="update" onclick="setActionFilter('update', this)">
+            <i class="sub-dot" style="background:#6E98B8"></i>版本更新 <span class="tab-count" id="acnt-update"></span>
+          </button>
         </div>
-        <button type="button" class="btn-sub-select" onclick="selectVisibleCategory()">勾选当前筛选分类</button>
+        <button type="button" class="btn-sub-select" onclick="selectVisibleCategory()">全选当前列表</button>
       </div>
     </div>
 
