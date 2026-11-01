@@ -38,8 +38,9 @@
 
 ### 策略 A：支持原生并行子代理的宿主（推荐）
 - **Google Antigravity**：在同一轮调用 4 次 `invoke_subagent`（`TypeName: "research"` 或 `"self"`），分别负责 **Mac 与备份**、**本地多仓库与 Worktree**、**GitHub 全账号远端**、**NAS 与 PVE Homelab**。无需轮询等待，4 个子代理完成后会自动唤醒主会话汇总。
-- **Claude Code**：在同一轮并行发起 4 个 `Task`（`subagent_type: "Explore"` 或 `"general-purpose"`），要求每个子代理只做只读盘点并返回结构化 JSON 候选列表。
-- **OpenAI Codex / OpenCode**：若当前环境开启了并行 subagent / `task` 工具，按同样方式分 4 路只读派发。
+  - **坑与内存回收**：Antigravity 的子代理完成后默认停留在 `idle` 状态等待后续消息，不会自动退出；若巡检 + 执行累计派生 7~8 个子代理，会把 `language_server` 内存撑高数 GB。**在每阶段收齐子代理 JSON 报告后，必须立即调用 `manage_subagents(Action: "kill_all")` 销毁已完工的子代理释放内存**（日志与产物仍会自动保留）。
+- **Claude Code**：在同一轮并行发起 4 个 `Task`（`subagent_type: "Explore"` 或 `"general-purpose"`），要求每个子代理只做只读盘点并返回结构化 JSON 候选列表（`Task` 返回后自动销毁上下文）。
+- **OpenAI Codex / OpenCode**：若当前环境开启了并行 subagent / `task` 工具，按同样方式分 4 路只读派发，并在汇总后关闭临时子会话。
 
 ### 策略 B：不支持子代理的宿主（Cursor / Windsurf / Cline 或受限环境）
 - 自动回退为**主会话分批并行命令执行**：

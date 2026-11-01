@@ -54,6 +54,7 @@ metadata:
    - **子代理 2（本地项目群与 AI 工具）**：遍历 `workspace_roots` 与 `worktree_hubs`，检查各仓库未提交改动、已合并可退役的 Worktree、缺少 `合入前检查：` 的 `AGENTS.md`、缺失的 `CLAUDE.md`、以及散落的编译产物。
    - **子代理 3（GitHub 全账号远端）**：用 `gh` 盘点全部公开/私有仓库，筛出长期废弃或已合并的远端分支（如 `checkpoints/*`）、近期失败的 GitHub Actions、以及已完成历史使命可 `gh repo archive` 的仓库。
    - **子代理 4（NAS 与 PVE Homelab）**：当 `homelab.enabled` 为 `true` 时，只读检查 PVE 节点 `/boot/efi`、`pve-root`、`local-lvm` 水位、各 VM/LXC 磁盘占用与 `unused` 卷、Docker 容器健康状态（`unhealthy` / 重启循环）与镜像缓存、以及 NAS 各存储池与 `#recycle` 回收站占用。
+   - **子代理内存及时回收**：四路子代理交卷并完成数据汇总后，在子代理默认保持 `idle` 驻留内存的宿主（如 Google Antigravity）中立即调用 `manage_subagents(Action: "kill_all")` 销毁已完工的子代理，避免多会话上下文长驻撑高宿主内存。
    - 四域详细排查清单与 5 大跨层存储陷阱见 [四域巡检与跨层陷阱参考](references/domains-and-traps.md)。
 
 ## 4. 生成交互式 HTML 水位模拟看板
@@ -91,7 +92,8 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py" \
 2. **分域安全执行与跨层物理释放核验**：
    - 删除后必须核对 `df -h` 真实可用空间变化，不能只看 `du` 目录减少量。
    - 若删除数十 GB 后可用空间未明显上升，按 [四域巡检与跨层陷阱参考](references/domains-and-traps.md) 依次排查并回收：**APFS 本地快照锁死**（`tmutil thinlocalsnapshots`）、**PVE LXC 未回收块**（`pct fstrim <ctid>`）、**NAS SMB `#recycle` 回收站截留**、以及**iCloud 备份冗余 `.cms` 分块**（注意只对本地驻留块运行校验，防止触发云端回下风暴）。
-3. **收尾更新看板与基线**：
+3. **收尾更新看板、基线与回收子代理**：
+   - 若执行阶段派出了并发子代理，收齐验证结果后立即调用 `manage_subagents(Action: "kill_all")` 销毁已完工子代理释放内存；
    - 将已完成条目的 `status` 标为 `"done"`，重新渲染 HTML 看板供用户留存；
    - 若用户标记了新的「🛡️ 长期豁免」项，将其写入 `config/topology.local.json`；
    - 采集清理后的干净快照保存为新的 `work/full-stack/baseline-snapshot.json`，供下次巡检对比。
