@@ -780,9 +780,142 @@ def check_git_dirty(target: Path) -> bool:
             timeout=4,
             check=False,
         )
+        if proc.returncode != 0:
+            return True
         return bool(proc.stdout.strip())
     except Exception:
         return True
+
+
+def is_git_worktree_or_repo(target: Path, item: dict[str, Any]) -> bool:
+    if target.is_dir() and (target / ".git").exists():
+        return True
+    cat = str(item.get("category") or "").lower()
+    kind = str(item.get("kind") or "").lower()
+    return "worktree" in cat or kind == "worktree"
+
+
+def git_metadata_latest_mtime(target: Path) -> int:
+    """Inspect .git metadata files (index, HEAD, worktree gitdir) so large repos >10k files still catch recent git activity."""
+    git_entry = target / ".git"
+    if not git_entry.exists():
+        return 0
+    latest = 0
+    candidates: list[Path] = [git_entry]
+    try:
+        if git_entry.is_file():
+            raw = git_entry.read_text(encoding="utf-8", errors="replace").strip()
+            if raw.startswith("gitdir:"):
+                gitdir_raw = raw.split(":", 1)[1].strip()
+                gitdir = (target / gitdir_raw).resolve(strict=False)
+                candidates.extend([gitdir, gitdir / "index", gitdir / "HEAD", gitdir / "ORIG_HEAD"])
+        elif git_entry.is_dir():
+            candidates.extend(
+                [
+                    git_entry / "index",
+                    git_entry / "HEAD",
+                    git_entry / "FETCH_HEAD",
+                    git_entry / "ORIG_HEAD",
+                ]
+            )
+    except OSError:
+        pass
+
+    for p in candidates:
+        try:
+            st = os.stat(p, follow_symlinks=False)
+            mtime = int(st.st_mtime)
+            if mtime > latest:
+                latest = mtime
+        except OSError:
+            pass
+    return latest
+
+
+def is_remote_or_non_fs_spec(raw_path: str, item: dict[str, Any]) -> bool:
+    s = raw_path.strip()
+    if not s:
+        return True
+    if item.get("domain") == "github" and not s.startswith(("/", "~", ".")):
+        return True
+    if not s.startswith(("/", "~", ".")) and ":" in s:
+        return True
+    return False
+
+
+def evaluate_single_target(
+    raw_path: str,
+    item: dict[str, Any],
+    wl_index: dict[str, Any],
+    cutoff_ts: float,
+    recent_minutes: float,
+    skip_lsof: bool,
+) -> dict[str, Any]:
+    if is_remote_or_non_fs_spec(raw_path, item):
+        return {
+            "path": raw_path,
+            "status": "SAFE_TO_EXECUTE",
+            "reason": "Non-filesystem or remote action; verify via domain tool.",
+        }
+
+    raw_expanded = os.path.expanduser(raw_path)
+    target = Path(raw_expanded)
+    whitelisted, wl_note = check_path_whitelisted(target, wl_index)
+    if whitelisted or item.get("whitelisted"):
+        return {
+            "path": str(target),
+            "status": "BLOCKED_WHITELISTED",
+            "reason": wl_note or item.get("whitelist_note") or "Target is in whitelist",
+        }
+
+    if not target.exists() and not target.is_symlink():
+        return {
+            "path": str(target),
+            "status": "MISSING_ALREADY_DONE",
+            "reason": "Target path no longer exists.",
+        }
+
+    if target.is_symlink():
+        return {
+            "path": str(target),
+            "status": "BLOCKED_SYMLINK_ROOT",
+            "reason": "Target root is a symbolic link; inspect link target manually.",
+        }
+
+    _, _, latest_mtime = bounded_dir_size(target, max_entries=10000, max_seconds=3.0)
+    if target.is_dir():
+        latest_mtime = max(latest_mtime, git_metadata_latest_mtime(target))
+
+    if latest_mtime > cutoff_ts:
+        age_min = max(0.0, (time.time() - latest_mtime) / 60.0)
+        return {
+            "path": str(target),
+            "status": "BLOCKED_RECENT_ACTIVITY",
+            "reason": f"Modified {age_min:.1f} minutes ago (threshold: {recent_minutes}m); another session may be active.",
+        }
+
+    if is_git_worktree_or_repo(target, item):
+        if check_git_dirty(target):
+            return {
+                "path": str(target),
+                "status": "BLOCKED_DIRTY_WORKTREE",
+                "reason": "Worktree has uncommitted or untracked changes.",
+            }
+
+    if not skip_lsof:
+        holders = check_open_handles(target)
+        if holders:
+            return {
+                "path": str(target),
+                "status": "BLOCKED_OPEN_HANDLES",
+                "reason": f"Open file handles held by: {', '.join(holders)}",
+            }
+
+    return {
+        "path": str(target),
+        "status": "SAFE_TO_EXECUTE",
+        "reason": "Passed whitelist, symlink, recent-mtime, and handle checks.",
+    }
 
 
 def cmd_preflight(args: argparse.Namespace) -> int:
@@ -814,102 +947,81 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         if selected_ids is not None and item_id not in selected_ids:
             continue
 
-        raw_path = item.get("path", "")
-        if not raw_path:
-            results.append(
-                {
-                    "id": item_id,
-                    "path": "",
-                    "status": "SAFE_TO_EXECUTE",
-                    "reason": "Non-filesystem or remote action; verify via domain tool.",
-                }
-            )
-            continue
-
-        target = Path(raw_path)
-        whitelisted, wl_note = check_path_whitelisted(target, wl_index)
-        if whitelisted or item.get("whitelisted"):
-            blocked_count += 1
-            results.append(
-                {
-                    "id": item_id,
-                    "path": str(target),
-                    "status": "BLOCKED_WHITELISTED",
-                    "reason": wl_note or item.get("whitelist_note") or "Target is in whitelist",
-                }
-            )
-            continue
-
-        if not target.exists() and not target.is_symlink():
-            results.append(
-                {
-                    "id": item_id,
-                    "path": str(target),
-                    "status": "MISSING_ALREADY_DONE",
-                    "reason": "Target path no longer exists.",
-                }
-            )
-            continue
-
-        if target.is_symlink():
-            blocked_count += 1
-            results.append(
-                {
-                    "id": item_id,
-                    "path": str(target),
-                    "status": "BLOCKED_SYMLINK_ROOT",
-                    "reason": "Target root is a symbolic link; inspect link target manually.",
-                }
-            )
-            continue
-
-        _, _, latest_mtime = bounded_dir_size(target, max_entries=10000, max_seconds=3.0)
-        if latest_mtime > cutoff_ts:
-            blocked_count += 1
-            age_min = max(0.0, (time.time() - latest_mtime) / 60.0)
-            results.append(
-                {
-                    "id": item_id,
-                    "path": str(target),
-                    "status": "BLOCKED_RECENT_ACTIVITY",
-                    "reason": f"Modified {age_min:.1f} minutes ago (threshold: {recent_minutes}m); another session may be active.",
-                }
-            )
-            continue
-
-        if item.get("category") == "worktree" or item.get("kind") == "worktree":
-            if check_git_dirty(target):
+        raw_paths = item.get("paths")
+        if isinstance(raw_paths, list) and len(raw_paths) > 0:
+            sub_results = [
+                evaluate_single_target(
+                    str(p),
+                    item,
+                    wl_index,
+                    cutoff_ts,
+                    recent_minutes,
+                    args.skip_lsof,
+                )
+                for p in raw_paths
+            ]
+            safe_paths = [r["path"] for r in sub_results if r["status"] == "SAFE_TO_EXECUTE"]
+            blocked_subs = [r for r in sub_results if r["status"].startswith("BLOCKED_")]
+            if blocked_subs:
                 blocked_count += 1
+                first_blocked = blocked_subs[0]
                 results.append(
                     {
                         "id": item_id,
-                        "path": str(target),
-                        "status": "BLOCKED_DIRTY_WORKTREE",
-                        "reason": "Worktree has uncommitted or untracked changes.",
+                        "path": str(item.get("path") or first_blocked["path"]),
+                        "status": first_blocked["status"],
+                        "reason": (
+                            f"{len(blocked_subs)}/{len(sub_results)} sub-targets blocked "
+                            f"(first: {first_blocked['path']} -> {first_blocked['reason']})"
+                        ),
+                        "safe_paths": safe_paths,
+                        "blocked_paths": [r["path"] for r in blocked_subs],
+                        "sub_results": sub_results,
                     }
                 )
-                continue
-
-        if not args.skip_lsof:
-            holders = check_open_handles(target)
-            if holders:
-                blocked_count += 1
+            elif all(r["status"] == "MISSING_ALREADY_DONE" for r in sub_results):
                 results.append(
                     {
                         "id": item_id,
-                        "path": str(target),
-                        "status": "BLOCKED_OPEN_HANDLES",
-                        "reason": f"Open file handles held by: {', '.join(holders)}",
+                        "path": str(item.get("path") or sub_results[0]["path"]),
+                        "status": "MISSING_ALREADY_DONE",
+                        "reason": "All sub-target paths no longer exist.",
+                        "safe_paths": [],
+                        "blocked_paths": [],
+                        "sub_results": sub_results,
                     }
                 )
-                continue
+            else:
+                results.append(
+                    {
+                        "id": item_id,
+                        "path": str(item.get("path") or sub_results[0]["path"]),
+                        "status": "SAFE_TO_EXECUTE",
+                        "reason": f"All {len(safe_paths)} present sub-targets passed preflight checks.",
+                        "safe_paths": safe_paths,
+                        "blocked_paths": [],
+                        "sub_results": sub_results,
+                    }
+                )
+            continue
 
+        raw_path = str(item.get("path") or "")
+        single = evaluate_single_target(
+            raw_path,
+            item,
+            wl_index,
+            cutoff_ts,
+            recent_minutes,
+            args.skip_lsof,
+        )
+        if single["status"].startswith("BLOCKED_"):
+            blocked_count += 1
         results.append(
             {
                 "id": item_id,
-                "path": str(target),
-                "status": "SAFE_TO_EXECUTE",
-                "reason": "Passed whitelist, symlink, recent-mtime, and handle checks.",
+                "path": single["path"],
+                "status": single["status"],
+                "reason": single["reason"],
             }
         )
 

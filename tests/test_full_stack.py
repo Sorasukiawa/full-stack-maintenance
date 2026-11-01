@@ -1,6 +1,7 @@
 import json
 import os
 import plistlib
+import subprocess
 import sys
 import tempfile
 import time
@@ -306,6 +307,100 @@ class FullStackMaintenanceTests(unittest.TestCase):
         self.assertEqual(status_map["t-link"], "BLOCKED_SYMLINK_ROOT")
         self.assertEqual(status_map["t-missing"], "MISSING_ALREADY_DONE")
         self.assertEqual(res["overall_status"], "PARTIAL_BLOCKED")
+
+    def test_preflight_git_auto_detect_multi_paths_and_remote_specs(self) -> None:
+        old_ts = time.time() - 7200  # 2 hours ago
+
+        # 1. Dirty git repo with custom category (should auto-detect .git and return BLOCKED_DIRTY_WORKTREE)
+        dirty_repo = self.root / "dirty_worktree"
+        dirty_repo.mkdir()
+        subprocess.run(["git", "-C", str(dirty_repo), "init", "-q"], check=True)
+        untracked = dirty_repo / "untracked.txt"
+        untracked.write_text("wip", encoding="utf-8")
+        for root_p, dirs, files in os.walk(dirty_repo):
+            for name in files + dirs:
+                p = Path(root_p) / name
+                os.utime(p, (old_ts, old_ts), follow_symlinks=False)
+        os.utime(dirty_repo, (old_ts, old_ts))
+
+        # 2. Multi-path aggregated item (one safe sub-path, one active sub-path)
+        sub_safe = self.root / "sub_safe"
+        sub_safe.mkdir()
+        f_safe = sub_safe / "a.bin"
+        f_safe.write_bytes(b"ok")
+        os.utime(f_safe, (old_ts, old_ts))
+        os.utime(sub_safe, (old_ts, old_ts))
+
+        sub_busy = self.root / "sub_busy"
+        sub_busy.mkdir()
+        (sub_busy / "recent.bin").write_bytes(b"busy")
+
+        config_path = self.root / "topology.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "thresholds": {"recent_activity_minutes": 60},
+                    "whitelist": {
+                        "paths": [],
+                        "repos": [],
+                        "app_names": [],
+                        "guest_ids": [],
+                        "notes": {},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        targets_path = self.root / "targets_ext.json"
+        targets_path.write_text(
+            json.dumps(
+                {
+                    "candidates": [
+                        {
+                            "id": "t-git-dirty",
+                            "category": "~/Codex (本地项目与构建)",
+                            "path": str(dirty_repo),
+                        },
+                        {
+                            "id": "t-multi",
+                            "path": str(self.root),
+                            "paths": [str(sub_safe), str(sub_busy)],
+                        },
+                        {
+                            "id": "t-remote",
+                            "domain": "nas",
+                            "path": "pve:local-lvm",
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        out_path = self.root / "preflight_ext.json"
+        rc = full_stack_tool.main(
+            [
+                "preflight",
+                "--config",
+                str(config_path),
+                "--targets",
+                str(targets_path),
+                "--skip-lsof",
+                "--output",
+                str(out_path),
+            ]
+        )
+        self.assertEqual(rc, 0)
+        res = json.loads(out_path.read_text(encoding="utf-8"))
+        by_id = {r["id"]: r for r in res["results"]}
+
+        self.assertEqual(by_id["t-git-dirty"]["status"], "BLOCKED_DIRTY_WORKTREE")
+        self.assertEqual(by_id["t-multi"]["status"], "BLOCKED_RECENT_ACTIVITY")
+        self.assertEqual(by_id["t-multi"]["safe_paths"], [str(sub_safe)])
+        self.assertEqual(by_id["t-multi"]["blocked_paths"], [str(sub_busy)])
+        self.assertEqual(by_id["t-remote"]["status"], "SAFE_TO_EXECUTE")
 
 
 if __name__ == "__main__":

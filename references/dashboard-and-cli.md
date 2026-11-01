@@ -133,8 +133,10 @@ python3 scripts/full_stack_tool.py preflight \
 |---|---|
 | `SAFE_TO_EXECUTE` | 通过白名单、符号链接、最近修改时间（默认 60 分钟）与打开句柄检查，可执行已授权操作 |
 | `BLOCKED_WHITELISTED` | 命中 `whitelist.paths`（含父子路径或同设备 inode），强制跳过 |
-| `BLOCKED_RECENT_ACTIVITY` | 目录内存在最近 `recent_activity_minutes` 分钟内新增或修改的文件，疑似其他 AI 会话正在并发使用，跳过保护 |
+| `BLOCKED_RECENT_ACTIVITY` | 目录内文件或 `.git` 索引/HEAD 存在最近 `recent_activity_minutes` 分钟内新增或修改，疑似其他 AI 会话正在并发使用，跳过保护 |
 | `BLOCKED_OPEN_HANDLES` | `lsof` 检测到有活跃进程正打开该目录下的文件，跳过保护 |
-| `BLOCKED_DIRTY_WORKTREE` | 目标为 Git worktree 且含有未提交改动或未跟踪文件，跳过保护 |
+| `BLOCKED_DIRTY_WORKTREE` | 目标含 `.git`（仓库或 worktree）且含有未提交改动或未跟踪文件，跳过保护 |
 | `BLOCKED_SYMLINK_ROOT` | 目标根路径本身是符号链接，拒绝自动递归清理 |
 | `MISSING_ALREADY_DONE` | 目标路径已不存在，无需重复操作 |
+
+- **多子路径聚合卡片支持（`paths` 数组）**：若候选项包含 `paths: ["/path/a", "/path/b"]`，`preflight` 会逐一检查每个子路径并返回 `safe_paths`、`blocked_paths` 与 `sub_results`，调用方仅对 `safe_paths` 执行清理并自动跳过 `blocked_paths`。
