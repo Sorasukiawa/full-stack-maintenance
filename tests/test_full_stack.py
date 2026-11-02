@@ -229,6 +229,10 @@ class FullStackMaintenanceTests(unittest.TestCase):
         self.assertIn("localStorage", html_content)
         self.assertIn("微调备注", html_content)
         self.assertIn("距上次巡检基线变化", html_content)
+        self.assertIn("ring-overview-page", html_content)
+        self.assertIn("ring-arc-cleaned", html_content)
+        self.assertIn("mini-rings-strip", html_content)
+        self.assertIn("animateRingTo", html_content)
 
     def test_preflight_concurrency_and_whitelist_guards(self) -> None:
         safe_dir = self.root / "safe_old_cache"

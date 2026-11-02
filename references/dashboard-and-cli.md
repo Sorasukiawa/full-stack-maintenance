@@ -109,13 +109,17 @@ python3 scripts/render_dashboard.py \
 ```
 
 看板内置特性：
-1. **实时水位模拟器**：每个候选项通过 `gauge_id` 关联对应存储池；勾选或取消时实时重算释放后的水位百分比与颜色（绿/黄/红）。
-2. **`localStorage` 状态持久化**：用户的勾选状态、填写的「✏️ 微调备注」以及点击的「🛡️ 长期豁免」均自动保存在浏览器 `localStorage` 中，刷新页面不会丢失。
-3. **一键复制执行指令**：生成可直接粘贴回 AI 对话框的 Markdown 文本，包含勾选的 `id`、路径、用户手写的单项微调备注，以及新增的白名单豁免项。
+1. **首屏大圆环总览与三列对齐明细（默认视图 `ring-overview-page`）**：
+   - 打开看板默认展示代表存储池 100% 总容量的大圆环（深灰段＝清理后保留已用、**翡翠绿高亮扇区＝本次清掉释放空间**、陶土橙扇区＝悬停明细项焦点占比）；
+   - 右侧配齐 4 张等高核心指标卡与 `3 × 3` 全栈存储卷切换矩阵（支持点击切换单盘或全盘总览，带可打断临界阻尼弹簧动画 `animateRingTo`）；
+   - 圆环正下方按「空间清理明细」「系统、备份管线与远端治理优化」「自动整树豁免与长期白名单保护」三组列出 3 列网格对齐的完整明细。
+2. **勾选与微调工作台（切换视图 `workbench-page`）**：每个候选项通过 `gauge_id` 关联对应存储池；勾选或取消时实时重算释放后的水位百分比与颜色（绿/黄/红）。
+3. **`localStorage` 状态持久化**：用户的勾选状态、填写的「✏️ 微调备注」以及点击的「🛡️ 长期豁免」均自动保存在浏览器 `localStorage` 中，刷新页面不会丢失。
+4. **一键复制执行指令**：生成可直接粘贴回 AI 对话框的 Markdown 文本，包含勾选的 `id`、路径、用户手写的单项微调备注，以及新增的白名单豁免项。
 
 ---
 
-## 5. 执行前二次并发安全复查（`preflight`）
+## 5. 执行前二次并发安全复查（`preflight`）与隔离区暂存（`quarantine`）
 
 在真正执行清理动作前，对用户勾选的条目运行 `preflight`：
 
@@ -131,8 +135,9 @@ python3 scripts/full_stack_tool.py preflight \
 
 | 状态值 | 含义与代理动作 |
 |---|---|
-| `SAFE_TO_EXECUTE` | 通过白名单、符号链接、最近修改时间（默认 60 分钟）与打开句柄检查，可执行已授权操作 |
+| `SAFE_TO_EXECUTE` | 通过白名单、符号链接、最近修改时间、工作树整树豁免与打开句柄检查，可执行已授权操作 |
 | `BLOCKED_WHITELISTED` | 命中 `whitelist.paths`（含父子路径或同设备 inode），强制跳过 |
+| `BLOCKED_ACTIVE_WORKTREE` | 祖先 Git 工作树或 Codex 活跃会话在 `worktree_active_hours`（默认 48 小时）内有活动，**整棵工作树连带豁免**（含 `target`、`distribution/artifacts` 等全部子目录） |
 | `BLOCKED_RECENT_ACTIVITY` | 目录内文件或 `.git` 索引/HEAD 存在最近 `recent_activity_minutes` 分钟内新增或修改，疑似其他 AI 会话正在并发使用，跳过保护 |
 | `BLOCKED_OPEN_HANDLES` | `lsof` 检测到有活跃进程正打开该目录下的文件，跳过保护 |
 | `BLOCKED_DIRTY_WORKTREE` | 目标含 `.git`（仓库或 worktree）且含有未提交改动或未跟踪文件，跳过保护 |
@@ -140,3 +145,16 @@ python3 scripts/full_stack_tool.py preflight \
 | `MISSING_ALREADY_DONE` | 目标路径已不存在，无需重复操作 |
 
 - **多子路径聚合卡片支持（`paths` 数组）**：若候选项包含 `paths: ["/path/a", "/path/b"]`，`preflight` 会逐一检查每个子路径并返回 `safe_paths`、`blocked_paths` 与 `sub_results`，调用方仅对 `safe_paths` 执行清理并自动跳过 `blocked_paths`。
+- **闲置项目构建产物移入隔离区暂存（`quarantine` / `purge-quarantine`）**：
+  ```bash
+  # 将通过 preflight 的闲置项目构建产物移入外置盘隔离区并生成 restore.sh
+  python3 scripts/full_stack_tool.py quarantine \
+    --config config/topology.local.json \
+    --preflight work/full-stack/preflight.json \
+    --output work/full-stack/quarantine-result.json --overwrite
+
+  # 待用户确认无误或超过保留天数后彻底清空隔离区批次
+  python3 scripts/full_stack_tool.py purge-quarantine \
+    --config config/topology.local.json --all \
+    --output work/full-stack/purge-result.json --overwrite
+  ```
