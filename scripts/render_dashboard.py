@@ -1295,6 +1295,394 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       transition-timing-function: ease !important;
     }
   }
+
+  /* ==========================================================================
+     FIRST-SCREEN GIANT STORAGE RING HERO & DETAILED BREAKDOWN
+     ========================================================================== */
+  .view-mode-switch {
+    display: inline-flex;
+    padding: 3px;
+    background: var(--bg-recessed);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    gap: 3px;
+  }
+  .view-mode-switch button {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--ink-secondary);
+  }
+  .view-mode-switch button.active {
+    background: var(--accent-clay);
+    color: #FAF9F5;
+    font-weight: 600;
+    box-shadow: var(--shadow-subtle);
+  }
+
+  .ring-hero-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-hairline);
+    border-radius: 14px;
+    padding: 26px 28px;
+    box-shadow: var(--shadow-subtle);
+    margin-bottom: 24px;
+  }
+  .ring-pool-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 22px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-hairline);
+    align-items: center;
+    justify-content: space-between;
+  }
+  .ring-pill-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .ring-pool-pill {
+    padding: 6px 13px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 500;
+    background: var(--bg-recessed);
+    border: 1px solid var(--border-hairline);
+    color: var(--ink-secondary);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ring-pool-pill.active {
+    background: var(--ink-primary);
+    color: var(--bg-page);
+    border-color: var(--ink-primary);
+    font-weight: 600;
+  }
+  .ring-pool-pill .pill-saved {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--tone-sage);
+    font-weight: 600;
+  }
+  .ring-pool-pill.active .pill-saved {
+    color: #7CE8B0;
+  }
+  [data-theme="dark"] .ring-pool-pill.active .pill-saved {
+    color: #2E6B4E;
+  }
+
+  .ring-hero-layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 32px;
+    align-items: center;
+  }
+  @media (max-width: 860px) {
+    .ring-hero-layout {
+      grid-template-columns: 1fr;
+      justify-items: center;
+    }
+  }
+  .giant-ring-stage {
+    position: relative;
+    width: 290px;
+    height: 290px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .giant-ring-svg {
+    width: 290px;
+    height: 290px;
+    transform: rotate(-90deg);
+    overflow: visible;
+  }
+  .ring-seg {
+    fill: none;
+    stroke-width: 30;
+    stroke-linecap: butt;
+    transition:
+      stroke-dasharray 460ms var(--spring-soft),
+      stroke-dashoffset 460ms var(--spring-soft),
+      stroke 200ms ease;
+  }
+  .ring-seg-cleaned {
+    filter: drop-shadow(0 0 8px rgba(82, 163, 122, 0.35));
+  }
+  .ring-seg-focus {
+    filter: drop-shadow(0 0 10px rgba(217, 119, 87, 0.45));
+  }
+  .giant-ring-center {
+    position: absolute;
+    inset: 42px;
+    border-radius: 50%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 12px;
+    pointer-events: none;
+  }
+  .ring-center-kicker {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    margin-bottom: 2px;
+  }
+  .ring-center-big {
+    font-family: var(--font-serif);
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--tone-sage);
+    letter-spacing: -0.02em;
+    margin: 2px 0 6px;
+  }
+  .ring-center-water {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: var(--tone-sage-bg);
+    color: var(--tone-sage);
+    margin-bottom: 5px;
+  }
+  .ring-center-sub {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-secondary);
+  }
+
+  .ring-right-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+    width: 100%;
+  }
+  .ring-headline-box {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .ring-pool-title {
+    font-family: var(--font-serif);
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--ink-primary);
+    margin: 0;
+  }
+  .ring-pool-desc {
+    font-size: 13px;
+    color: var(--ink-secondary);
+    margin: 0;
+  }
+  .ring-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+  @media (max-width: 680px) {
+    .ring-kpi-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  .ring-kpi-card {
+    background: var(--bg-recessed);
+    border: 1px solid var(--border-hairline);
+    border-radius: 9px;
+    padding: 11px 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .ring-kpi-card.highlight-cleaned {
+    background: var(--tone-sage-bg);
+    border-color: rgba(82, 163, 122, 0.38);
+  }
+  .ring-kpi-label {
+    font-size: 11.5px;
+    color: var(--ink-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ring-kpi-val {
+    font-family: var(--font-mono);
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--ink-primary);
+  }
+  .ring-kpi-card.highlight-cleaned .ring-kpi-val {
+    color: var(--tone-sage);
+  }
+  .ring-kpi-sub {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-muted);
+  }
+
+  .mini-rings-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 9px;
+  }
+  .mini-ring-card {
+    background: var(--bg-recessed);
+    border: 1px solid var(--border-hairline);
+    border-radius: 9px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    cursor: pointer;
+    transition: border-color 150ms ease, transform 200ms var(--spring-rebound), background-color 150ms ease;
+  }
+  .mini-ring-card:hover {
+    border-color: var(--border-strong);
+  }
+  .mini-ring-card.active {
+    background: var(--bg-card);
+    border-color: var(--tone-sage);
+    box-shadow: 0 0 0 1px var(--tone-sage);
+  }
+  .mini-ring-svg {
+    width: 44px;
+    height: 44px;
+    transform: rotate(-90deg);
+    flex-shrink: 0;
+  }
+  .mini-ring-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+  }
+  .mini-ring-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mini-ring-saved {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--tone-sage);
+  }
+  .mini-ring-meta {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--ink-muted);
+  }
+
+  /* Detailed Breakdown Below Ring */
+  .detail-group-block {
+    background: var(--bg-card);
+    border: 1px solid var(--border-hairline);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 18px;
+    box-shadow: var(--shadow-subtle);
+  }
+  .detail-group-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--border-hairline);
+  }
+  .detail-group-title {
+    font-family: var(--font-serif);
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--ink-primary);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .detail-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .detail-row {
+    background: var(--bg-recessed);
+    border: 1px solid var(--border-hairline);
+    border-radius: 8px;
+    padding: 11px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: border-color 150ms ease, transform 180ms ease;
+  }
+  .detail-row:hover {
+    border-color: var(--accent-clay);
+  }
+  .detail-row-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .detail-row-title {
+    font-weight: 600;
+    font-size: 13.5px;
+    color: var(--ink-primary);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+  }
+  .detail-row-amount {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--tone-sage);
+    white-space: nowrap;
+  }
+  .detail-row-bar {
+    height: 6px;
+    width: 100%;
+    background: var(--bar-free);
+    border-radius: 999px;
+    overflow: hidden;
+    display: flex;
+  }
+  .detail-row-bar-fill {
+    height: 100%;
+    background: var(--tone-sage);
+    border-radius: 999px;
+    transition: width 320ms var(--spring-soft);
+  }
+  .detail-row:hover .detail-row-bar-fill {
+    background: var(--accent-clay);
+  }
+  .detail-row-desc {
+    font-size: 12.2px;
+    color: var(--ink-secondary);
+    line-height: 1.45;
+  }
 </style>
 </head>
 <body>
@@ -1327,18 +1715,97 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <div class="container">
   <div class="editorial-header">
     <div>
-      <div class="editorial-kicker">STORAGE ANATOMY &amp; RECLAIM SIMULATION</div>
+      <div class="editorial-kicker">STORAGE RING OVERVIEW &amp; CLEANUP REPORT</div>
       <h1>__HEADING__</h1>
       <p class="editorial-subtitle">
-        巡检快照时间：__GENERATED_AT__ · 覆盖本机 APFS 宗卷、本地开发工程、GitHub 远端仓库与 NAS / PVE 虚拟化节点。勾选下方条目可实时模拟各存储池清理后的空间水位，并一键导出安全执行指令。
+        巡检快照时间：__GENERATED_AT__ · 首屏圆环直接展示整机/各盘总容量与<strong>本次清掉的空间（翡翠绿高亮段）</strong>，下方按硬盘与类别列出全部清理、系统优化与安全保护明细。
       </p>
     </div>
-    <div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <div class="view-mode-switch" role="tablist" aria-label="页面视图切换">
+        <button type="button" id="view-btn-ring" class="active" onclick="switchMainView('ring')">🎯 圆环总览与明细</button>
+        <button type="button" id="view-btn-workbench" onclick="switchMainView('workbench')">🎛️ 勾选与微调工作台</button>
+      </div>
       <button class="btn-ghost" onclick="resetSavedState()">重置缓存状态</button>
     </div>
   </div>
 
-  <!-- ==================== INTERACTIVE STORAGE VISUALIZATION ==================== -->
+  <!-- ==================== PAGE 1 (DEFAULT): GIANT STORAGE RING & DETAILED LIST ==================== -->
+  <div id="ring-overview-page">
+    <section class="ring-hero-card">
+      <div class="ring-pool-pills">
+        <div class="ring-pill-group" id="ring-pool-pills"></div>
+        <span class="section-caption" id="ring-hover-hint">提示：点击上方不同硬盘可切换大圆环；悬停下方明细行可在圆环上以陶土橙高亮该项占比</span>
+      </div>
+
+      <div class="ring-hero-layout">
+        <!-- Giant Donut Ring representing 100% Disk Capacity -->
+        <div class="giant-ring-stage">
+          <svg class="giant-ring-svg" viewBox="0 0 280 280" aria-label="磁盘容量与本次清理比例圆环图">
+            <!-- Base track: 100% capacity (uncovered part = Original Free Space) -->
+            <circle cx="140" cy="140" r="108" fill="none" stroke="var(--bar-free)" stroke-width="30"></circle>
+            <!-- Segment 1: Retained Used Space after cleanup -->
+            <circle id="ring-arc-retained" class="ring-seg" cx="140" cy="140" r="108"
+              stroke="var(--bar-retained)" stroke-dasharray="0 678.58" stroke-dashoffset="0"></circle>
+            <!-- Segment 2: Cleaned / Reclaimed Space (Distinct Emerald Sage Color!) -->
+            <circle id="ring-arc-cleaned" class="ring-seg ring-seg-cleaned" cx="140" cy="140" r="108"
+              stroke="var(--tone-sage)" stroke-dasharray="0 678.58" stroke-dashoffset="0"></circle>
+            <!-- Segment 3: Hovered Focus Item Slice (Terracotta Orange) -->
+            <circle id="ring-arc-focus" class="ring-seg ring-seg-focus" cx="140" cy="140" r="108"
+              stroke="var(--accent-clay)" stroke-dasharray="0 678.58" stroke-dashoffset="0"></circle>
+          </svg>
+          <div class="giant-ring-center tabular">
+            <span class="ring-center-kicker" id="ring-center-kicker">本次清理释放</span>
+            <div class="ring-center-big" id="ring-center-big">-0.00 GiB</div>
+            <div class="ring-center-water" id="ring-center-water">水位 0% → 0%</div>
+            <div class="ring-center-sub" id="ring-center-sub">总容量 0 GiB</div>
+          </div>
+        </div>
+
+        <!-- Right side of Giant Ring: Breakdown KPIs + All-Pool Mini Rings -->
+        <div class="ring-right-panel">
+          <div class="ring-headline-box">
+            <h2 class="ring-pool-title" id="ring-active-title">全盘容量与本次清理成果</h2>
+            <p class="ring-pool-desc" id="ring-active-desc">
+              圆环整圈代表硬盘 100% 总容量：深灰段为清理后保留的已用空间，<strong>翡翠绿高亮段为本次清掉释放的空间</strong>，浅灰段为原本空闲容量。
+            </p>
+          </div>
+
+          <div class="ring-kpi-grid tabular">
+            <div class="ring-kpi-card">
+              <span class="ring-kpi-label"><i class="legend-dot" style="background:var(--border-strong)"></i>硬盘总容量 (100%)</span>
+              <span class="ring-kpi-val" id="rkpi-total">0 GiB</span>
+              <span class="ring-kpi-sub" id="rkpi-before-used">清理前已用 0 GiB</span>
+            </div>
+            <div class="ring-kpi-card highlight-cleaned">
+              <span class="ring-kpi-label"><i class="legend-dot" style="background:var(--tone-sage)"></i>✨ 本次清掉空间</span>
+              <span class="ring-kpi-val" id="rkpi-cleaned">-0 GiB</span>
+              <span class="ring-kpi-sub" id="rkpi-cleaned-pct">占总容量 0.0%</span>
+            </div>
+            <div class="ring-kpi-card">
+              <span class="ring-kpi-label"><i class="legend-dot" style="background:var(--bar-retained)"></i>清理后已用空间</span>
+              <span class="ring-kpi-val" id="rkpi-retained">0 GiB</span>
+              <span class="ring-kpi-sub" id="rkpi-retained-pct">现水位 0.0%</span>
+            </div>
+            <div class="ring-kpi-card">
+              <span class="ring-kpi-label"><i class="legend-dot" style="background:var(--bar-free);border:1px solid var(--border-strong)"></i>清理后总可用</span>
+              <span class="ring-kpi-val" id="rkpi-free-after" style="color:var(--tone-sage)">0 GiB</span>
+              <span class="ring-kpi-sub" id="rkpi-free-before">清理前可用 0 GiB</span>
+            </div>
+          </div>
+
+          <!-- Mini Ring Cards for switching drives -->
+          <div class="mini-rings-strip" id="mini-rings-strip"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Detailed List Directly Below the Giant Ring -->
+    <div id="ring-detailed-lists"></div>
+  </div>
+
+  <!-- ==================== PAGE 2: INTERACTIVE BAR & CHECKBOX WORKBENCH ==================== -->
+  <div id="workbench-page" style="display:none">
   <section class="section-block">
     <div class="section-header">
       <h2 class="section-title">存储空间总容量与已用容量实时视图</h2>
@@ -1455,6 +1922,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     <main class="candidate-list" id="candidate-list"></main>
   </section>
+  </div>
 </div>
 
 <div class="modal-backdrop" id="prompt-modal" onclick="if(event.target===this)closeModal()">
@@ -2185,6 +2653,7 @@ function updateSelectionTotals(lastToggledItem = null) {
   if (countEl) countEl.textContent = String(checkedCount);
   updateTabCounts();
   updateVisualCharts(lastToggledItem);
+  try { renderRingOverview(); } catch (e) {}
 }
 
 function setSortMode(mode, btnEl) {
@@ -2485,11 +2954,414 @@ function closeModal() {
   document.getElementById("prompt-modal").classList.remove("open");
 }
 
+let activeRingPoolId = ((REPORT_DATA.storage_gauges || [])[0] || {}).id || "_all";
+let hoveredRingItemId = null;
+
+function switchMainView(mode) {
+  const ringPage = document.getElementById("ring-overview-page");
+  const wbPage = document.getElementById("workbench-page");
+  const btnRing = document.getElementById("view-btn-ring");
+  const btnWb = document.getElementById("view-btn-workbench");
+  const isRing = mode !== "workbench";
+  if (ringPage) ringPage.style.display = isRing ? "block" : "none";
+  if (wbPage) wbPage.style.display = isRing ? "none" : "block";
+  if (btnRing) btnRing.classList.toggle("active", isRing);
+  if (btnWb) btnWb.classList.toggle("active", !isRing);
+}
+
+function computePoolRingMetrics(g) {
+  const total = Math.max(1, Number(g.total_bytes) || 1);
+  const currentUsed = Number(g.used_bytes) || 0;
+  const currentFree = g.free_bytes != null ? Number(g.free_bytes) : Math.max(0, total - currentUsed);
+
+  const poolCands = (REPORT_DATA.candidates || []).filter(c => c.gauge_id === g.id && !state.whitelisted[c.id] && !c.whitelisted);
+  let doneBytes = 0;
+  let checkedBytes = 0;
+  poolCands.forEach(c => {
+    const sz = Number(c.size_bytes) || 0;
+    if (sz <= 0) return;
+    if (c.status === "done") doneBytes += sz;
+    else if (state.checked[c.id]) checkedBytes += sz;
+  });
+
+  const explicitCleaned = Number(g.cleaned_bytes) || 0;
+  const hasDone = doneBytes > 0 || explicitCleaned > 0 || g.before_used_bytes != null;
+
+  let retainedBytes = currentUsed;
+  let cleanedBytes = 0;
+  let beforeUsedBytes = currentUsed;
+  let freeAfterBytes = currentFree;
+  let freeBeforeBytes = currentFree;
+
+  if (hasDone) {
+    cleanedBytes = Math.max(explicitCleaned, doneBytes) + checkedBytes;
+    retainedBytes = Math.max(0, currentUsed - checkedBytes);
+    beforeUsedBytes = g.before_used_bytes != null
+      ? Number(g.before_used_bytes)
+      : Math.min(total, retainedBytes + cleanedBytes);
+    freeAfterBytes = currentFree + checkedBytes;
+    freeBeforeBytes = g.before_free_bytes != null
+      ? Number(g.before_free_bytes)
+      : Math.max(0, currentFree - Math.max(explicitCleaned, doneBytes));
+  } else {
+    cleanedBytes = Math.min(currentUsed, checkedBytes);
+    retainedBytes = Math.max(0, currentUsed - cleanedBytes);
+    beforeUsedBytes = currentUsed;
+    freeBeforeBytes = currentFree;
+    freeAfterBytes = currentFree + cleanedBytes;
+  }
+
+  const beforePct = g.before_used_pct != null
+    ? Number(g.before_used_pct)
+    : Math.min(100, (beforeUsedBytes / total) * 100);
+  const afterPct = g.used_pct != null && checkedBytes === 0
+    ? Number(g.used_pct)
+    : Math.min(100, (retainedBytes / total) * 100);
+
+  return {
+    id: g.id,
+    label: stripLeadingEmoji(g.label || g.id),
+    total,
+    retainedBytes,
+    cleanedBytes,
+    beforeUsedBytes,
+    freeBeforeBytes,
+    freeAfterBytes,
+    beforePct,
+    afterPct,
+    hasDone
+  };
+}
+
+function selectRingPool(poolId) {
+  activeRingPoolId = poolId;
+  renderRingOverview();
+}
+
+function highlightRingItem(itemId, active) {
+  hoveredRingItemId = active ? itemId : null;
+  renderRingOverview(true);
+}
+
+function renderRingOverview(onlyUpdateArcs = false) {
+  const gauges = REPORT_DATA.storage_gauges || [];
+  if (!gauges.length) return;
+
+  const metricsList = gauges.map(computePoolRingMetrics);
+  const allAgg = metricsList.reduce((acc, m) => {
+    acc.total += m.total;
+    acc.retainedBytes += m.retainedBytes;
+    acc.cleanedBytes += m.cleanedBytes;
+    acc.beforeUsedBytes += m.beforeUsedBytes;
+    acc.freeBeforeBytes += m.freeBeforeBytes;
+    acc.freeAfterBytes += m.freeAfterBytes;
+    acc.hasDone = acc.hasDone || m.hasDone;
+    return acc;
+  }, {
+    id: "_all",
+    label: "全盘存储总览 (All Volumes)",
+    total: 0,
+    retainedBytes: 0,
+    cleanedBytes: 0,
+    beforeUsedBytes: 0,
+    freeBeforeBytes: 0,
+    freeAfterBytes: 0,
+    beforePct: 0,
+    afterPct: 0,
+    hasDone: false
+  });
+  if (allAgg.total > 0) {
+    allAgg.beforePct = (allAgg.beforeUsedBytes / allAgg.total) * 100;
+    allAgg.afterPct = (allAgg.retainedBytes / allAgg.total) * 100;
+  }
+
+  const activeMetrics = activeRingPoolId === "_all"
+    ? allAgg
+    : (metricsList.find(m => m.id === activeRingPoolId) || metricsList[0]);
+
+  // 1. Render top pool switcher pills & right-hand mini ring cards
+  if (!onlyUpdateArcs) {
+    const pillBox = document.getElementById("ring-pool-pills");
+    if (pillBox) {
+      pillBox.innerHTML = "";
+      const pillTargets = [metricsList[0], ...metricsList.slice(1), allAgg].filter(Boolean);
+      pillTargets.forEach(m => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "ring-pool-pill" + (m.id === activeMetrics.id ? " active" : "");
+        btn.onclick = () => selectRingPool(m.id);
+        const savedTag = m.cleanedBytes > 0 ? `<span class="pill-saved">-${formatCompactBytes(m.cleanedBytes)}</span>` : "";
+        btn.innerHTML = `<span>${escapeHtml(m.label.replace(/\\s*\\(.*?\\)\\s*/g, ""))}</span>${savedTag}`;
+        pillBox.appendChild(btn);
+      });
+    }
+
+    const miniStrip = document.getElementById("mini-rings-strip");
+    if (miniStrip) {
+      miniStrip.innerHTML = "";
+      metricsList.forEach(m => {
+        const cMini = 2 * Math.PI * 16;
+        const retLen = Math.max(0, Math.min(cMini, (m.retainedBytes / m.total) * cMini));
+        const clnLen = Math.max(0, Math.min(cMini - retLen, (m.cleanedBytes / m.total) * cMini));
+        const card = document.createElement("div");
+        card.className = "mini-ring-card tabular" + (m.id === activeMetrics.id ? " active" : "");
+        card.onclick = () => selectRingPool(m.id);
+        card.innerHTML = `
+          <svg class="mini-ring-svg" viewBox="0 0 40 40">
+            <circle cx="20" cy="20" r="16" fill="none" stroke="var(--bar-free)" stroke-width="5"></circle>
+            <circle cx="20" cy="20" r="16" fill="none" stroke="var(--bar-retained)" stroke-width="5"
+              stroke-dasharray="${retLen.toFixed(2)} ${cMini.toFixed(2)}" stroke-dashoffset="0"></circle>
+            <circle cx="20" cy="20" r="16" fill="none" stroke="var(--tone-sage)" stroke-width="5"
+              stroke-dasharray="${clnLen.toFixed(2)} ${cMini.toFixed(2)}" stroke-dashoffset="-${retLen.toFixed(2)}"></circle>
+          </svg>
+          <div class="mini-ring-info">
+            <div class="mini-ring-name" title="${escapeHtml(m.label)}">${escapeHtml(m.label.replace(/\\s*\\(.*?\\)\\s*/g, ""))}</div>
+            <div class="mini-ring-saved">${m.cleanedBytes > 0 ? `清掉 -${formatCompactBytes(m.cleanedBytes)}` : `可用 ${formatCompactBytes(m.freeAfterBytes)}`}</div>
+            <div class="mini-ring-meta">${m.beforePct.toFixed(0)}% → ${m.afterPct.toFixed(0)}% · 总 ${formatCompactBytes(m.total)}</div>
+          </div>
+        `;
+        miniStrip.appendChild(card);
+      });
+    }
+  }
+
+  // 2. Update Giant Donut Ring arcs (r = 108, C = 678.584)
+  const C = 2 * Math.PI * 108;
+  const total = Math.max(1, activeMetrics.total);
+  const retained = Math.min(total, activeMetrics.retainedBytes);
+  const cleaned = Math.min(total - retained, activeMetrics.cleanedBytes);
+
+  let focusBytes = 0;
+  if (hoveredRingItemId) {
+    const hovered = (REPORT_DATA.candidates || []).find(c => c.id === hoveredRingItemId);
+    if (hovered && (activeMetrics.id === "_all" || hovered.gauge_id === activeMetrics.id)) {
+      focusBytes = Math.min(cleaned, Number(hovered.size_bytes) || 0);
+    }
+  }
+  const otherCleaned = Math.max(0, cleaned - focusBytes);
+
+  const retArc = (retained / total) * C;
+  const clnArc = (otherCleaned / total) * C;
+  const focArc = (focusBytes / total) * C;
+
+  const arcRetEl = document.getElementById("ring-arc-retained");
+  const arcClnEl = document.getElementById("ring-arc-cleaned");
+  const arcFocEl = document.getElementById("ring-arc-focus");
+
+  if (arcRetEl) {
+    arcRetEl.setAttribute("stroke-dasharray", `${retArc.toFixed(2)} ${C.toFixed(2)}`);
+    arcRetEl.setAttribute("stroke-dashoffset", "0");
+  }
+  if (arcClnEl) {
+    arcClnEl.setAttribute("stroke-dasharray", `${clnArc.toFixed(2)} ${C.toFixed(2)}`);
+    arcClnEl.setAttribute("stroke-dashoffset", `-${retArc.toFixed(2)}`);
+  }
+  if (arcFocEl) {
+    arcFocEl.setAttribute("stroke-dasharray", `${focArc.toFixed(2)} ${C.toFixed(2)}`);
+    arcFocEl.setAttribute("stroke-dashoffset", `-${(retArc + clnArc).toFixed(2)}`);
+  }
+
+  const kickerEl = document.getElementById("ring-center-kicker");
+  if (kickerEl) {
+    if (focusBytes > 0) kickerEl.textContent = "当前悬停项释放";
+    else kickerEl.textContent = activeMetrics.hasDone ? "本次已清掉空间" : "预计可清掉空间";
+  }
+  const bigEl = document.getElementById("ring-center-big");
+  if (bigEl) {
+    bigEl.textContent = focusBytes > 0
+      ? `-${formatCompactBytes(focusBytes)}`
+      : `-${formatCompactBytes(cleaned)}`;
+    bigEl.style.color = focusBytes > 0 ? "var(--accent-clay)" : "var(--tone-sage)";
+  }
+  const waterEl = document.getElementById("ring-center-water");
+  if (waterEl) {
+    waterEl.textContent = `水位 ${activeMetrics.beforePct.toFixed(0)}% → ${activeMetrics.afterPct.toFixed(0)}%`;
+  }
+  const subEl = document.getElementById("ring-center-sub");
+  if (subEl) {
+    subEl.textContent = `现可用 ${formatCompactBytes(activeMetrics.freeAfterBytes)} / 总 ${formatCompactBytes(total)}`;
+  }
+
+  const titleEl = document.getElementById("ring-active-title");
+  if (titleEl) titleEl.textContent = `${activeMetrics.label} · 容量与清理占比`;
+  const rkpiTotal = document.getElementById("rkpi-total");
+  if (rkpiTotal) rkpiTotal.textContent = formatCompactBytes(total);
+  const rkpiBeforeUsed = document.getElementById("rkpi-before-used");
+  if (rkpiBeforeUsed) rkpiBeforeUsed.textContent = `清理前已用 ${formatCompactBytes(activeMetrics.beforeUsedBytes)} (${activeMetrics.beforePct.toFixed(1)}%)`;
+
+  const rkpiCleaned = document.getElementById("rkpi-cleaned");
+  if (rkpiCleaned) rkpiCleaned.textContent = `-${formatCompactBytes(cleaned)}`;
+  const rkpiCleanedPct = document.getElementById("rkpi-cleaned-pct");
+  if (rkpiCleanedPct) rkpiCleanedPct.textContent = `占总容量 ${((cleaned / total) * 100).toFixed(1)}% · 占原已用 ${((cleaned / Math.max(1, activeMetrics.beforeUsedBytes)) * 100).toFixed(1)}%`;
+
+  const rkpiRetained = document.getElementById("rkpi-retained");
+  if (rkpiRetained) rkpiRetained.textContent = formatCompactBytes(retained);
+  const rkpiRetainedPct = document.getElementById("rkpi-retained-pct");
+  if (rkpiRetainedPct) rkpiRetainedPct.textContent = `清理后水位 ${activeMetrics.afterPct.toFixed(1)}%`;
+
+  const rkpiFreeAfter = document.getElementById("rkpi-free-after");
+  if (rkpiFreeAfter) rkpiFreeAfter.textContent = formatCompactBytes(activeMetrics.freeAfterBytes);
+  const rkpiFreeBefore = document.getElementById("rkpi-free-before");
+  if (rkpiFreeBefore) rkpiFreeBefore.textContent = `清理前可用 ${formatCompactBytes(activeMetrics.freeBeforeBytes)}`;
+
+  if (onlyUpdateArcs) return;
+
+  // 3. Render Detailed Breakdown Lists directly below the Giant Ring
+  const detailBox = document.getElementById("ring-detailed-lists");
+  if (!detailBox) return;
+  detailBox.innerHTML = "";
+
+  const allCands = (REPORT_DATA.candidates || []).slice();
+  const filteredCands = activeMetrics.id === "_all"
+    ? allCands
+    : allCands.filter(c => !c.gauge_id || c.gauge_id === activeMetrics.id);
+
+  const spaceCleanedItems = filteredCands
+    .filter(c => !state.whitelisted[c.id] && !c.whitelisted && (c.status === "done" || state.checked[c.id]) && (Number(c.size_bytes) || 0) > 0)
+    .sort((a, b) => (Number(b.size_bytes) || 0) - (Number(a.size_bytes) || 0));
+
+  const sysOptItems = filteredCands
+    .filter(c => !state.whitelisted[c.id] && !c.whitelisted && (c.status === "done" || state.checked[c.id]) && (Number(c.size_bytes) || 0) === 0);
+
+  const protectedItems = allCands.filter(c => state.whitelisted[c.id] || c.whitelisted);
+
+  const maxCleanedItemBytes = Math.max(1, ...spaceCleanedItems.map(c => Number(c.size_bytes) || 0));
+
+  // Section A: Space Cleanup Detailed Rows
+  const secSpace = document.createElement("section");
+  secSpace.className = "detail-group-block";
+  const spaceSum = spaceCleanedItems.reduce((s, c) => s + (Number(c.size_bytes) || 0), 0);
+  secSpace.innerHTML = `
+    <div class="detail-group-head">
+      <h3 class="detail-group-title">
+        <span style="color:var(--tone-sage)">●</span>
+        本次空间清理明细（共 ${spaceCleanedItems.length} 项 · 累计释放 <span class="mono" style="color:var(--tone-sage)">-${formatCompactBytes(spaceSum)}</span>）
+      </h3>
+      <span class="section-caption">按清理释放容量从大到小排列 · 悬停任意行可在上方大圆环中查看占比</span>
+    </div>
+    <div class="detail-rows" id="detail-space-rows"></div>
+  `;
+  detailBox.appendChild(secSpace);
+  const spaceRowsEl = secSpace.querySelector("#detail-space-rows");
+  if (spaceCleanedItems.length === 0) {
+    spaceRowsEl.innerHTML = `<div class="detail-row"><div class="detail-row-desc">当前筛选存储池暂无带容量的清理项（可点击上方切换「全盘存储总览」或其他硬盘查看）。</div></div>`;
+  } else {
+    spaceCleanedItems.forEach((c, idx) => {
+      const sz = Number(c.size_bytes) || 0;
+      const barPct = Math.max(2, (sz / maxCleanedItemBytes) * 100);
+      const poolPct = ((sz / total) * 100).toFixed(1);
+      const pName = shortPoolName(c.gauge_id) || c.domain || "系统";
+      const statusBadge = c.status === "done" ? "已清理释放" : "已勾选待清理";
+      const row = document.createElement("div");
+      row.className = "detail-row tabular";
+      row.onmouseenter = () => highlightRingItem(c.id, true);
+      row.onmouseleave = () => highlightRingItem(c.id, false);
+      row.innerHTML = `
+        <div class="detail-row-top">
+          <div class="detail-row-title">
+            <span class="item-id">#${String(idx + 1).padStart(2, "0")}</span>
+            <span class="pool-badge">${escapeHtml(pName)}</span>
+            <span class="tier-tag tier-A">${statusBadge}</span>
+            <span>${escapeHtml(stripLeadingEmoji(c.title))}</span>
+          </div>
+          <div class="detail-row-amount">-${formatBytes(sz)} <span style="font-size:11px;font-weight:500;color:var(--ink-muted)">(占盘 ${poolPct}%)</span></div>
+        </div>
+        <div class="detail-row-bar">
+          <div class="detail-row-bar-fill" style="width:${barPct.toFixed(1)}%"></div>
+        </div>
+        <div class="detail-row-desc">
+          ${c.path ? `<code class="mono" style="font-size:11px;color:var(--ink-muted);margin-right:8px">${escapeHtml(c.path)}</code>` : ""}
+          ${escapeHtml(c.evidence || "")}
+        </div>
+      `;
+      spaceRowsEl.appendChild(row);
+    });
+  }
+
+  // Section B: System & Backup Optimization Rows
+  if (sysOptItems.length > 0) {
+    const secOpt = document.createElement("section");
+    secOpt.className = "detail-group-block";
+    secOpt.innerHTML = `
+      <div class="detail-group-head">
+        <h3 class="detail-group-title">
+          <span style="color:var(--accent-clay)">●</span>
+          系统、备份管线与远端治理优化（共 ${sysOptItems.length} 项）
+        </h3>
+        <span class="section-caption">修复底层重传病灶、防穿透排除规则与远端分支整理</span>
+      </div>
+      <div class="detail-rows" id="detail-opt-rows"></div>
+    `;
+    detailBox.appendChild(secOpt);
+    const optRowsEl = secOpt.querySelector("#detail-opt-rows");
+    sysOptItems.forEach((c, idx) => {
+      const actMeta = actionTypeMeta(c);
+      const row = document.createElement("div");
+      row.className = "detail-row";
+      row.innerHTML = `
+        <div class="detail-row-top">
+          <div class="detail-row-title">
+            <span class="item-id">#${String(idx + 1).padStart(2, "0")}</span>
+            <span class="action-tag ${actMeta.cls}">${actMeta.label}</span>
+            <span class="tier-tag tier-A">${c.status === "done" ? "已完成优化" : "待执行"}</span>
+            <span>${escapeHtml(stripLeadingEmoji(c.title))}</span>
+          </div>
+          <span class="mono" style="font-size:12px;color:var(--tone-sage);font-weight:600">${escapeHtml(c.metric_badge || "架构与配置修复")}</span>
+        </div>
+        <div class="detail-row-desc">
+          ${c.path ? `<code class="mono" style="font-size:11px;color:var(--ink-muted);margin-right:8px">${escapeHtml(c.path)}</code>` : ""}
+          ${escapeHtml(c.evidence || "")}
+        </div>
+      `;
+      optRowsEl.appendChild(row);
+    });
+  }
+
+  // Section C: Protected & Whitelisted Items
+  if (protectedItems.length > 0) {
+    const secProt = document.createElement("section");
+    secProt.className = "detail-group-block";
+    secProt.innerHTML = `
+      <div class="detail-group-head">
+        <h3 class="detail-group-title">
+          <span style="color:var(--tone-ochre)">🛡️</span>
+          自动整树豁免与长期白名单保护（共 ${protectedItems.length} 项）
+        </h3>
+        <span class="section-caption">活跃 AI 工作树整树连带保护 + 用户指定双备份目录永久豁免</span>
+      </div>
+      <div class="detail-rows" id="detail-prot-rows"></div>
+    `;
+    detailBox.appendChild(secProt);
+    const protRowsEl = secProt.querySelector("#detail-prot-rows");
+    protectedItems.forEach(c => {
+      const sz = Number(c.size_bytes) || 0;
+      const note = state.notes[c.id] || c.whitelist_note || "受白名单或活跃工作树整树保护";
+      const row = document.createElement("div");
+      row.className = "detail-row";
+      row.innerHTML = `
+        <div class="detail-row-top">
+          <div class="detail-row-title">
+            <span class="tier-tag tier-C">🛡️ 已豁免保护</span>
+            <span>${escapeHtml(stripLeadingEmoji(c.title))}</span>
+          </div>
+          <span class="mono" style="font-size:12px;color:var(--ink-secondary)">${sz > 0 ? `完整保留 ${formatBytes(sz)}` : "已锁定保护"}</span>
+        </div>
+        <div class="detail-row-desc">
+          ${c.path ? `<code class="mono" style="font-size:11px;color:var(--ink-muted);margin-right:8px">${escapeHtml(c.path)}</code>` : ""}
+          <strong>保护说明：</strong>${escapeHtml(note)} · ${escapeHtml(c.evidence || "")}
+        </div>
+      `;
+      protRowsEl.appendChild(row);
+    });
+  }
+}
+
 function bootstrapDashboard() {
   try { initTheme(); } catch (e) {}
   try { initGaugesDOM(); } catch (e) {}
   try { renderDiff(); } catch (e) {}
   try { renderCandidates(); } catch (e) {}
+  try { renderRingOverview(); } catch (e) {}
 }
 
 bootstrapDashboard();
