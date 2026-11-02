@@ -15,7 +15,16 @@
     "min_orphan_mb": 50,
     "min_git_pack_mb": 100,
     "min_build_artifact_mb": 100,
-    "recent_activity_minutes": 60
+    "recent_activity_minutes": 60,
+    "worktree_protect_minutes": 2880
+  },
+  "quarantine": {
+    "root_dirs": [
+      "/Volumes/Sora2T/.Cleanup_Quarantine",
+      "/Volumes/Sora4T/.Cleanup_Quarantine",
+      "~/.Cleanup_Quarantine"
+    ],
+    "retention_days": 7
   },
   "storage_gauges": [
     {

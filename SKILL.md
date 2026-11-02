@@ -74,12 +74,12 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py" \
 - **浏览器本地记忆（`localStorage`）与单项微调备注框**：刷新页面不丢勾选；每项旁均可填写微调说明（如「只留最近 2 个版本」「移到 NAS 别直接删」）。
 - **一键复制执行指令**：将用户勾选的 ID、填写的单项微调备注、以及新加入白名单的条目一键打包成结构化 Markdown 指令回传给代理。
 
-## 5. 动手前「二次并发安全复查」与物理释放闭环
+## 5. 动手前「二次并发安全复查」、活跃整树豁免与分级外置隔离区
 
 收到用户确认或从 HTML 看板复制回传的勾选清单后，按以下铁律执行：
 
-1. **强制运行 `preflight` 二次并发安全复查**：
-   由于用户在网页上勾选到真正执行之间，可能有其他 AI 会话（Claude Code / Codex / Antigravity / OpenCode）刚启动了构建或修改了工作区，动手前必须运行：
+1. **强制运行 `preflight` 二次并发安全复查（含活跃工作树整树连带豁免）**：
+   由于用户在网页上勾选到真正执行之间，可能有其他 AI 会话（Claude Code / Codex / Antigravity / OpenCode）刚启动了构建或正在使用某棵工作树中的构建/测试产物（如 `distribution/artifacts`、`target`），动手前必须运行：
    ```bash
    python3 "${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py" preflight \
      --config "${CLAUDE_SKILL_DIR}/config/topology.local.json" \
@@ -87,12 +87,23 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py" \
      --ids "<用户勾选的逗号分隔ID>" \
      --output work/full-stack/preflight.json --overwrite
    ```
-   - 凡是状态为 `BLOCKED_WHITELISTED`、`BLOCKED_RECENT_ACTIVITY`（最近 60 分钟内有文件变动）、`BLOCKED_OPEN_HANDLES`（`lsof` 发现进程占用）或 `BLOCKED_DIRTY_WORKTREE` 的条目，**一律自动跳过并在汇报中单列保护原因**。
+   - **活跃工作树整树豁免**：只要目标路径本身或其所在的父级 Git 工作树/仓库命中 `BLOCKED_WHITELISTED`、`BLOCKED_RECENT_ACTIVITY`（工作树在 `worktree_protect_minutes` 默认 48 小时内有文件或 `.git` 变动）、`BLOCKED_ACTIVE_WORKTREE`（Codex `thread_history_1.sqlite` 近期会话引用）、`BLOCKED_OPEN_HANDLES` 或 `BLOCKED_DIRTY_WORKTREE`，**整棵工作树（含内部的 `target`、`node_modules`、`distribution/artifacts` 等忽略目录）一律自动锁定跳过，绝不清理或移动**。
    - 用户在卡片备注框里写了微调要求的（如「留最新 3 个版本」），严格按备注缩小操作范围。
-2. **分域安全执行与跨层物理释放核验**：
-   - 删除后必须核对 `df -h` 真实可用空间变化，不能只看 `du` 目录减少量。
+2. **分级处置：全局纯缓存直删 vs. 闲置项目产物移入「外置盘隔离区（Quarantine）」**：
+   - **全局纯缓存**（如 Homebrew 下载缓存、pip/npm 全局缓存、Xcode `Unavailable` 模拟器）：通过 `preflight` 后可直接清理，第一时间释放 Mac 空间。
+   - **闲置项目目录、旧 Worktree、测试载荷与 `artifacts`**：**严禁直接 `rm -rf`，也不放入本机废纸篓占本机空间**；优先通过 `quarantine` 子命令移入外置盘隔离区（如 `/Volumes/Sora2T/.Cleanup_Quarantine/<批次>/`，未挂载外置盘时退回 `~/.Cleanup_Quarantine/<批次>/`），并自动生成 `manifest.json` 与一键还原脚本 `restore.sh`：
+     ```bash
+     python3 "${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py" quarantine \
+       --config "${CLAUDE_SKILL_DIR}/config/topology.local.json" \
+       --targets work/full-stack/current-snapshot.json \
+       --ids "<项目类候选ID>" \
+       --output work/full-stack/quarantine-manifest.json --overwrite
+     ```
+   - 待用户确认各并行任务运行正常后（或下次巡检确认清空隔离区时），再彻底清除隔离区批次。
+3. **分域安全执行与跨层物理释放核验**：
+   - 删除或移入外置盘隔离区后必须核对 `df -h` 真实可用空间变化，不能只看 `du` 目录减少量。
    - 若删除数十 GB 后可用空间未明显上升，按 [四域巡检与跨层陷阱参考](references/domains-and-traps.md) 依次排查并回收：**APFS 本地快照锁死**（`tmutil thinlocalsnapshots`）、**PVE LXC 未回收块**（`pct fstrim <ctid>`）、**NAS SMB `#recycle` 回收站截留**、以及**iCloud 备份冗余 `.cms` 分块**（注意只对本地驻留块运行校验，防止触发云端回下风暴）。
-3. **收尾更新看板、基线与回收子代理**：
+4. **收尾更新看板、基线与回收子代理**：
    - 若执行阶段派出了并发子代理，收齐验证结果后立即调用 `manage_subagents(Action: "kill_all")` 销毁已完工子代理释放内存；
    - 将已完成条目的 `status` 标为 `"done"`，重新渲染 HTML 看板供用户留存；
    - 若用户标记了新的「🛡️ 长期豁免」项，将其写入 `config/topology.local.json`；

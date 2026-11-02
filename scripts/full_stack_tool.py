@@ -13,6 +13,9 @@ import json
 import os
 import plistlib
 import re
+import shlex
+import shutil
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -795,6 +798,61 @@ def is_git_worktree_or_repo(target: Path, item: dict[str, Any]) -> bool:
     return "worktree" in cat or kind == "worktree"
 
 
+def find_enclosing_git_root(target: Path) -> Path | None:
+    """Walk up from target to find an enclosing Git repository or worktree root (.git dir or file)."""
+    curr = target.resolve(strict=False)
+    for candidate in (curr, *curr.parents):
+        if candidate in (Path("/"), Path("/Users"), Path("/Volumes"), Path("/tmp"), Path("/private/tmp")):
+            break
+        try:
+            if (candidate / ".git").exists():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+def check_codex_sqlite_activity(
+    repo_root: Path,
+    cutoff_ts: float,
+    sessions_dir: Path | None = None,
+) -> tuple[bool, str]:
+    """Check if recent Codex session rollouts in ~/.codex/sessions reference repo_root after cutoff_ts."""
+    sess_root = sessions_dir or (Path.home() / ".codex" / "sessions")
+    if not sess_root.is_dir():
+        return False, ""
+    repo_bytes = str(repo_root).encode("utf-8", errors="ignore")
+    try:
+        for jsonl in sess_root.rglob("*.jsonl"):
+            try:
+                st = jsonl.stat()
+            except OSError:
+                continue
+            if st.st_mtime < cutoff_ts:
+                continue
+            # Read first 64 KiB and last 64 KiB where cwd/worktree metadata lives
+            with jsonl.open("rb") as fp:
+                head = fp.read(65536)
+                if repo_bytes in head:
+                    age_min = max(0.0, (time.time() - st.st_mtime) / 60.0)
+                    return (
+                        True,
+                        f"Active Codex session ({jsonl.name}) referenced {repo_root} {age_min:.1f}m ago; whole worktree is protected.",
+                    )
+                if st.st_size > 65536:
+                    fp.seek(max(0, st.st_size - 65536))
+                    tail = fp.read(65536)
+                    if repo_bytes in tail:
+                        age_min = max(0.0, (time.time() - st.st_mtime) / 60.0)
+                        return (
+                            True,
+                            f"Active Codex session ({jsonl.name}) referenced {repo_root} {age_min:.1f}m ago; whole worktree is protected.",
+                        )
+    except Exception:
+        return False, ""
+    return False, ""
+
+
 def git_metadata_latest_mtime(target: Path) -> int:
     """Inspect .git metadata files (index, HEAD, worktree gitdir) so large repos >10k files still catch recent git activity."""
     git_entry = target / ".git"
@@ -850,6 +908,8 @@ def evaluate_single_target(
     cutoff_ts: float,
     recent_minutes: float,
     skip_lsof: bool,
+    worktree_cutoff_ts: float | None = None,
+    worktree_protect_minutes: float | None = None,
 ) -> dict[str, Any]:
     if is_remote_or_non_fs_spec(raw_path, item):
         return {
@@ -882,6 +942,10 @@ def evaluate_single_target(
             "reason": "Target root is a symbolic link; inspect link target manually.",
         }
 
+    enclosing_repo = find_enclosing_git_root(target)
+    wt_cutoff = worktree_cutoff_ts if worktree_cutoff_ts is not None else cutoff_ts
+    wt_minutes = worktree_protect_minutes if worktree_protect_minutes is not None else recent_minutes
+
     _, _, latest_mtime = bounded_dir_size(target, max_entries=10000, max_seconds=3.0)
     if target.is_dir():
         latest_mtime = max(latest_mtime, git_metadata_latest_mtime(target))
@@ -894,7 +958,40 @@ def evaluate_single_target(
             "reason": f"Modified {age_min:.1f} minutes ago (threshold: {recent_minutes}m); another session may be active.",
         }
 
-    if is_git_worktree_or_repo(target, item):
+    # Whole-worktree cascading protection: if target is inside a Git worktree/repo
+    # (e.g. target/, node_modules/, distribution/artifacts/), protect it whenever
+    # the enclosing worktree has recent activity, active AI sessions, or dirty status.
+    if enclosing_repo is not None:
+        repo_mtime = git_metadata_latest_mtime(enclosing_repo)
+        if enclosing_repo != target:
+            _, _, enclosing_tree_mtime = bounded_dir_size(enclosing_repo, max_entries=4000, max_seconds=1.5)
+            repo_mtime = max(repo_mtime, enclosing_tree_mtime)
+        if repo_mtime > wt_cutoff:
+            age_min = max(0.0, (time.time() - repo_mtime) / 60.0)
+            return {
+                "path": str(target),
+                "status": "BLOCKED_RECENT_ACTIVITY",
+                "reason": (
+                    f"Enclosing worktree {enclosing_repo} modified {age_min:.1f} minutes ago "
+                    f"(threshold: {wt_minutes}m); whole worktree (including build/artifact dirs) is protected."
+                ),
+            }
+
+        codex_active, codex_reason = check_codex_sqlite_activity(enclosing_repo, wt_cutoff)
+        if codex_active:
+            return {
+                "path": str(target),
+                "status": "BLOCKED_ACTIVE_WORKTREE",
+                "reason": codex_reason,
+            }
+
+        if check_git_dirty(enclosing_repo):
+            return {
+                "path": str(target),
+                "status": "BLOCKED_DIRTY_WORKTREE",
+                "reason": f"Enclosing worktree {enclosing_repo} has uncommitted or untracked changes; whole worktree is protected.",
+            }
+    elif is_git_worktree_or_repo(target, item):
         if check_git_dirty(target):
             return {
                 "path": str(target),
@@ -914,20 +1011,170 @@ def evaluate_single_target(
     return {
         "path": str(target),
         "status": "SAFE_TO_EXECUTE",
-        "reason": "Passed whitelist, symlink, recent-mtime, and handle checks.",
+        "reason": "Passed whitelist, symlink, whole-worktree, recent-mtime, and handle checks.",
     }
+
+
+def resolve_quarantine_root(config: dict[str, Any], explicit_dir: str | None = None) -> Path:
+    """Select external drive quarantine root first (to free Mac space immediately), falling back to ~/.Cleanup_Quarantine."""
+    if explicit_dir:
+        return expand_path(explicit_dir)
+    q_cfg = config.get("quarantine", {})
+    candidates = q_cfg.get(
+        "root_dirs",
+        [
+            "/Volumes/Sora2T/.Cleanup_Quarantine",
+            "/Volumes/Sora4T/.Cleanup_Quarantine",
+            "~/.Cleanup_Quarantine",
+        ],
+    )
+    for raw in candidates:
+        p = expand_path(raw)
+        if str(p).startswith("/Volumes/"):
+            parts = p.parts
+            if len(parts) >= 3:
+                mount_root = Path("/") / parts[1] / parts[2]
+                if mount_root.is_dir() and os.access(mount_root, os.W_OK):
+                    return p
+        else:
+            return p
+    return expand_path("~/.Cleanup_Quarantine")
+
+
+def cmd_quarantine(args: argparse.Namespace) -> int:
+    """Move safe project/worktree/artifact targets into a Quarantine batch with manifest.json and restore.sh."""
+    config = load_topology(args.config)
+    wl_index = build_whitelist_index(config)
+
+    thresholds = config.get("thresholds", {})
+    recent_minutes = (
+        args.recent_minutes
+        if args.recent_minutes is not None
+        else float(thresholds.get("recent_activity_minutes", 60))
+    )
+    worktree_protect_minutes = (
+        args.recent_minutes
+        if args.recent_minutes is not None
+        else float(thresholds.get("worktree_protect_minutes", recent_minutes))
+    )
+    cutoff_ts = time.time() - (recent_minutes * 60.0)
+    wt_cutoff_ts = time.time() - (worktree_protect_minutes * 60.0)
+
+    try:
+        plan_data = json.loads(Path(args.targets).read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ConfigError(f"Failed to read targets/plan file {args.targets}: {exc}") from exc
+
+    raw_items = plan_data.get("targets") or plan_data.get("candidates") or []
+    selected_ids = (
+        {x.strip() for x in args.ids.split(",") if x.strip()} if args.ids else None
+    )
+
+    q_root = resolve_quarantine_root(config, args.quarantine_dir)
+    batch_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
+    batch_dir = q_root / batch_id
+    files_dir = batch_dir / "files"
+
+    staged_items: list[dict[str, Any]] = []
+    blocked_items: list[dict[str, Any]] = []
+
+    for item in raw_items:
+        item_id = item.get("id", "unknown")
+        if selected_ids is not None and item_id not in selected_ids:
+            continue
+        paths_to_check = item.get("paths") if isinstance(item.get("paths"), list) and item.get("paths") else [item.get("path", "")]
+        for raw_p in paths_to_check:
+            res = evaluate_single_target(
+                str(raw_p),
+                item,
+                wl_index,
+                cutoff_ts,
+                recent_minutes,
+                args.skip_lsof,
+                worktree_cutoff_ts=wt_cutoff_ts,
+                worktree_protect_minutes=worktree_protect_minutes,
+            )
+            if res["status"] != "SAFE_TO_EXECUTE" or is_remote_or_non_fs_spec(str(raw_p), item):
+                blocked_items.append({"id": item_id, **res})
+                continue
+
+            src_path = Path(res["path"]).resolve(strict=False)
+            rel_dest = str(src_path).lstrip("/")
+            dst_path = files_dir / rel_dest
+            size_bytes, _, _ = bounded_dir_size(src_path, max_entries=10000, max_seconds=2.0)
+
+            if not args.dry_run:
+                dst_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src_path), str(dst_path))
+
+            staged_items.append(
+                {
+                    "id": item_id,
+                    "original_path": str(src_path),
+                    "quarantine_path": str(dst_path),
+                    "size_bytes": size_bytes,
+                    "staged_at": utc_now_iso(),
+                }
+            )
+
+    restore_script_path = batch_dir / "restore.sh"
+    manifest_path = batch_dir / "manifest.json"
+    manifest_payload = {
+        "schema": SCHEMA_VERSION,
+        "batch_id": batch_id,
+        "created_at": utc_now_iso(),
+        "dry_run": bool(args.dry_run),
+        "quarantine_root": str(q_root),
+        "batch_dir": str(batch_dir),
+        "restore_script": str(restore_script_path),
+        "staged_count": len(staged_items),
+        "blocked_count": len(blocked_items),
+        "staged_items": staged_items,
+        "blocked_items": blocked_items,
+    }
+
+    if staged_items and not args.dry_run:
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        write_secure_json(manifest_path, manifest_payload, overwrite=True)
+        lines = [
+            "#!/usr/bin/env bash",
+            "set -euo pipefail",
+            f"# Auto-generated restore script for quarantine batch {batch_id}",
+        ]
+        for entry in staged_items:
+            orig = shlex.quote(entry["original_path"])
+            qpath = shlex.quote(entry["quarantine_path"])
+            orig_parent = shlex.quote(str(Path(entry["original_path"]).parent))
+            lines.append(f"mkdir -p {orig_parent}")
+            lines.append(f"if [ -e {qpath} ]; then mv {qpath} {orig}; echo 'Restored:' {orig}; fi")
+        restore_script_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        os.chmod(restore_script_path, 0o700)
+
+    if args.output:
+        write_secure_json(Path(args.output), manifest_payload, overwrite=args.overwrite)
+    else:
+        json.dump(manifest_payload, sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+    return 0
 
 
 def cmd_preflight(args: argparse.Namespace) -> int:
     config = load_topology(args.config)
     wl_index = build_whitelist_index(config)
 
+    thresholds = config.get("thresholds", {})
     recent_minutes = (
         args.recent_minutes
         if args.recent_minutes is not None
-        else float(config.get("thresholds", {}).get("recent_activity_minutes", 60))
+        else float(thresholds.get("recent_activity_minutes", 60))
+    )
+    worktree_protect_minutes = (
+        args.recent_minutes
+        if args.recent_minutes is not None
+        else float(thresholds.get("worktree_protect_minutes", recent_minutes))
     )
     cutoff_ts = time.time() - (recent_minutes * 60.0)
+    wt_cutoff_ts = time.time() - (worktree_protect_minutes * 60.0)
 
     try:
         plan_data = json.loads(Path(args.targets).read_text(encoding="utf-8"))
@@ -957,6 +1204,8 @@ def cmd_preflight(args: argparse.Namespace) -> int:
                     cutoff_ts,
                     recent_minutes,
                     args.skip_lsof,
+                    worktree_cutoff_ts=wt_cutoff_ts,
+                    worktree_protect_minutes=worktree_protect_minutes,
                 )
                 for p in raw_paths
             ]
@@ -1013,6 +1262,8 @@ def cmd_preflight(args: argparse.Namespace) -> int:
             cutoff_ts,
             recent_minutes,
             args.skip_lsof,
+            worktree_cutoff_ts=wt_cutoff_ts,
+            worktree_protect_minutes=worktree_protect_minutes,
         )
         if single["status"].startswith("BLOCKED_"):
             blocked_count += 1
@@ -1044,7 +1295,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Full-stack maintenance scanner, snapshot differ, and pre-flight concurrency checker."
+        description="Full-stack maintenance scanner, snapshot differ, pre-flight concurrency checker, and quarantine stager."
     )
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
@@ -1068,6 +1319,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_pre.add_argument("--output", help="Write preflight JSON to path")
     p_pre.add_argument("--overwrite", action="store_true", help="Overwrite output file if it exists")
 
+    p_quar = sub.add_parser(
+        "quarantine",
+        help="Stage idle project/worktree/artifact targets into external/local Quarantine with manifest.json + restore.sh.",
+    )
+    p_quar.add_argument("--config", required=True, help="Path to topology.json or topology.local.json")
+    p_quar.add_argument("--targets", required=True, help="Path to snapshot or targets JSON")
+    p_quar.add_argument("--ids", help="Comma-separated candidate IDs to quarantine (default: all)")
+    p_quar.add_argument("--quarantine-dir", help="Explicit quarantine root directory")
+    p_quar.add_argument("--recent-minutes", type=float, default=None, help="Override recent activity window in minutes")
+    p_quar.add_argument("--skip-lsof", action="store_true", help="Skip lsof invocation")
+    p_quar.add_argument("--dry-run", action="store_true", help="Preview quarantine actions without moving files")
+    p_quar.add_argument("--output", help="Write quarantine manifest JSON to path")
+    p_quar.add_argument("--overwrite", action="store_true", help="Overwrite output file if it exists")
+
     return parser
 
 
@@ -1081,6 +1346,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_diff(args)
         if args.subcommand == "preflight":
             return cmd_preflight(args)
+        if args.subcommand == "quarantine":
+            return cmd_quarantine(args)
     except ConfigError as exc:
         sys.stderr.write(f"ERROR: {exc}\n")
         return 2

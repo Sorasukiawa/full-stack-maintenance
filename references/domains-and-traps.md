@@ -87,6 +87,12 @@
   ```
   下发 Discard 指令后，thin-pool 水位才会真正回落。
 
-### 陷阱 5：通过 SMB 删除 NAS 文件，结果被 `#recycle` 回收站二次截留
-- **现象**：在 Mac 挂载的 `/Volumes/Data`、`/Volumes/Scratch` 等共享卷上删除了几十 GB 的旧构建包或缓存，但 NAS 存储池可用空间纹丝不动。
-- **根因与对策**：群晖/NAS 开启了 SMB 共享文件夹回收站（`#recycle`），通过挂载卷删除的文件只是被移入了同卷的 `#recycle/` 目录。清理 NAS 挂载卷时，必须同步检查并清理各共享根目录下的 `#recycle`（经用户授权后清空）。
+### 陷阱 5：通过 SMB 删除 NAS 文件，结果被 `#recycle` 回收站二次截留（且并发 `rm -rf` 锁死 macOS `smbfs`）
+- **现象**：在 Mac 挂载的 `/Volumes/Data`、`/Volumes/Scratch` 等共享卷上删除了几十 GB 的旧构建包或缓存，但 NAS 存储池可用空间纹丝不动；若在 Mac 侧启动多个并发 `rm -rf /Volumes/Data/#recycle/...`，会导致 macOS `smbfs` 内核挂载锁死（进程卡在 `U` 状态）。
+- **根因与对策**：群晖/NAS 开启了 SMB 共享文件夹回收站（`#recycle`），通过挂载卷删除的文件只是被移入了同卷的 `#recycle/` 目录。清理 `#recycle` 时**严禁在 macOS SMB 挂载点上跑多路并发 `rm -rf`**，应只用单进程串行 `find /Volumes/Data/#recycle -mindepth 1 -delete` 或通过 SSH 在 NAS 本机直接清理。
+
+### 陷阱 6：只保护了活跃 Worktree 的源码，却清理或挪走了其内部的 `artifacts` / `target`，打断正在跨轮验证的并发 AI 会话
+- **现象**：另一个 Codex / Claude 会话正在某棵工作树（如 `~/.codex/worktrees/nonraw-coverage/Lightferry`）里做跨轮回归测试，依赖被 `.gitignore` 忽略的 `distribution/artifacts/` 下的 CSV 样本、便携版 `LibreOffice.app` 或编译产物。巡检时虽然保留了该 worktree 的 Git 源码，但把里面的 `distribution/artifacts/` 或 `target/` 当成「可重建产物」删掉（或移去回收站），导致隔壁会话下一秒读取原路径直接报错中断。
+- **治本对策**：
+  1. **活跃工作树整树连带豁免**：`full_stack_tool.py preflight` 会向上追溯目标的父级 Git 工作树/仓库根目录，结合 `.git` 元数据修改时间、工作树文件修改时间（默认 48 小时保护窗 `worktree_protect_minutes: 2880`）、`git status --porcelain` 以及 `~/.codex/thread_history_1.sqlite` 活跃会话记录。只要父级工作树处于活跃或未收尾状态，**整棵工作树（含内部所有 `target`、`node_modules`、`distribution/artifacts`）全部锁定跳过，连移动都不允许**。
+  2. **闲置项目产物先移入「外置盘隔离区（Quarantine）」**：对已超过保护窗确认闲置的项目产物、旧 worktree 或测试载荷，使用 `full_stack_tool.py quarantine` 移入外置盘隔离区（如 `/Volumes/Sora2T/.Cleanup_Quarantine/<批次>/`），自动生成 `manifest.json` 与一键恢复脚本 `restore.sh`。既能当场腾出 Mac 本机空间，又能保留 100% 原文件供随时秒级还原，等用户确认所有任务无异常后再彻底清除。

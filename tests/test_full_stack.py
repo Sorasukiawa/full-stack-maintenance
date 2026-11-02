@@ -402,6 +402,114 @@ class FullStackMaintenanceTests(unittest.TestCase):
         self.assertEqual(by_id["t-multi"]["blocked_paths"], [str(sub_busy)])
         self.assertEqual(by_id["t-remote"]["status"], "SAFE_TO_EXECUTE")
 
+    def test_whole_worktree_cascading_protection_and_quarantine_restore(self) -> None:
+        old_ts = time.time() - 10800  # 3 hours ago
+
+        # 1. Worktree with old artifacts dir, but dirty status at worktree root -> nested artifacts MUST be blocked
+        wt_dirty = self.root / "wt_dirty"
+        wt_dirty_artifacts = wt_dirty / "distribution" / "artifacts"
+        wt_dirty_artifacts.mkdir(parents=True)
+        subprocess.run(["git", "-C", str(wt_dirty), "init", "-q"], check=True)
+        sample_csv = wt_dirty_artifacts / "sample.csv"
+        sample_csv.write_text("a,b\n1,2\n", encoding="utf-8")
+        (wt_dirty / "wip.txt").write_text("in progress", encoding="utf-8")
+        for root_p, dirs, files in os.walk(wt_dirty):
+            for name in files + dirs:
+                os.utime(Path(root_p) / name, (old_ts, old_ts), follow_symlinks=False)
+        os.utime(wt_dirty, (old_ts, old_ts))
+
+        # 2. Clean worktree with old target dir, but recent doc edit inside worktree -> nested target MUST be blocked
+        wt_active = self.root / "wt_active"
+        wt_active_target = wt_active / "src-tauri" / "target"
+        wt_active_target.mkdir(parents=True)
+        subprocess.run(["git", "-C", str(wt_active), "init", "-q"], check=True)
+        old_bin = wt_active_target / "app.bin"
+        old_bin.write_bytes(b"binary")
+        for root_p, dirs, files in os.walk(wt_active):
+            for name in files + dirs:
+                os.utime(Path(root_p) / name, (old_ts, old_ts), follow_symlinks=False)
+        os.utime(wt_active, (old_ts, old_ts))
+        # Touch a file elsewhere in wt_active recently
+        recent_doc = wt_active / "HANDOFF.md"
+        recent_doc.write_text("recent note", encoding="utf-8")
+
+        # 3. Truly idle directory eligible for quarantine
+        idle_proj = self.root / "idle_project_artifacts"
+        idle_proj.mkdir()
+        idle_payload = idle_proj / "result.json"
+        idle_payload.write_text('{"ok": true}\n', encoding="utf-8")
+        os.utime(idle_payload, (old_ts, old_ts))
+        os.utime(idle_proj, (old_ts, old_ts))
+
+        config_path = self.root / "topology.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "thresholds": {
+                        "recent_activity_minutes": 60,
+                        "worktree_protect_minutes": 120,
+                    },
+                    "whitelist": {
+                        "paths": [],
+                        "repos": [],
+                        "app_names": [],
+                        "guest_ids": [],
+                        "notes": {},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        targets_path = self.root / "targets_wt.json"
+        targets_path.write_text(
+            json.dumps(
+                {
+                    "candidates": [
+                        {"id": "nested-in-dirty-wt", "path": str(wt_dirty_artifacts)},
+                        {"id": "nested-in-active-wt", "path": str(wt_active_target)},
+                        {"id": "idle-eligible", "path": str(idle_proj)},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        q_dir = self.root / "quarantine_store"
+        manifest_out = self.root / "quarantine_manifest.json"
+        rc = full_stack_tool.main(
+            [
+                "quarantine",
+                "--config",
+                str(config_path),
+                "--targets",
+                str(targets_path),
+                "--quarantine-dir",
+                str(q_dir),
+                "--skip-lsof",
+                "--output",
+                str(manifest_out),
+            ]
+        )
+        self.assertEqual(rc, 0)
+        manifest = json.loads(manifest_out.read_text(encoding="utf-8"))
+
+        # Both active/dirty worktree subdirectories must be blocked and untouched
+        self.assertTrue(sample_csv.exists())
+        self.assertTrue(old_bin.exists())
+        blocked_by_id = {b["id"]: b["status"] for b in manifest["blocked_items"]}
+        self.assertEqual(blocked_by_id["nested-in-dirty-wt"], "BLOCKED_DIRTY_WORKTREE")
+        self.assertEqual(blocked_by_id["nested-in-active-wt"], "BLOCKED_RECENT_ACTIVITY")
+
+        # Idle directory must be moved into quarantine and restorable via restore.sh
+        self.assertEqual(manifest["staged_count"], 1)
+        self.assertFalse(idle_proj.exists())
+        restore_sh = Path(manifest["restore_script"])
+        self.assertTrue(restore_sh.is_file())
+        subprocess.run(["bash", str(restore_sh)], check=True)
+        self.assertTrue((idle_proj / "result.json").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
