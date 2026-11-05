@@ -2,20 +2,18 @@
 """Generate a single-file interactive HTML dashboard for full-stack maintenance.
 
 Design System & Visual Chart Architecture:
-- Anthropic editorial aesthetic: warm obsidian dark default (#141413) & warm ivory paper light mode
-  (#FAF9F5), hairline borders, terracotta (#D97757 / #C96442) & forest sage (#52A37A / #2E6B4E) accents.
-- 3-Layer Interactive Storage Visualization (inspired by macOS Storage Settings, DaisyDisk, and
-  Vercel Usage Breakdown):
-  1. Whole-Disk Segmented Anatomy Bar + Directory/Category Breakdown Bars: shows Retained Used,
-     Selected to Reclaim (subdivided per item), Unselected Candidates, and Free Space. Checking any
-     item animates its exact slice out of the disk and out of its parent directory bar.
-  2. Live "Selected Reclaim Composition" Proportional Strip + Spotlight Callout: visualizes every
-     checked item (even a 3 GiB item) as a proportional block with relative impact metrics (e.g.,
-     "+3.83 GiB · Boosts current free space by +10.8%").
-  3. Per-Card Inline Visual Magnitude Bar & Bidirectional Hover Highlight: each candidate card has
-     an inline spring-animated capacity bar and highlights its slice in the top charts on hover.
-- Closed-form AnalyticalSpring (zeta = 0.72, ~3.8% non-linear light rebound) — 100% immune to Euler
-  integration blowups.
+- Apple macOS Sequoia Liquid Glass × CleanMyMac Smart Care × Mole aesthetic:
+  deep cosmic slate-navy dark canvas (#090C15) & translucent alabaster quartz light mode (#F2F5FA),
+  specular top-edge glass borders, emerald mint (#10D98E / #059669) reclaimed space glow, and
+  electric cyan-blue (#38BDF8 / #0071E3) focus highlights.
+- 3-Layer Interactive Storage Visualization (inspired by macOS Storage Settings, CleanMyMac Space Lens,
+  and Mole terminal telemetry):
+  1. Giant Storage Ring Overview + 3x3 Volume Matrix: shows Retained Used, Cleaned Reclaimed, and
+     Hovered Focus Slice with interruptible under-damped spring physics.
+  2. Whole-Disk Segmented Anatomy Bar + Directory/Category Breakdown Bars in Workbench view.
+  3. Per-Card Inline Visual Magnitude Bar & Bidirectional Hover Highlight.
+- Interruptible under-damped spring physics (zeta = 0.74, ~3.5% non-linear light rebound) with
+  live velocity handoff and sliding segmented-control pill gliders.
 """
 
 from __future__ import annotations
@@ -37,65 +35,91 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <title>__TITLE__</title>
 <style>
   :root {
-    /* Anthropic Editorial Warm Paper Palette (Light Mode) */
-    --bg-page: #FAF9F5;
-    --bg-recessed: #F1EFE7;
-    --bg-card: #FFFFFF;
-    --bg-card-hover: #FCFBF8;
-    --bg-card-selected: #FBF6F3;
-    --bg-sticky: rgba(250, 249, 245, 0.93);
-    --ink-primary: #141413;
-    --ink-secondary: #52514C;
-    --ink-muted: #87857E;
-    --border-hairline: #E6E4DC;
-    --border-strong: #CFCBC0;
-    --accent-clay: #C96442;
-    --accent-clay-soft: rgba(201, 100, 66, 0.14);
-    --tone-sage: #2E6B4E;
-    --tone-sage-bg: #EBF3EE;
-    --tone-ochre: #B56A1E;
-    --tone-ochre-bg: #F8EFE4;
-    --tone-rust: #B83B2A;
-    --tone-rust-bg: #FBECE9;
-    --bar-retained: #4A4843;
-    --bar-free: #E4E1D6;
-    --shadow-subtle: 0 1px 2px rgba(20, 20, 19, 0.04);
-    --shadow-modal: 0 24px 48px -12px rgba(20, 20, 19, 0.18);
+    /* Apple macOS Sequoia Daylight Glass × CleanMyMac / Mole Palette (Light Mode) */
+    --bg-page: #F2F5FA;
+    --bg-page-gradient:
+      radial-gradient(1100px 520px at 12% -8%, rgba(16, 217, 142, 0.11), transparent 62%),
+      radial-gradient(960px 480px at 88% -4%, rgba(0, 113, 227, 0.10), transparent 60%),
+      linear-gradient(180deg, #F6F8FC 0%, #EDF1F8 100%);
+    --bg-recessed: rgba(226, 232, 242, 0.68);
+    --bg-card: rgba(255, 255, 255, 0.78);
+    --bg-card-hover: rgba(255, 255, 255, 0.94);
+    --bg-card-selected: rgba(236, 253, 245, 0.85);
+    --bg-sticky: rgba(242, 245, 250, 0.78);
+    --ink-primary: #0F172A;
+    --ink-secondary: #475569;
+    --ink-muted: #64748B;
+    --border-hairline: rgba(15, 23, 42, 0.08);
+    --border-strong: rgba(15, 23, 42, 0.16);
+    --border-specular: rgba(255, 255, 255, 0.85);
+    --accent-clay: #0071E3;
+    --accent-clay-soft: rgba(0, 113, 227, 0.12);
+    --tone-sage: #059669;
+    --tone-sage-bg: rgba(5, 150, 105, 0.12);
+    --tone-ochre: #D97706;
+    --tone-ochre-bg: rgba(217, 119, 6, 0.12);
+    --tone-rust: #DC2626;
+    --tone-rust-bg: rgba(220, 38, 38, 0.12);
+    --bar-retained: #475569;
+    --bar-free: rgba(148, 163, 184, 0.24);
+    --shadow-subtle:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 8px 24px -6px rgba(15, 23, 42, 0.06),
+      inset 0 1px 0 var(--border-specular);
+    --shadow-elevated:
+      0 14px 34px -8px rgba(15, 23, 42, 0.12),
+      0 4px 12px rgba(15, 23, 42, 0.05),
+      inset 0 1px 0 var(--border-specular);
+    --shadow-modal: 0 28px 60px -12px rgba(15, 23, 42, 0.28);
 
-    /* Typography */
-    --font-serif: "Newsreader", "Instrument Serif", "Iowan Old Style", "Charter", "Songti SC", "STSong", Georgia, serif;
-    --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-    --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    /* Apple System Typography (SF Pro Display / Text / Mono) */
+    --font-serif: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-    /* Non-linear light rebound curves */
-    --spring-rebound: cubic-bezier(0.28, 1.28, 0.56, 1);
-    --spring-soft: cubic-bezier(0.22, 1.18, 0.38, 1);
+    /* Non-linear light rebound spring curves */
+    --spring-rebound: cubic-bezier(0.22, 1.36, 0.36, 1);
+    --spring-soft: cubic-bezier(0.16, 1.14, 0.3, 1);
+    --spring-press: cubic-bezier(0.2, 0.85, 0.32, 1);
   }
 
   [data-theme="dark"] {
-    --bg-page: #141413;
-    --bg-recessed: #1B1A18;
-    --bg-card: #21201D;
-    --bg-card-hover: #262521;
-    --bg-card-selected: #27211E;
-    --bg-sticky: rgba(20, 20, 19, 0.93);
-    --ink-primary: #FAF9F5;
-    --ink-secondary: #B5B2A8;
-    --ink-muted: #7D7A72;
-    --border-hairline: #2E2D29;
-    --border-strong: #45433C;
-    --accent-clay: #D97757;
-    --accent-clay-soft: rgba(217, 119, 87, 0.16);
-    --tone-sage: #52A37A;
-    --tone-sage-bg: rgba(82, 163, 122, 0.15);
-    --tone-ochre: #D99242;
-    --tone-ochre-bg: rgba(217, 146, 66, 0.15);
-    --tone-rust: #E06352;
-    --tone-rust-bg: rgba(224, 99, 82, 0.15);
-    --bar-retained: #45433D;
-    --bar-free: #2A2925;
-    --shadow-subtle: 0 1px 3px rgba(0, 0, 0, 0.28);
-    --shadow-modal: 0 24px 48px -12px rgba(0, 0, 0, 0.65);
+    /* CleanMyMac Smart Care × macOS Dark Liquid Glass × Mole Terminal Palette */
+    --bg-page: #090C15;
+    --bg-page-gradient:
+      radial-gradient(1200px 560px at 14% -10%, rgba(16, 217, 142, 0.13), transparent 64%),
+      radial-gradient(1000px 520px at 86% -6%, rgba(56, 189, 248, 0.12), transparent 60%),
+      radial-gradient(800px 480px at 50% 105%, rgba(99, 102, 241, 0.08), transparent 65%),
+      linear-gradient(180deg, #0B0F1A 0%, #070A12 100%);
+    --bg-recessed: rgba(13, 18, 30, 0.72);
+    --bg-card: rgba(21, 28, 44, 0.68);
+    --bg-card-hover: rgba(28, 37, 58, 0.82);
+    --bg-card-selected: rgba(16, 42, 46, 0.76);
+    --bg-sticky: rgba(9, 12, 21, 0.76);
+    --ink-primary: #F8FAFC;
+    --ink-secondary: #94A3B8;
+    --ink-muted: #64748B;
+    --border-hairline: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --border-specular: rgba(255, 255, 255, 0.11);
+    --accent-clay: #38BDF8;
+    --accent-clay-soft: rgba(56, 189, 248, 0.16);
+    --tone-sage: #10D98E;
+    --tone-sage-bg: rgba(16, 217, 142, 0.14);
+    --tone-ochre: #FBBF24;
+    --tone-ochre-bg: rgba(251, 191, 36, 0.14);
+    --tone-rust: #FB7185;
+    --tone-rust-bg: rgba(251, 113, 133, 0.15);
+    --bar-retained: #475569;
+    --bar-free: rgba(30, 41, 59, 0.78);
+    --shadow-subtle:
+      0 4px 20px -4px rgba(0, 0, 0, 0.42),
+      inset 0 1px 0 var(--border-specular);
+    --shadow-elevated:
+      0 18px 40px -10px rgba(0, 0, 0, 0.62),
+      0 0 0 1px rgba(255, 255, 255, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.16);
+    --shadow-modal: 0 32px 64px -12px rgba(0, 0, 0, 0.78);
   }
 
   * { box-sizing: border-box; }
@@ -103,12 +127,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     margin: 0;
     padding: 0;
     background-color: var(--bg-page);
+    background-image: var(--bg-page-gradient);
+    background-attachment: fixed;
     color: var(--ink-primary);
     font-family: var(--font-sans);
     font-size: 14px;
     line-height: 1.55;
     -webkit-font-smoothing: antialiased;
-    transition: background-color 200ms ease, color 200ms ease;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background-color 240ms ease, color 240ms ease;
   }
   .tabular {
     font-variant-numeric: tabular-nums;
@@ -119,20 +146,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     font-variant-numeric: tabular-nums;
   }
 
-  /* Top Sticky Command Bar */
+  /* Top Translucent Apple Vibrancy Command Bar */
   .top-bar {
     position: sticky;
     top: 0;
     z-index: 40;
     background: var(--bg-sticky);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(24px) saturate(190%);
+    -webkit-backdrop-filter: blur(24px) saturate(190%);
     border-bottom: 1px solid var(--border-hairline);
+    box-shadow: 0 4px 24px -6px rgba(0, 0, 0, 0.18);
   }
   .top-bar-inner {
-    max-width: 1180px;
+    max-width: 1200px;
     margin: 0 auto;
-    padding: 10px 20px;
+    padding: 11px 22px;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -145,46 +173,50 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     gap: 10px;
   }
   .brand-mark {
-    width: 9px;
-    height: 9px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
-    background: var(--accent-clay);
+    background: linear-gradient(135deg, var(--tone-sage), var(--accent-clay));
+    box-shadow: 0 0 12px var(--tone-sage);
     flex-shrink: 0;
   }
   .brand-meta {
     font-family: var(--font-mono);
     font-size: 11px;
-    letter-spacing: 0.06em;
+    font-weight: 600;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: var(--ink-muted);
+    color: var(--ink-secondary);
   }
   .action-cluster {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 7px;
+    gap: 8px;
   }
   .summary-stat {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 10px;
+    padding: 5px 12px;
     background: var(--bg-recessed);
     border: 1px solid var(--border-hairline);
-    border-radius: 6px;
+    border-radius: 999px;
     font-size: 12px;
     color: var(--ink-secondary);
-    transition: transform 260ms var(--spring-rebound);
+    box-shadow: inset 0 1px 0 var(--border-specular);
+    transition: transform 320ms var(--spring-rebound), border-color 180ms ease;
   }
   .summary-stat.rebound {
-    transform: scale(1.03);
+    transform: scale(1.055);
+    border-color: var(--tone-sage);
   }
   .summary-stat strong {
     color: var(--ink-primary);
     font-weight: 600;
   }
 
-  /* Buttons */
+  /* Apple Liquid Glass Pill & Action Buttons */
   button {
     appearance: none;
     cursor: pointer;
@@ -193,42 +225,50 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     font-weight: 500;
     color: var(--ink-primary);
     background: var(--bg-card);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
     border: 1px solid var(--border-hairline);
-    border-radius: 6px;
-    padding: 5px 10px;
+    border-radius: 9px;
+    padding: 5.5px 11px;
     line-height: 1.35;
     box-shadow: var(--shadow-subtle);
     outline: none;
     transition:
-      transform 220ms var(--spring-rebound),
-      border-color 150ms ease,
-      background-color 150ms ease,
-      color 150ms ease;
+      transform 280ms var(--spring-rebound),
+      border-color 160ms ease,
+      background-color 160ms ease,
+      box-shadow 160ms ease,
+      color 160ms ease;
     user-select: none;
   }
-  button:focus, button:focus-visible { outline: none; }
+  button:focus-visible {
+    box-shadow: 0 0 0 3px var(--accent-clay-soft), var(--shadow-subtle);
+  }
   @media (hover: hover) and (pointer: fine) {
     button:hover {
       border-color: var(--border-strong);
       background: var(--bg-card-hover);
+      transform: translateY(-1px);
     }
   }
   button:active {
-    transform: scale(0.96);
+    transform: scale(0.95) translateY(0) !important;
     transition-duration: 55ms;
   }
   .btn-primary {
-    background: var(--ink-primary);
-    color: var(--bg-page);
-    border-color: var(--ink-primary);
+    background: linear-gradient(135deg, var(--tone-sage), #059669);
+    color: #04130D;
+    border-color: rgba(255, 255, 255, 0.22);
     font-weight: 600;
-    padding: 5px 12px;
+    padding: 5.5px 14px;
+    box-shadow: 0 4px 14px -2px rgba(16, 217, 142, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.35);
   }
   @media (hover: hover) and (pointer: fine) {
     .btn-primary:hover {
-      background: var(--accent-clay);
-      border-color: var(--accent-clay);
-      color: #FAF9F5;
+      background: linear-gradient(135deg, #22E59B, var(--tone-sage));
+      border-color: rgba(255, 255, 255, 0.36);
+      color: #02100A;
+      box-shadow: 0 6px 20px -2px rgba(16, 217, 142, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.45);
     }
   }
   .btn-ghost {
@@ -238,18 +278,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   }
   .theme-switch {
     display: inline-flex;
-    padding: 2px;
+    padding: 3px;
     background: var(--bg-recessed);
     border: 1px solid var(--border-hairline);
-    border-radius: 6px;
+    border-radius: 10px;
     gap: 2px;
   }
   .theme-switch button {
     border: none;
     background: transparent;
     box-shadow: none;
-    padding: 3px 8px;
-    border-radius: 4px;
+    padding: 3.5px 9px;
+    border-radius: 7px;
     font-size: 11.5px;
     color: var(--ink-muted);
   }
@@ -262,9 +302,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
   /* Page Layout */
   .container {
-    max-width: 1180px;
+    max-width: 1200px;
     margin: 0 auto;
-    padding: 28px 20px 88px;
+    padding: 28px 22px 92px;
   }
   .editorial-header {
     margin-bottom: 24px;
@@ -279,17 +319,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .editorial-kicker {
     font-family: var(--font-mono);
     font-size: 11px;
+    font-weight: 600;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--accent-clay);
+    color: var(--tone-sage);
     margin-bottom: 6px;
   }
   h1 {
     font-family: var(--font-serif);
-    font-size: clamp(24px, 2.8vw, 31px);
-    font-weight: 600;
-    letter-spacing: -0.015em;
-    line-height: 1.2;
+    font-size: clamp(25px, 2.8vw, 33px);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.16;
     margin: 0 0 6px;
     color: var(--ink-primary);
   }
@@ -297,7 +338,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     margin: 0;
     font-size: 13.5px;
     color: var(--ink-secondary);
-    max-width: 680px;
+    max-width: 700px;
   }
 
   .section-block {
@@ -315,7 +356,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     font-family: var(--font-serif);
     font-size: 18px;
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.018em;
     margin: 0;
     color: var(--ink-primary);
   }
@@ -330,23 +371,27 @@ HTML_TEMPLATE = """<!DOCTYPE html>
      ========================================================================== */
   .viz-studio {
     background: var(--bg-card);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
     border: 1px solid var(--border-hairline);
-    border-radius: 11px;
-    padding: 18px;
-    box-shadow: var(--shadow-subtle);
-    margin-bottom: 14px;
+    border-top-color: var(--border-specular);
+    border-radius: 18px;
+    padding: 20px;
+    box-shadow: var(--shadow-elevated), inset 0 1px 0 var(--border-specular);
+    margin-bottom: 16px;
   }
   .pool-selector-strip {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
-    gap: 8px;
+    gap: 10px;
     margin-bottom: 16px;
   }
   .pool-tab-card {
     background: var(--bg-recessed);
     border: 1px solid var(--border-hairline);
-    border-radius: 8px;
-    padding: 10px 12px;
+    border-top-color: var(--border-specular);
+    border-radius: 12px;
+    padding: 11px 13px;
     cursor: pointer;
     text-align: left;
     display: flex;
@@ -354,17 +399,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     gap: 6px;
     min-width: 0;
     transition:
-      transform 240ms var(--spring-rebound),
-      border-color 160ms ease,
-      background-color 160ms ease;
+      transform 280ms var(--spring-rebound),
+      border-color 180ms ease,
+      background-color 180ms ease,
+      box-shadow 220ms ease;
   }
   .pool-tab-card:hover {
     border-color: var(--border-strong);
+    transform: translateY(-2px);
+  }
+  .pool-tab-card:active {
+    transform: scale(0.975);
+    transition-duration: 80ms;
   }
   .pool-tab-card.active {
-    background: var(--bg-card);
+    background: var(--bg-card-selected);
     border-color: var(--accent-clay);
-    box-shadow: 0 0 0 1px var(--accent-clay);
+    box-shadow: 0 0 0 1px var(--accent-clay), 0 8px 20px -10px var(--accent-clay-soft);
   }
   .pool-tab-top {
     display: flex;
@@ -499,48 +550,56 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     flex-shrink: 0;
   }
 
-  /* 28px Clean Solid Storage Bar: [Used After Clean (Left)] [Current Item (Terracotta)] [Other Cleaned (Sage)] [Free Space (Right)] */
+  /* 28px Apple macOS Storage Bar with Specular Sheen & Spring Segments */
   .segmented-storage-bar {
     position: relative;
-    height: 28px;
+    height: 30px;
     flex: 1;
     min-width: 120px;
     background: var(--bar-free);
     border: 1px solid var(--border-hairline);
-    border-radius: 7px;
+    border-radius: 10px;
     overflow: hidden;
     display: flex;
     align-items: stretch;
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.22), inset 0 1px 0 var(--border-specular);
+  }
+  .segmented-storage-bar::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 55%);
+    pointer-events: none;
   }
   .seg-retained {
     height: 100%;
-    background: var(--bar-retained);
+    background: linear-gradient(90deg, var(--bar-retained), var(--bar-retained-alt));
     display: flex;
     align-items: center;
     padding: 0 10px;
-    color: #FAF9F5;
+    color: #FFFFFF;
     font-family: var(--font-mono);
     font-size: 11px;
+    font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
-    transition: width 320ms var(--spring-soft);
+    transition: width 380ms var(--spring-rebound);
     will-change: width;
   }
   .seg-reclaim-item {
     height: 100%;
     background: var(--accent-clay);
-    border-right: 1.5px solid rgba(20, 20, 19, 0.38);
+    border-right: 1.5px solid rgba(9, 12, 21, 0.35);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #FAF9F5;
+    color: #FFFFFF;
     font-family: var(--font-mono);
     font-size: 10.5px;
-    font-weight: 600;
+    font-weight: 700;
     white-space: nowrap;
     overflow: hidden;
-    transition: width 320ms var(--spring-rebound);
+    transition: width 380ms var(--spring-rebound);
   }
   .seg-reclaim-mid {
     height: 100%;
@@ -549,13 +608,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     align-items: center;
     justify-content: center;
     padding: 0;
-    color: #FAF9F5;
+    color: #06281E;
     font-family: var(--font-mono);
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 700;
     white-space: nowrap;
     overflow: hidden;
-    transition: width 320ms var(--spring-rebound);
+    transition: width 380ms var(--spring-rebound);
     will-change: width;
   }
   .seg-free {
@@ -844,13 +903,29 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     display: inline-flex;
     flex-wrap: wrap;
     gap: 2px;
-    padding: 3px;
+    padding: 3.5px;
     background: var(--bg-recessed);
     border: 1px solid var(--border-hairline);
-    border-radius: 7px;
+    border-radius: 999px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.14);
   }
   .tab-glider {
-    display: none;
+    position: absolute;
+    top: 3.5px;
+    bottom: 3.5px;
+    left: 0;
+    width: 0;
+    border-radius: 999px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    box-shadow: var(--shadow-subtle), inset 0 1px 0 var(--border-specular);
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0;
+    transition:
+      transform 340ms var(--spring-rebound),
+      width 340ms var(--spring-rebound),
+      opacity 180ms ease;
   }
   .segmented-control button {
     position: relative;
@@ -858,8 +933,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     border: 1px solid transparent;
     background: transparent;
     box-shadow: none;
-    padding: 4px 10px;
-    border-radius: 5px;
+    padding: 5px 12px;
+    border-radius: 999px;
     font-size: 12px;
     font-weight: 500;
     color: var(--ink-secondary);
@@ -868,14 +943,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       background-color 160ms ease,
       border-color 160ms ease,
       color 160ms ease,
-      transform 220ms var(--spring-rebound);
+      transform 240ms var(--spring-rebound);
   }
   .segmented-control button.active {
     background: var(--bg-card);
-    border-color: var(--border-hairline);
+    border-color: var(--border-strong);
     color: var(--ink-primary);
     font-weight: 600;
     box-shadow: var(--shadow-subtle);
+  }
+  .segmented-control.has-glider button.active {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
   }
   .tab-count {
     font-family: var(--font-mono);
@@ -888,19 +968,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     display: inline-flex;
     align-items: center;
     gap: 2px;
-    padding: 3px;
+    padding: 3.5px;
     background: var(--bg-recessed);
     border: 1px solid var(--border-hairline);
-    border-radius: 7px;
+    border-radius: 999px;
   }
   .sort-control button {
     border: none;
     background: transparent;
     box-shadow: none;
-    padding: 4px 9px;
-    border-radius: 5px;
+    padding: 4.5px 11px;
+    border-radius: 999px;
     font-size: 11.5px;
     color: var(--ink-secondary);
+    transition: transform 220ms var(--spring-rebound), background-color 160ms ease, color 160ms ease;
   }
   .sort-control button.active {
     background: var(--bg-card);
@@ -909,56 +990,60 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     box-shadow: var(--shadow-subtle);
   }
 
-  /* Candidate Cards with Inline Visual Magnitude Bar */
+  /* Candidate Cards with Liquid Glass & Spring Rebound */
   .candidate-list {
     display: flex;
     flex-direction: column;
-    gap: 9px;
+    gap: 10px;
   }
   @keyframes editorialSlideIn {
-    0% { transform: translateY(3px); }
-    100% { transform: translateY(0); }
+    0% { opacity: 0; transform: translateY(6px) scale(0.992); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
   }
   .candidate-card {
     background: var(--bg-card);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
     border: 1px solid var(--border-hairline);
-    border-radius: 9px;
-    padding: 13px 16px;
+    border-top-color: var(--border-specular);
+    border-radius: 14px;
+    padding: 14px 17px;
     display: flex;
     align-items: flex-start;
-    gap: 12px;
-    box-shadow: var(--shadow-subtle);
-    animation: editorialSlideIn 220ms var(--spring-soft);
+    gap: 13px;
+    box-shadow: var(--shadow-subtle), inset 0 1px 0 var(--border-specular);
+    animation: editorialSlideIn 280ms var(--spring-rebound);
     transition:
-      transform 220ms var(--spring-soft),
-      border-color 150ms ease,
+      transform 280ms var(--spring-rebound),
+      border-color 160ms ease,
       background-color 180ms ease,
-      box-shadow 180ms ease;
+      box-shadow 200ms ease;
   }
   .candidate-card:hover,
   .candidate-card.highlighted {
     border-color: var(--border-strong);
+    transform: translateY(-1.5px);
   }
   .candidate-card.checked {
     background: var(--bg-card-selected);
-    border-color: rgba(217, 119, 87, 0.28);
-    box-shadow: inset 3px 0 0 var(--accent-clay), var(--shadow-subtle);
+    border-color: var(--accent-clay);
+    box-shadow: inset 3.5px 0 0 var(--accent-clay), var(--shadow-subtle);
   }
   .candidate-card.checked:hover,
   .candidate-card.checked.highlighted {
-    border-color: rgba(217, 119, 87, 0.55);
+    border-color: var(--accent-clay);
   }
   .candidate-card.pulse {
-    transform: scale(1.006);
+    transform: scale(1.008);
   }
   .candidate-card.done { opacity: 0.65; }
   .candidate-card.whitelisted { opacity: 0.78; }
 
-  /* 15px Compact Checkbox */
+  /* 16px Apple Rounded Checkbox with Spring Checkmark */
   .check-wrap {
     position: relative;
-    width: 15px;
-    height: 15px;
+    width: 16px;
+    height: 16px;
     margin-top: 2px;
     flex-shrink: 0;
     cursor: pointer;
@@ -973,39 +1058,41 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     z-index: 2;
   }
   .check-box {
-    width: 15px;
-    height: 15px;
-    border-radius: 3.5px;
+    width: 16px;
+    height: 16px;
+    border-radius: 5px;
     border: 1.5px solid var(--border-strong);
-    background: var(--bg-card);
+    background: var(--bg-recessed);
     display: flex;
     align-items: center;
     justify-content: center;
     transition:
-      transform 240ms var(--spring-rebound),
-      background-color 150ms ease,
-      border-color 150ms ease;
+      transform 280ms var(--spring-rebound),
+      background-color 160ms ease,
+      border-color 160ms ease,
+      box-shadow 180ms ease;
   }
   .check-wrap:active .check-box {
-    transform: scale(0.88);
-    transition-duration: 50ms;
+    transform: scale(0.84);
+    transition-duration: 60ms;
   }
   .check-wrap input:checked + .check-box {
-    background: var(--accent-clay);
-    border-color: var(--accent-clay);
-    transform: scale(1.03);
+    background: var(--tone-sage);
+    border-color: var(--tone-sage);
+    box-shadow: 0 2px 8px var(--tone-sage-bg);
+    transform: scale(1.06);
   }
   .check-svg {
-    width: 9.5px;
-    height: 9.5px;
+    width: 10px;
+    height: 10px;
     fill: none;
-    stroke: #FAF9F5;
-    stroke-width: 2.3;
+    stroke: #042419;
+    stroke-width: 2.5;
     stroke-linecap: round;
     stroke-linejoin: round;
     stroke-dasharray: 18;
     stroke-dashoffset: 18;
-    transition: stroke-dashoffset 220ms var(--spring-rebound);
+    transition: stroke-dashoffset 260ms var(--spring-rebound);
   }
   .check-wrap input:checked + .check-box .check-svg {
     stroke-dashoffset: 0;
@@ -1244,33 +1331,35 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     color: var(--ink-primary);
   }
 
-  /* Modal Dialog */
+  /* Modal Dialog (Apple Sheet Materialization) */
   .modal-backdrop {
     display: flex;
     position: fixed;
     inset: 0;
-    background: rgba(20, 20, 19, 0.55);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    background: rgba(6, 9, 16, 0.58);
+    backdrop-filter: blur(12px) saturate(160%);
+    -webkit-backdrop-filter: blur(12px) saturate(160%);
     z-index: 100;
     align-items: center;
     justify-content: center;
     padding: 20px;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 180ms ease;
+    transition: opacity 220ms ease;
   }
   .modal-backdrop.open { opacity: 1; pointer-events: auto; }
   .modal {
     background: var(--bg-card);
+    backdrop-filter: blur(32px) saturate(190%);
+    -webkit-backdrop-filter: blur(32px) saturate(190%);
     border: 1px solid var(--border-strong);
-    border-radius: 12px;
+    border-radius: 18px;
     max-width: 680px;
     width: 100%;
-    padding: 22px;
-    box-shadow: var(--shadow-modal);
-    transform: scale(0.95) translateY(10px);
-    transition: transform 280ms var(--spring-rebound);
+    padding: 24px;
+    box-shadow: var(--shadow-modal), inset 0 1px 0 var(--border-specular);
+    transform: scale(0.92) translateY(14px);
+    transition: transform 360ms var(--spring-rebound);
   }
   .modal-backdrop.open .modal { transform: scale(1) translateY(0); }
   textarea.prompt-box {
@@ -1279,8 +1368,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     background: var(--bg-recessed);
     color: var(--ink-primary);
     border: 1px solid var(--border-hairline);
-    border-radius: 8px;
-    padding: 12px;
+    border-radius: 11px;
+    padding: 13px;
     font-family: var(--font-mono);
     font-size: 12px;
     line-height: 1.5;
@@ -1291,51 +1380,65 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       animation-duration: 0.01ms !important;
-      transition-duration: 80ms !important;
+      transition-duration: 120ms !important;
       transition-timing-function: ease !important;
+      transform: none !important;
+    }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .top-bar, .ring-hero-card, .detail-group-block, .viz-studio, .candidate-card, .modal {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      background: var(--bg-page) !important;
     }
   }
 
   /* ==========================================================================
-     FIRST-SCREEN GIANT STORAGE RING HERO & DETAILED BREAKDOWN
+     FIRST-SCREEN GIANT STORAGE RING HERO & DETAILED BREAKDOWN (CleanMyMac × Mole)
      ========================================================================== */
   .view-mode-switch {
     display: inline-flex;
-    padding: 2px;
+    padding: 3px;
     background: var(--bg-recessed);
-    border: 1px solid var(--border-strong);
-    border-radius: 7px;
-    gap: 2px;
+    border: 1px solid var(--border-hairline);
+    border-radius: 10px;
+    gap: 3px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.14);
   }
   .view-mode-switch button {
     border: none;
     background: transparent;
     box-shadow: none;
-    padding: 4px 11px;
-    border-radius: 5px;
+    padding: 4.5px 12px;
+    border-radius: 7px;
     font-size: 12px;
     font-weight: 500;
     color: var(--ink-secondary);
-    transition: background-color 160ms ease, color 160ms ease, transform 180ms var(--spring-rebound);
+    transition:
+      background-color 180ms ease,
+      color 180ms ease,
+      transform 260ms var(--spring-rebound),
+      box-shadow 180ms ease;
   }
   .view-mode-switch button.active {
-    background: var(--accent-clay);
-    color: #FAF9F5;
+    background: linear-gradient(135deg, var(--accent-clay), #0284C7);
+    color: #FFFFFF;
     font-weight: 600;
-    box-shadow: var(--shadow-subtle);
+    box-shadow: 0 3px 12px -2px rgba(56, 189, 248, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.28);
   }
   .top-ring-summary {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 11px;
+    padding: 4.5px 12px;
     border-radius: 999px;
     background: var(--tone-sage-bg);
-    border: 1px solid rgba(82, 163, 122, 0.32);
+    border: 1px solid rgba(16, 217, 142, 0.32);
     font-family: var(--font-mono);
     font-size: 11.5px;
     font-weight: 600;
     color: var(--tone-sage);
+    box-shadow: 0 0 18px -4px rgba(16, 217, 142, 0.28);
   }
   .workbench-only-cluster {
     display: none;
@@ -1353,13 +1456,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 5px 11px;
-    border-radius: 7px;
+    padding: 5.5px 12px;
+    border-radius: 999px;
     background: var(--bg-card);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
     border: 1px solid var(--border-hairline);
     font-size: 12px;
     color: var(--ink-secondary);
     box-shadow: var(--shadow-subtle);
+    transition: transform 260ms var(--spring-rebound), border-color 160ms ease;
+  }
+  .header-kpi-pill:hover {
+    transform: translateY(-1px) scale(1.015);
+    border-color: var(--border-strong);
   }
   .header-kpi-pill strong {
     font-family: var(--font-mono);
@@ -1369,15 +1479,32 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
   .ring-hero-card {
     background: var(--bg-card);
+    backdrop-filter: blur(28px) saturate(190%);
+    -webkit-backdrop-filter: blur(28px) saturate(190%);
     border: 1px solid var(--border-hairline);
-    border-radius: 14px;
-    padding: 26px 28px;
-    box-shadow: var(--shadow-subtle);
-    margin-bottom: 22px;
+    border-radius: 20px;
+    padding: 28px 30px;
+    box-shadow: var(--shadow-elevated);
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .ring-hero-card::before {
+    content: "";
+    position: absolute;
+    top: -120px;
+    left: -80px;
+    width: 380px;
+    height: 380px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(16, 217, 142, 0.10) 0%, transparent 70%);
+    pointer-events: none;
   }
   .ring-hero-layout {
+    position: relative;
+    z-index: 1;
     display: grid;
-    grid-template-columns: 332px minmax(0, 1fr);
+    grid-template-columns: 336px minmax(0, 1fr);
     gap: 32px;
     align-items: stretch;
   }
@@ -1394,9 +1521,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     justify-content: space-between;
     background: var(--bg-recessed);
     border: 1px solid var(--border-hairline);
-    border-radius: 12px;
-    padding: 22px 18px 16px;
+    border-radius: 16px;
+    padding: 24px 18px 18px;
     width: 100%;
+    box-shadow: inset 0 1px 0 var(--border-specular);
   }
   .giant-ring-stage {
     position: relative;
@@ -1419,15 +1547,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     stroke-linecap: butt;
   }
   .ring-seg-cleaned {
-    filter: drop-shadow(0 0 10px rgba(82, 163, 122, 0.32));
+    filter: drop-shadow(0 0 14px rgba(16, 217, 142, 0.45));
   }
   .ring-seg-focus {
-    filter: drop-shadow(0 0 12px rgba(217, 119, 87, 0.48));
+    filter: drop-shadow(0 0 16px rgba(56, 189, 248, 0.58));
   }
   .giant-ring-center {
     position: absolute;
-    inset: 38px;
+    inset: 36px;
     border-radius: 50%;
+    background: radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.04), transparent 72%);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -1436,12 +1565,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     padding: 6px;
     pointer-events: none;
     gap: 5px;
+    transition: transform 320ms var(--spring-rebound);
   }
   .ring-center-kicker {
     font-family: var(--font-sans);
     font-size: 11.5px;
-    font-weight: 500;
-    letter-spacing: 0.06em;
+    font-weight: 600;
+    letter-spacing: 0.05em;
     color: var(--ink-secondary);
     white-space: nowrap;
   }
@@ -1454,28 +1584,29 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     margin: 1px 0 2px;
   }
   .ring-center-num {
-    font-family: var(--font-sans);
-    font-size: 38px;
+    font-family: var(--font-serif);
+    font-size: 40px;
     font-weight: 700;
     line-height: 1.02;
-    letter-spacing: -0.03em;
+    letter-spacing: -0.035em;
     color: var(--tone-sage);
+    text-shadow: 0 0 24px rgba(16, 217, 142, 0.25);
   }
   .ring-center-unit {
     font-family: var(--font-mono);
     font-size: 15px;
     font-weight: 600;
     color: var(--tone-sage);
-    opacity: 0.9;
+    opacity: 0.92;
   }
   .ring-center-water {
     font-family: var(--font-mono);
     font-size: 11.5px;
     font-weight: 600;
-    padding: 2.5px 10px;
+    padding: 3px 11px;
     border-radius: 999px;
     background: var(--tone-sage-bg);
-    border: 1px solid rgba(82, 163, 122, 0.28);
+    border: 1px solid rgba(16, 217, 142, 0.32);
     color: var(--tone-sage);
     white-space: nowrap;
   }
@@ -1549,7 +1680,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .ring-pool-title {
     font-family: var(--font-serif);
     font-size: 22px;
-    font-weight: 600;
+    font-weight: 700;
+    letter-spacing: -0.02em;
     color: var(--ink-primary);
     margin: 0;
     line-height: 1.2;
@@ -1557,11 +1689,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .ring-pool-mount {
     font-family: var(--font-mono);
     font-size: 11.5px;
-    color: var(--ink-muted);
+    color: var(--ink-secondary);
     background: var(--bg-recessed);
     border: 1px solid var(--border-hairline);
-    padding: 2px 8px;
-    border-radius: 5px;
+    padding: 2.5px 9px;
+    border-radius: 6px;
   }
   .ring-headline-badge {
     font-family: var(--font-mono);
@@ -1569,13 +1701,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     font-weight: 600;
     color: var(--tone-sage);
     background: var(--tone-sage-bg);
-    border: 1px solid rgba(82, 163, 122, 0.3);
-    padding: 3px 10px;
+    border: 1px solid rgba(16, 217, 142, 0.34);
+    padding: 3.5px 11px;
     border-radius: 999px;
     white-space: nowrap;
   }
   .ring-pool-desc {
-    font-size: 12.8px;
+    font-size: 13px;
     color: var(--ink-secondary);
     margin: 0;
   }
@@ -1593,17 +1725,24 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .ring-kpi-card {
     background: var(--bg-recessed);
     border: 1px solid var(--border-hairline);
-    border-radius: 9px;
-    padding: 12px 14px;
+    border-radius: 13px;
+    padding: 13px 14px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
     gap: 5px;
     min-width: 0;
+    box-shadow: inset 0 1px 0 var(--border-specular);
+    transition: transform 280ms var(--spring-rebound), border-color 160ms ease;
+  }
+  .ring-kpi-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-strong);
   }
   .ring-kpi-card.highlight-cleaned {
     background: var(--tone-sage-bg);
-    border-color: rgba(82, 163, 122, 0.38);
+    border-color: rgba(16, 217, 142, 0.38);
+    box-shadow: 0 6px 20px -6px rgba(16, 217, 142, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.14);
   }
   .ring-kpi-label {
     font-size: 11.5px;
@@ -1615,8 +1754,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   }
   .ring-kpi-val {
     font-family: var(--font-mono);
-    font-size: 18px;
+    font-size: 18.5px;
     font-weight: 700;
+    letter-spacing: -0.02em;
     color: var(--ink-primary);
     line-height: 1.2;
     white-space: nowrap;
@@ -1647,6 +1787,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .mini-matrix-title {
     font-family: var(--font-mono);
     font-size: 11px;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--ink-muted);
@@ -1654,7 +1795,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .mini-rings-strip {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 9px;
+    gap: 10px;
   }
   @media (max-width: 720px) {
     .mini-rings-strip {
@@ -1664,31 +1805,34 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .mini-ring-card {
     background: var(--bg-recessed);
     border: 1px solid var(--border-hairline);
-    border-radius: 9px;
-    padding: 9px 11px;
+    border-radius: 12px;
+    padding: 10px 12px;
     display: flex;
     align-items: center;
     gap: 10px;
     cursor: pointer;
     min-width: 0;
+    box-shadow: inset 0 1px 0 var(--border-specular);
     transition:
       border-color 160ms ease,
-      transform 220ms var(--spring-rebound),
+      transform 280ms var(--spring-rebound),
       background-color 160ms ease,
-      box-shadow 160ms ease;
+      box-shadow 180ms ease;
   }
   .mini-ring-card:hover {
     border-color: var(--border-strong);
     background: var(--bg-card-hover);
-    transform: translateY(-1px);
+    transform: translateY(-2px) scale(1.012);
+    box-shadow: var(--shadow-subtle);
   }
   .mini-ring-card:active {
-    transform: scale(0.98);
+    transform: scale(0.96) !important;
+    transition-duration: 55ms;
   }
   .mini-ring-card.active {
     background: var(--bg-card);
     border-color: var(--tone-sage);
-    box-shadow: 0 0 0 1px var(--tone-sage);
+    box-shadow: 0 0 0 1.5px var(--tone-sage), 0 8px 20px -6px rgba(16, 217, 142, 0.28);
   }
   .mini-ring-wrap {
     position: relative;
@@ -1727,7 +1871,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     min-width: 0;
   }
   .mini-ring-name {
-    font-size: 12.2px;
+    font-size: 12.4px;
     font-weight: 600;
     color: var(--ink-primary);
     white-space: nowrap;
@@ -1758,10 +1902,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   /* Detailed Breakdown Below Ring — Strict 3-Column Table Grid */
   .detail-group-block {
     background: var(--bg-card);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
     border: 1px solid var(--border-hairline);
-    border-radius: 12px;
-    padding: 18px 22px;
-    margin-bottom: 18px;
+    border-radius: 18px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
     box-shadow: var(--shadow-subtle);
   }
   .detail-group-head {
@@ -1777,7 +1923,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .detail-group-title {
     font-family: var(--font-serif);
     font-size: 17px;
-    font-weight: 600;
+    font-weight: 700;
+    letter-spacing: -0.015em;
     color: var(--ink-primary);
     margin: 0;
     display: flex;
@@ -1787,22 +1934,23 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .detail-rows {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 9px;
   }
   .detail-row {
     background: var(--bg-recessed);
     border: 1px solid var(--border-hairline);
-    border-radius: 9px;
+    border-radius: 12px;
     padding: 13px 16px;
     display: grid;
     grid-template-columns: 36px minmax(0, 1fr) 186px;
     gap: 14px;
     align-items: flex-start;
+    box-shadow: inset 0 1px 0 var(--border-specular);
     transition:
-      border-color 150ms ease,
-      background-color 150ms ease,
-      transform 180ms var(--spring-soft),
-      box-shadow 150ms ease;
+      border-color 160ms ease,
+      background-color 160ms ease,
+      transform 260ms var(--spring-rebound),
+      box-shadow 180ms ease;
   }
   @media (max-width: 720px) {
     .detail-row {
@@ -1817,13 +1965,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .detail-row:hover {
     border-color: var(--accent-clay);
     background: var(--bg-card-hover);
-    box-shadow: inset 3px 0 0 var(--accent-clay);
+    transform: translateX(3px) scale(1.004);
+    box-shadow: inset 3.5px 0 0 var(--accent-clay), var(--shadow-subtle);
   }
   .drow-idx {
     width: 30px;
     height: 24px;
     margin-top: 1px;
-    border-radius: 6px;
+    border-radius: 7px;
     background: var(--bg-card);
     border: 1px solid var(--border-hairline);
     display: flex;
@@ -1834,11 +1983,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     font-weight: 600;
     color: var(--ink-muted);
     flex-shrink: 0;
-    transition: color 150ms ease, border-color 150ms ease;
+    transition: color 160ms ease, border-color 160ms ease, transform 240ms var(--spring-rebound);
   }
   .detail-row:hover .drow-idx {
     color: var(--accent-clay);
     border-color: var(--accent-clay);
+    transform: scale(1.08);
   }
   .drow-main {
     display: flex;
@@ -1864,7 +2014,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     gap: 6px;
   }
   .drow-sub-line {
-    font-size: 12.3px;
+    font-size: 12.4px;
     color: var(--ink-secondary);
     line-height: 1.48;
   }
@@ -1875,8 +2025,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     color: var(--ink-muted);
     background: var(--bg-card);
     border: 1px solid var(--border-hairline);
-    padding: 1px 7px;
-    border-radius: 4px;
+    padding: 1.5px 7px;
+    border-radius: 5px;
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1898,10 +2048,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     color: var(--tone-sage);
     white-space: nowrap;
     line-height: 1.2;
-    transition: color 150ms ease;
+    transition: color 150ms ease, transform 240ms var(--spring-rebound);
   }
   .detail-row:hover .drow-amount.is-space {
     color: var(--accent-clay);
+    transform: scale(1.04);
   }
   .drow-share {
     font-family: var(--font-mono);
@@ -1911,7 +2062,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   }
   .drow-bar-track {
     width: 136px;
-    height: 5px;
+    height: 6px;
     background: var(--bar-free);
     border-radius: 999px;
     overflow: hidden;
@@ -1920,12 +2071,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   }
   .drow-bar-fill {
     height: 100%;
-    background: var(--tone-sage);
+    background: linear-gradient(90deg, #059669, var(--tone-sage));
     border-radius: 999px;
-    transition: width 320ms var(--spring-soft), background-color 150ms ease;
+    transition: width 360ms var(--spring-rebound), background 160ms ease;
   }
   .detail-row:hover .drow-bar-fill {
-    background: var(--accent-clay);
+    background: linear-gradient(90deg, #0284C7, var(--accent-clay));
   }
 </style>
 </head>
@@ -2036,7 +2187,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <span class="ring-headline-badge tabular" id="ring-active-badge">释放 0.0% 容量</span>
             </div>
             <p class="ring-pool-desc" id="ring-active-desc">
-              圆环整圈代表当前存储卷 100% 总容量：深灰段为清理后保留的已用空间，<strong>翡翠绿高亮扇区为本次清掉释放的空间</strong>；悬停下方任意明细行可在圆环上以陶土橙高亮该项占比。
+              圆环整圈代表当前存储卷 100% 总容量：深蓝灰段为清理后保留的已用空间，<strong>翡翠绿高亮扇区为本次清掉释放的空间</strong>；悬停下方任意明细行可在圆环上以电光青高亮该项占比。
             </p>
           </div>
 
@@ -2083,7 +2234,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <section class="section-block">
     <div class="section-header">
       <h2 class="section-title">存储空间总容量与已用容量实时视图</h2>
-      <span class="section-caption" id="studio-summary-caption">双色清理标尺：陶土橙 ＝ 当前焦点项 ｜ 鼠尾草绿 ＝ 本池其他已选汇总</span>
+      <span class="section-caption" id="studio-summary-caption">双色清理标尺：电光青 ＝ 当前焦点项 ｜ 翡翠绿 ＝ 本池其他已选汇总</span>
     </div>
 
     <div class="viz-studio">
@@ -2126,7 +2277,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
       <!-- Live Action Spotlight Banner -->
       <div class="spotlight-banner" id="spotlight-banner">
-        <span id="spotlight-text">悬停或切换下方任意项目，上方主存储池、目录分项与卡片内嵌条将同步以「陶土橙（本项）＋ 鼠尾草绿（其他已选）」联动。</span>
+        <span id="spotlight-text">悬停或切换下方任意项目，上方主存储池、目录分项与卡片内嵌条将同步以「电光青（本项）＋ 翡翠绿（其他已选）」联动。</span>
         <span class="mono" style="color:var(--tone-sage);font-weight:600" id="spotlight-badge">实时联动</span>
       </div>
     </div>
@@ -2221,10 +2372,10 @@ const STORAGE_KEY = "full_stack_maint_" + REPORT_DATA.report_id;
 const THEME_KEY = "full_stack_maint_theme";
 const REDUCED_MOTION = Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
-// Warm Anthropic-inspired categorical palette for proportional chart slices
+// Apple macOS & CleanMyMac inspired vibrant categorical palette
 const SLICE_PALETTE = [
-  "#D97757", "#52A37A", "#D99242", "#6E98B8", "#B87D95",
-  "#8CA878", "#C96442", "#4B8F8C", "#C48F45", "#7B88A8"
+  "#38BDF8", "#10D98E", "#6366F1", "#F59E0B", "#EC4899",
+  "#14B8A6", "#8B5CF6", "#0EA5E9", "#22C55E", "#F43F5E"
 ];
 
 // Safe storage helpers: sandboxed iframes (without allow-same-origin) throw SecurityError on window.localStorage access
@@ -3098,6 +3249,22 @@ function toggleWhitelist(id) {
   renderCandidates();
 }
 
+function updateTabGlider() {
+  const container = document.getElementById("domain-tabs");
+  const glider = document.getElementById("tab-glider");
+  if (!container || !glider) return;
+  const activeBtn = container.querySelector("button.active");
+  if (!activeBtn || activeBtn.offsetWidth === 0) {
+    glider.style.opacity = "0";
+    container.classList.remove("has-glider");
+    return;
+  }
+  container.classList.add("has-glider");
+  glider.style.opacity = "1";
+  glider.style.width = `${activeBtn.offsetWidth}px`;
+  glider.style.transform = `translate3d(${activeBtn.offsetLeft}px, 0, 0)`;
+}
+
 function setDomain(domain, btnEl) {
   currentDomain = domain;
   document.querySelectorAll("#domain-tabs button").forEach(btn => {
@@ -3105,6 +3272,7 @@ function setDomain(domain, btnEl) {
     btn.classList.toggle("active", isAct);
   });
   renderCandidates();
+  requestAnimationFrame(updateTabGlider);
 }
 
 function setActionFilter(action, btnEl) {
@@ -3308,9 +3476,9 @@ function stepRingSpring(ts) {
   const dt = Math.min(0.032, Math.max(0.001, (ts - ringAnim.lastTs) / 1000));
   ringAnim.lastTs = ts;
 
-  // Critically damped spring (omega = 20, zeta = 0.92) for responsive interruptible motion
-  const omega = 20;
-  const zeta = 0.92;
+  // Underdamped spring (omega = 24, zeta = 0.74) for Apple / CleanMyMac non-linear motion with light rebound
+  const omega = 24;
+  const zeta = 0.74;
   const keys = ["retArc", "clnArc", "focArc", "bytes"];
   let stillMoving = false;
 
@@ -3323,8 +3491,8 @@ function stepRingSpring(ts) {
     ringAnim.vel[k] = nextV;
     ringAnim.cur[k] = nextX;
 
-    const tol = k === "bytes" ? Math.max(1024 * 1024, Math.abs(ringAnim.tgt.bytes) * 0.0015) : 0.18;
-    if (Math.abs(nextX - ringAnim.tgt[k]) > tol || Math.abs(nextV) > tol * 3) {
+    const tol = k === "bytes" ? Math.max(512 * 1024, Math.abs(ringAnim.tgt.bytes) * 0.001) : 0.12;
+    if (Math.abs(nextX - ringAnim.tgt[k]) > tol || Math.abs(nextV) > tol * 2.5) {
       stillMoving = true;
     } else {
       ringAnim.cur[k] = ringAnim.tgt[k];
@@ -3370,6 +3538,7 @@ function switchMainView(mode) {
   if (btnWb) btnWb.classList.toggle("active", !isRing);
   if (wbCluster) wbCluster.style.display = isRing ? "none" : "inline-flex";
   if (topRingSum) topRingSum.style.display = isRing ? "inline-flex" : "none";
+  if (!isRing) requestAnimationFrame(updateTabGlider);
 }
 
 function concisePoolTitle(g) {
@@ -3713,7 +3882,7 @@ function renderRingOverview(onlyUpdateArcs = false) {
         <span style="color:var(--tone-sage)">●</span>
         本次空间清理明细（${escapeHtml(activeMetrics.shortTitle)} · 共 ${spaceCleanedItems.length} 项 · 累计释放 <span class="mono" style="color:var(--tone-sage)">-${formatCompactBytes(spaceSum)}</span>）
       </h3>
-      <span class="section-caption">按清理释放容量从大到小排列 · 悬停任意行可在上方圆环中以陶土橙高亮该项占比</span>
+      <span class="section-caption">按清理释放容量从大到小排列 · 悬停任意行可在上方圆环中以电光青高亮该项占比</span>
     </div>
     <div class="detail-rows" id="detail-space-rows"></div>
   `;
@@ -3860,9 +4029,13 @@ function bootstrapDashboard() {
   try { renderDiff(); } catch (e) {}
   try { renderCandidates(); } catch (e) {}
   try { renderRingOverview(); } catch (e) {}
+  try { requestAnimationFrame(updateTabGlider); } catch (e) {}
 }
 
 bootstrapDashboard();
+window.addEventListener("resize", () => {
+  try { requestAnimationFrame(updateTabGlider); } catch (e) {}
+});
 window.addEventListener("DOMContentLoaded", () => {
   const list = document.getElementById("candidate-list");
   if (list && list.children.length === 0 && (REPORT_DATA.candidates || []).length > 0) {
