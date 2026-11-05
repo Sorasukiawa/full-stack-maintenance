@@ -18,7 +18,7 @@
 **`full-stack-maintenance`** 是面向主流 AI 程式助手的總管級全棧維護技能：支援跨 **Mac 本機與備份管線**、**本機多倉庫工作區與 Worktree**、**GitHub 全帳號遠端倉庫** 以及 **NAS / Proxmox VE / Docker 家庭伺服器** 四大領域執行平行唯讀巡檢，自動對比上次巡檢基線，產生帶**即時水位模擬器的單檔互動式 HTML 看板**，並在執行前強制執行**二次並行安全複查（`preflight`）**，保護正在同時運行的其他 AI 對話。
 
 <div align="center">
-  <img src="assets/dashboard-preview.svg" alt="Interactive HTML Waterline Dashboard Preview" width="100%" />
+  <img src="assets/dashboard-preview.png" alt="Interactive HTML Waterline Dashboard Preview" width="100%" />
 </div>
 
 ---

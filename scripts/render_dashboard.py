@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 """Generate a single-file interactive HTML dashboard for full-stack maintenance.
 
-Design System & Visual Chart Architecture:
-- Apple macOS Sequoia Liquid Glass × CleanMyMac Smart Care × Mole aesthetic:
-  deep cosmic slate-navy dark canvas (#090C15) & translucent alabaster quartz light mode (#F2F5FA),
-  specular top-edge glass borders, emerald mint (#10D98E / #059669) reclaimed space glow, and
-  electric cyan-blue (#38BDF8 / #0071E3) focus highlights.
-- 3-Layer Interactive Storage Visualization (inspired by macOS Storage Settings, CleanMyMac Space Lens,
-  and Mole terminal telemetry):
-  1. Giant Storage Ring Overview + 3x3 Volume Matrix: shows Retained Used, Cleaned Reclaimed, and
-     Hovered Focus Slice with interruptible under-damped spring physics.
-  2. Whole-Disk Segmented Anatomy Bar + Directory/Category Breakdown Bars in Workbench view.
-  3. Per-Card Inline Visual Magnitude Bar & Bidirectional Hover Highlight.
-- Interruptible under-damped spring physics (zeta = 0.74, ~3.5% non-linear light rebound) with
-  live velocity handoff and sliding segmented-control pill gliders.
+Design system:
+- macOS-style app window: translucent vibrancy sidebar with System Settings style icon tiles,
+  large titles, inset grouped lists, and a floating glass action dock.
+- Overview inspired by CleanMyMac and macOS Storage settings: a large storage ring
+  (retained used / selected to free / hovered item), a strip of per-volume mini rings,
+  and a segmented "space composition" bar.
+- Motion: every interactive change runs on real spring physics described with Apple's two
+  designer parameters (damping ratio + response). Springs retarget from the current value and
+  keep their velocity, so all motion is interruptible. CSS transitions use spring curves that
+  are pre-computed here and emitted as ``linear()`` easing functions.
+- Follows system light/dark appearance by default, honours reduced motion, reduced
+  transparency and increased contrast preferences.
+
+The script is read-only: it renders HTML from snapshot JSON and never touches the files
+described in the snapshot.
 """
 
 from __future__ import annotations
@@ -22,2410 +24,901 @@ import argparse
 import hashlib
 import html
 import json
+import math
 import sys
 from pathlib import Path
 from typing import Any
 
 
-HTML_TEMPLATE = """<!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+# Apple-style spring presets (damping ratio, response in seconds).
+# damping < 1 gives the light rebound; response is how quickly the value arrives.
+SPRING_PRESETS: dict[str, dict[str, float]] = {
+    "bounce": {"damping": 0.72, "response": 0.42},  # 勾选、按钮回弹、Dock 数字
+    "glide": {"damping": 0.80, "response": 0.34},   # 分段控件滑块、侧栏选中块
+    "ring": {"damping": 0.78, "response": 0.62},    # 圆环与水位条
+    "sheet": {"damping": 0.84, "response": 0.44},   # 弹出面板、菜单
+    "soft": {"damping": 0.92, "response": 0.36},    # 页面切换、展开收起（几乎无回弹）
+}
+
+
+def spring_easing(damping: float, response: float, samples: int = 40) -> tuple[str, int]:
+    """Sample an under-damped spring into a CSS ``linear()`` easing and its settle duration (ms)."""
+    zeta = min(0.999, max(0.05, damping))
+    omega = 2 * math.pi / response
+    decay = zeta * omega
+    duration = -math.log(0.001) / decay
+    damped = omega * math.sqrt(1 - zeta * zeta)
+    points: list[str] = []
+    for i in range(samples + 1):
+        t = duration * i / samples
+        x = 1 - math.exp(-decay * t) * (math.cos(damped * t) + (decay / damped) * math.sin(damped * t))
+        points.append(f"{x:.4f}".rstrip("0").rstrip(".") or "0")
+    points[0] = "0"
+    points[-1] = "1"
+    return "linear(" + ", ".join(points) + ")", round(duration * 1000)
+
+
+DARK_TOKENS = """
+  color-scheme: dark;
+  --bg: #0d0d10;
+  --surface: rgba(38, 38, 42, 0.62);
+  --surface-strong: rgba(44, 44, 48, 0.82);
+  --surface-solid: #1c1c1e;
+  --cell: rgba(255, 255, 255, 0.035);
+  --sidebar: rgba(22, 22, 26, 0.66);
+  --nav-selected: rgba(255, 255, 255, 0.10);
+  --seg-thumb: #5a5a5f;
+  --field: rgba(255, 255, 255, 0.06);
+  --label: #f5f5f7;
+  --label-2: #a1a1a6;
+  --label-3: #6e6e73;
+  --separator: rgba(84, 84, 88, 0.5);
+  --hairline: rgba(255, 255, 255, 0.07);
+  --glass-edge: rgba(255, 255, 255, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.06);
+  --fill: rgba(120, 120, 128, 0.26);
+  --fill-2: rgba(120, 120, 128, 0.15);
+  --track: rgba(120, 120, 128, 0.22);
+  --used: #636366;
+  --check-border: rgba(235, 235, 245, 0.32);
+  --shadow-color: rgba(0, 0, 0, 0.55);
+  --shadow-color-sm: rgba(0, 0, 0, 0.35);
+  --scrim: rgba(0, 0, 0, 0.5);
+  --toast-bg: rgba(245, 245, 247, 0.94);
+  --toast-fg: #1d1d1f;
+  --blue: #0a84ff;
+  --green: #30d158;
+  --green-text: #30d158;
+  --teal: #40c8e0;
+  --orange: #ff9f0a;
+  --orange-text: #ff9f0a;
+  --red: #ff453a;
+  --purple: #bf5af2;
+  --indigo: #5e5ce6;
+  --pink: #ff375f;
+  --yellow: #ffd60a;
+  --glow-strength: 34%;
+  --glow-opacity: 0.55;
+"""
+
+
+TEMPLATE_HEAD = r"""<!DOCTYPE html>
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
 <title>__TITLE__</title>
 <style>
+@property --tint-a { syntax: "<color>"; inherits: false; initial-value: #0a84ff; }
+@property --tint-b { syntax: "<color>"; inherits: false; initial-value: #40c8e0; }
+
+:root {
+  color-scheme: light;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", "Microsoft YaHei", system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  --bg: #f2f2f6;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-strong: rgba(255, 255, 255, 0.86);
+  --surface-solid: #ffffff;
+  --cell: rgba(255, 255, 255, 0.62);
+  --sidebar: rgba(240, 240, 245, 0.7);
+  --nav-selected: rgba(255, 255, 255, 0.95);
+  --seg-thumb: #ffffff;
+  --field: rgba(255, 255, 255, 0.9);
+  --label: #1d1d1f;
+  --label-2: #6e6e73;
+  --label-3: #a1a1a6;
+  --separator: rgba(60, 60, 67, 0.14);
+  --hairline: rgba(0, 0, 0, 0.06);
+  --glass-edge: rgba(255, 255, 255, 0.75);
+  --glass-highlight: rgba(255, 255, 255, 0.85);
+  --fill: rgba(120, 120, 128, 0.14);
+  --fill-2: rgba(120, 120, 128, 0.08);
+  --track: rgba(120, 120, 128, 0.14);
+  --used: #aeaeb2;
+  --check-border: rgba(60, 60, 67, 0.3);
+  --shadow-color: rgba(30, 30, 60, 0.12);
+  --shadow-color-sm: rgba(0, 0, 0, 0.05);
+  --scrim: rgba(20, 20, 30, 0.2);
+  --toast-bg: rgba(29, 29, 31, 0.92);
+  --toast-fg: #f5f5f7;
+  --blue: #0071e3;
+  --green: #34c759;
+  --green-text: #1f8a3b;
+  --teal: #30b0c7;
+  --orange: #ff9500;
+  --orange-text: #c45c00;
+  --red: #ff3b30;
+  --purple: #af52de;
+  --indigo: #5856d6;
+  --pink: #ff2d55;
+  --yellow: #ffcc00;
+  --glow-strength: 22%;
+  --glow-opacity: 0.32;
+
+  --ease-bounce: cubic-bezier(0.34, 1.32, 0.64, 1);
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-bounce: __EASE_BOUNCE_MS__ms;
+  --dur-soft: __EASE_SOFT_MS__ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --shadow-sm: 0 1px 2px var(--shadow-color-sm), 0 0 0 0.5px var(--hairline);
+  --shadow-card: 0 1px 2px var(--shadow-color-sm), 0 16px 40px -18px var(--shadow-color), inset 0 1px 0 var(--glass-highlight);
+  --shadow-float: 0 2px 6px var(--shadow-color-sm), 0 24px 60px -16px var(--shadow-color), inset 0 1px 0 var(--glass-highlight);
+}
+@supports (transition-timing-function: linear(0, 1)) {
   :root {
-    /* Apple macOS Sequoia Daylight Glass × CleanMyMac / Mole Palette (Light Mode) */
-    --bg-page: #F2F5FA;
-    --bg-page-gradient:
-      radial-gradient(1100px 520px at 12% -8%, rgba(16, 217, 142, 0.11), transparent 62%),
-      radial-gradient(960px 480px at 88% -4%, rgba(0, 113, 227, 0.10), transparent 60%),
-      linear-gradient(180deg, #F6F8FC 0%, #EDF1F8 100%);
-    --bg-recessed: rgba(226, 232, 242, 0.68);
-    --bg-card: rgba(255, 255, 255, 0.78);
-    --bg-card-hover: rgba(255, 255, 255, 0.94);
-    --bg-card-selected: rgba(236, 253, 245, 0.85);
-    --bg-sticky: rgba(242, 245, 250, 0.78);
-    --ink-primary: #0F172A;
-    --ink-secondary: #475569;
-    --ink-muted: #64748B;
-    --border-hairline: rgba(15, 23, 42, 0.08);
-    --border-strong: rgba(15, 23, 42, 0.16);
-    --border-specular: rgba(255, 255, 255, 0.85);
-    --accent-clay: #0071E3;
-    --accent-clay-soft: rgba(0, 113, 227, 0.12);
-    --tone-sage: #059669;
-    --tone-sage-bg: rgba(5, 150, 105, 0.12);
-    --tone-ochre: #D97706;
-    --tone-ochre-bg: rgba(217, 119, 6, 0.12);
-    --tone-rust: #DC2626;
-    --tone-rust-bg: rgba(220, 38, 38, 0.12);
-    --bar-retained: #475569;
-    --bar-free: rgba(148, 163, 184, 0.24);
-    --shadow-subtle:
-      0 1px 2px rgba(15, 23, 42, 0.04),
-      0 8px 24px -6px rgba(15, 23, 42, 0.06),
-      inset 0 1px 0 var(--border-specular);
-    --shadow-elevated:
-      0 14px 34px -8px rgba(15, 23, 42, 0.12),
-      0 4px 12px rgba(15, 23, 42, 0.05),
-      inset 0 1px 0 var(--border-specular);
-    --shadow-modal: 0 28px 60px -12px rgba(15, 23, 42, 0.28);
+    --ease-bounce: __EASE_BOUNCE__;
+    --ease-soft: __EASE_SOFT__;
+  }
+}
+:root[data-theme="dark"] {__DARK_TOKENS__}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {__DARK_TOKENS__}
+}
 
-    /* Apple System Typography (SF Pro Display / Text / Mono) */
-    --font-serif: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
-    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
-    --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; background: var(--bg); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--label);
+  font: 15px/1.5 var(--font);
+  letter-spacing: -0.003em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+input, select, textarea { font: inherit; color: inherit; }
+:focus { outline: none; }
+:focus-visible { outline: 3px solid color-mix(in srgb, var(--blue) 50%, transparent); outline-offset: 2px; border-radius: 8px; }
+.num { font-variant-numeric: tabular-nums; }
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.ico { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
-    /* Non-linear light rebound spring curves */
-    --spring-rebound: cubic-bezier(0.22, 1.36, 0.36, 1);
-    --spring-soft: cubic-bezier(0.16, 1.14, 0.3, 1);
-    --spring-press: cubic-bezier(0.2, 0.85, 0.32, 1);
-  }
+/* ---------- Ambient backdrop: tint follows the current section ---------- */
+.backdrop {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  --tint-a: #0a84ff; --tint-b: #40c8e0;
+  background:
+    radial-gradient(48vw 42vh at 18% -6%, color-mix(in srgb, var(--tint-a) var(--glow-strength), transparent), transparent 72%),
+    radial-gradient(42vw 38vh at 92% 4%, color-mix(in srgb, var(--tint-b) var(--glow-strength), transparent), transparent 70%);
+  transition: --tint-a 1.1s var(--ease-out), --tint-b 1.1s var(--ease-out);
+}
+[data-view="all"] .backdrop { --tint-a: #5e5ce6; --tint-b: #0a84ff; }
+[data-view="mac"] .backdrop { --tint-a: #0a84ff; --tint-b: #5e5ce6; }
+[data-view="projects"] .backdrop { --tint-a: #bf5af2; --tint-b: #ff375f; }
+[data-view="github"] .backdrop { --tint-a: #5e5ce6; --tint-b: #8e8e93; }
+[data-view="nas"] .backdrop { --tint-a: #30d158; --tint-b: #40c8e0; }
+[data-view="whitelisted"] .backdrop { --tint-a: #ff9f0a; --tint-b: #ffd60a; }
 
-  [data-theme="dark"] {
-    /* CleanMyMac Smart Care × macOS Dark Liquid Glass × Mole Terminal Palette */
-    --bg-page: #090C15;
-    --bg-page-gradient:
-      radial-gradient(1200px 560px at 14% -10%, rgba(16, 217, 142, 0.13), transparent 64%),
-      radial-gradient(1000px 520px at 86% -6%, rgba(56, 189, 248, 0.12), transparent 60%),
-      radial-gradient(800px 480px at 50% 105%, rgba(99, 102, 241, 0.08), transparent 65%),
-      linear-gradient(180deg, #0B0F1A 0%, #070A12 100%);
-    --bg-recessed: rgba(13, 18, 30, 0.72);
-    --bg-card: rgba(21, 28, 44, 0.68);
-    --bg-card-hover: rgba(28, 37, 58, 0.82);
-    --bg-card-selected: rgba(16, 42, 46, 0.76);
-    --bg-sticky: rgba(9, 12, 21, 0.76);
-    --ink-primary: #F8FAFC;
-    --ink-secondary: #94A3B8;
-    --ink-muted: #64748B;
-    --border-hairline: rgba(255, 255, 255, 0.08);
-    --border-strong: rgba(255, 255, 255, 0.18);
-    --border-specular: rgba(255, 255, 255, 0.11);
-    --accent-clay: #38BDF8;
-    --accent-clay-soft: rgba(56, 189, 248, 0.16);
-    --tone-sage: #10D98E;
-    --tone-sage-bg: rgba(16, 217, 142, 0.14);
-    --tone-ochre: #FBBF24;
-    --tone-ochre-bg: rgba(251, 191, 36, 0.14);
-    --tone-rust: #FB7185;
-    --tone-rust-bg: rgba(251, 113, 133, 0.15);
-    --bar-retained: #475569;
-    --bar-free: rgba(30, 41, 59, 0.78);
-    --shadow-subtle:
-      0 4px 20px -4px rgba(0, 0, 0, 0.42),
-      inset 0 1px 0 var(--border-specular);
-    --shadow-elevated:
-      0 18px 40px -10px rgba(0, 0, 0, 0.62),
-      0 0 0 1px rgba(255, 255, 255, 0.06),
-      inset 0 1px 0 rgba(255, 255, 255, 0.16);
-    --shadow-modal: 0 32px 64px -12px rgba(0, 0, 0, 0.78);
-  }
+/* ---------- App frame ---------- */
+.app { position: relative; z-index: 1; display: grid; grid-template-columns: 252px minmax(0, 1fr); min-height: 100vh; }
+.sidebar {
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 18px;
+  padding: 22px 12px 16px;
+  background: var(--sidebar);
+  -webkit-backdrop-filter: blur(40px) saturate(190%);
+  backdrop-filter: blur(40px) saturate(190%);
+  border-right: 0.5px solid var(--separator);
+}
+.brand { display: flex; align-items: center; gap: 11px; padding: 0 8px; }
+.brand-icon {
+  width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; color: #fff; flex: none;
+  background: conic-gradient(from 210deg, #64d2ff, #0a84ff, #5e5ce6, #30d158, #64d2ff);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.55), 0 3px 10px -2px rgba(10, 132, 255, 0.45);
+}
+.brand-icon .ico { width: 20px; height: 20px; stroke-width: 2.2; }
+.brand-name { font-weight: 650; font-size: 15px; letter-spacing: -0.012em; line-height: 1.25; }
+.brand-sub { font-size: 12px; color: var(--label-2); line-height: 1.3; }
+.nav { position: relative; display: flex; flex-direction: column; gap: 2px; }
+.nav-pill {
+  position: absolute; left: 0; right: 0; top: 0; height: 36px; border-radius: 10px;
+  background: var(--nav-selected); box-shadow: var(--shadow-sm); will-change: transform, height; pointer-events: none;
+}
+.nav-item {
+  position: relative; z-index: 1; display: flex; align-items: center; gap: 10px;
+  height: 36px; padding: 0 10px 0 6px; border-radius: 10px; font-size: 14px; font-weight: 500; text-align: left;
+  transition: background 0.15s, transform var(--dur-bounce) var(--ease-bounce);
+}
+.nav-item:hover:not(.active) { background: var(--fill-2); }
+.nav-item:active { transform: scale(0.97); transition-duration: 70ms; }
+.nav-count { margin-left: auto; font-size: 12.5px; color: var(--label-2); font-variant-numeric: tabular-nums; }
+.nav-label { font-size: 12px; font-weight: 600; color: var(--label-3); padding: 14px 10px 4px; }
+.sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 0 6px; }
+.sidebar-foot .foot-label { font-size: 12px; color: var(--label-3); font-weight: 600; padding: 0 4px; }
 
-  * { box-sizing: border-box; }
-  html, body {
-    margin: 0;
-    padding: 0;
-    background-color: var(--bg-page);
-    background-image: var(--bg-page-gradient);
-    background-attachment: fixed;
-    color: var(--ink-primary);
-    font-family: var(--font-sans);
-    font-size: 14px;
-    line-height: 1.55;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    transition: background-color 240ms ease, color 240ms ease;
-  }
-  .tabular {
-    font-variant-numeric: tabular-nums;
-    font-feature-settings: "tnum" 1;
-  }
-  .mono {
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-  }
+.main { min-width: 0; padding: 0 44px 150px; }
+.page { max-width: 1120px; margin: 0 auto; will-change: transform, opacity; }
+.page-head { padding: 46px 4px 22px; }
+.large-title {
+  margin: 0; font-family: var(--font-display); font-weight: 700;
+  font-size: clamp(28px, 3.1vw, 38px); line-height: 1.12; letter-spacing: -0.026em;
+}
+.page-sub { margin: 10px 0 0; max-width: 70ch; color: var(--label-2); font-size: 15px; line-height: 1.55; }
+.page-sub b { color: var(--label); font-weight: 600; }
 
-  /* Top Translucent Apple Vibrancy Command Bar */
-  .top-bar {
-    position: sticky;
-    top: 0;
-    z-index: 40;
-    background: var(--bg-sticky);
-    backdrop-filter: blur(24px) saturate(190%);
-    -webkit-backdrop-filter: blur(24px) saturate(190%);
-    border-bottom: 1px solid var(--border-hairline);
-    box-shadow: 0 4px 24px -6px rgba(0, 0, 0, 0.18);
-  }
-  .top-bar-inner {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 11px 22px;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  .brand-cluster {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .brand-mark {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, var(--tone-sage), var(--accent-clay));
-    box-shadow: 0 0 12px var(--tone-sage);
-    flex-shrink: 0;
-  }
-  .brand-meta {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--ink-secondary);
-  }
-  .action-cluster {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-  }
-  .summary-stat {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 12px;
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-radius: 999px;
-    font-size: 12px;
-    color: var(--ink-secondary);
-    box-shadow: inset 0 1px 0 var(--border-specular);
-    transition: transform 320ms var(--spring-rebound), border-color 180ms ease;
-  }
-  .summary-stat.rebound {
-    transform: scale(1.055);
-    border-color: var(--tone-sage);
-  }
-  .summary-stat strong {
-    color: var(--ink-primary);
-    font-weight: 600;
-  }
+.glass {
+  background: var(--surface);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+  border: 0.5px solid var(--glass-edge);
+  box-shadow: var(--shadow-card);
+}
 
-  /* Apple Liquid Glass Pill & Action Buttons */
-  button {
-    appearance: none;
-    cursor: pointer;
-    font-family: var(--font-sans);
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--ink-primary);
-    background: var(--bg-card);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid var(--border-hairline);
-    border-radius: 9px;
-    padding: 5.5px 11px;
-    line-height: 1.35;
-    box-shadow: var(--shadow-subtle);
-    outline: none;
-    transition:
-      transform 280ms var(--spring-rebound),
-      border-color 160ms ease,
-      background-color 160ms ease,
-      box-shadow 160ms ease,
-      color 160ms ease;
-    user-select: none;
-  }
-  button:focus-visible {
-    box-shadow: 0 0 0 3px var(--accent-clay-soft), var(--shadow-subtle);
-  }
-  @media (hover: hover) and (pointer: fine) {
-    button:hover {
-      border-color: var(--border-strong);
-      background: var(--bg-card-hover);
-      transform: translateY(-1px);
-    }
-  }
-  button:active {
-    transform: scale(0.95) translateY(0) !important;
-    transition-duration: 55ms;
-  }
-  .btn-primary {
-    background: linear-gradient(135deg, var(--tone-sage), #059669);
-    color: #04130D;
-    border-color: rgba(255, 255, 255, 0.22);
-    font-weight: 600;
-    padding: 5.5px 14px;
-    box-shadow: 0 4px 14px -2px rgba(16, 217, 142, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  }
-  @media (hover: hover) and (pointer: fine) {
-    .btn-primary:hover {
-      background: linear-gradient(135deg, #22E59B, var(--tone-sage));
-      border-color: rgba(255, 255, 255, 0.36);
-      color: #02100A;
-      box-shadow: 0 6px 20px -2px rgba(16, 217, 142, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.45);
-    }
-  }
-  .btn-ghost {
-    background: transparent;
-    box-shadow: none;
-    color: var(--ink-secondary);
-  }
-  .theme-switch {
-    display: inline-flex;
-    padding: 3px;
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-radius: 10px;
-    gap: 2px;
-  }
-  .theme-switch button {
-    border: none;
-    background: transparent;
-    box-shadow: none;
-    padding: 3.5px 9px;
-    border-radius: 7px;
-    font-size: 11.5px;
-    color: var(--ink-muted);
-  }
-  .theme-switch button.active {
-    background: var(--bg-card);
-    color: var(--ink-primary);
-    font-weight: 600;
-    box-shadow: var(--shadow-subtle);
-  }
+/* ---------- App icon tiles (System Settings style) ---------- */
+.app-icon {
+  flex: none; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; color: #fff;
+  background: linear-gradient(180deg, var(--c1), var(--c2));
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.4), 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+.app-icon .ico { width: 16px; height: 16px; stroke-width: 2.1; }
+.app-icon.sm { width: 24px; height: 24px; border-radius: 7px; }
+.app-icon.sm .ico { width: 14px; height: 14px; }
+.tint-blue { --c1: #47a3ff; --c2: #0a6cf0; }
+.tint-green { --c1: #50d86c; --c2: #24b046; }
+.tint-orange { --c1: #ffb54a; --c2: #ff8800; }
+.tint-purple { --c1: #cb84ff; --c2: #9a46f0; }
+.tint-teal { --c1: #5cd7e8; --c2: #17a9c2; }
+.tint-indigo { --c1: #8582ff; --c2: #4d4ad6; }
+.tint-graphite { --c1: #a7a7ad; --c2: #6c6c72; }
+.tint-pink { --c1: #ff7393; --c2: #ff2d55; }
+.tint-yellow { --c1: #ffd84d; --c2: #ffb300; }
+.tint-rainbow { --c1: #64d2ff; --c2: #5e5ce6; }
 
-  /* Page Layout */
-  .container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 28px 22px 92px;
-  }
-  .editorial-header {
-    margin-bottom: 24px;
-    padding-bottom: 18px;
-    border-bottom: 1px solid var(--border-hairline);
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    align-items: flex-end;
-    gap: 16px;
-  }
-  .editorial-kicker {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--tone-sage);
-    margin-bottom: 6px;
-  }
-  h1 {
-    font-family: var(--font-serif);
-    font-size: clamp(25px, 2.8vw, 33px);
-    font-weight: 700;
-    letter-spacing: -0.025em;
-    line-height: 1.16;
-    margin: 0 0 6px;
-    color: var(--ink-primary);
-  }
-  .editorial-subtitle {
-    margin: 0;
-    font-size: 13.5px;
-    color: var(--ink-secondary);
-    max-width: 700px;
-  }
+/* ---------- Buttons & controls ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 30px; padding: 0 14px; border-radius: 999px; white-space: nowrap;
+  font-size: 13.5px; font-weight: 560; background: var(--fill); color: var(--label);
+  transition: transform var(--dur-bounce) var(--ease-bounce), background 0.15s, filter 0.15s;
+}
+.btn:hover { background: color-mix(in srgb, var(--fill) 100%, var(--fill-2)); filter: brightness(1.03); }
+.btn:active { transform: scale(0.95); transition-duration: 70ms; }
+.btn .ico { width: 15px; height: 15px; }
+.btn-primary { background: var(--blue); color: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12), inset 0 0.5px 0 rgba(255, 255, 255, 0.3); }
+.btn-primary:hover { background: var(--blue); filter: brightness(1.08); }
+.btn-plain { background: transparent; color: var(--blue); }
+.btn-plain:hover { background: var(--fill-2); }
+.btn-small { height: 26px; padding: 0 11px; font-size: 12.5px; }
+.btn-large { height: 40px; padding: 0 20px; font-size: 14.5px; }
+.btn-warn { color: var(--orange-text); }
 
-  .section-block {
-    margin-bottom: 28px;
-  }
-  .section-header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 12px;
-  }
-  .section-title {
-    font-family: var(--font-serif);
-    font-size: 18px;
-    font-weight: 600;
-    letter-spacing: -0.018em;
-    margin: 0;
-    color: var(--ink-primary);
-  }
-  .section-caption {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    color: var(--ink-muted);
-  }
+.seg { position: relative; display: inline-flex; padding: 2px; border-radius: 9px; background: var(--fill); isolation: isolate; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.seg::-webkit-scrollbar { display: none; }
+.seg button {
+  position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 13px; border-radius: 7px; font-size: 13px; font-weight: 520; white-space: nowrap;
+  transition: transform var(--dur-bounce) var(--ease-bounce), color 0.2s;
+}
+.seg button:active { transform: scale(0.95); transition-duration: 70ms; }
+.seg button .count { font-size: 12px; color: var(--label-2); font-variant-numeric: tabular-nums; }
+.seg-glider { position: absolute; z-index: 0; top: 2px; bottom: 2px; left: 0; width: 0; border-radius: 7px; background: var(--seg-thumb); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.04); will-change: transform, width; }
+.seg.small button { padding: 4px 10px; font-size: 12.5px; flex: 1; justify-content: center; }
+.seg.small { display: flex; }
 
-  /* ==========================================================================
-     VISUALIZATION STUDIO: Interactive Disk Composition + Selected Reclaim Map
-     ========================================================================== */
-  .viz-studio {
-    background: var(--bg-card);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--border-hairline);
-    border-top-color: var(--border-specular);
-    border-radius: 18px;
-    padding: 20px;
-    box-shadow: var(--shadow-elevated), inset 0 1px 0 var(--border-specular);
-    margin-bottom: 16px;
-  }
-  .pool-selector-strip {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
-    gap: 10px;
-    margin-bottom: 16px;
-  }
-  .pool-tab-card {
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-top-color: var(--border-specular);
-    border-radius: 12px;
-    padding: 11px 13px;
-    cursor: pointer;
-    text-align: left;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 0;
-    transition:
-      transform 280ms var(--spring-rebound),
-      border-color 180ms ease,
-      background-color 180ms ease,
-      box-shadow 220ms ease;
-  }
-  .pool-tab-card:hover {
-    border-color: var(--border-strong);
-    transform: translateY(-2px);
-  }
-  .pool-tab-card:active {
-    transform: scale(0.975);
-    transition-duration: 80ms;
-  }
-  .pool-tab-card.active {
-    background: var(--bg-card-selected);
-    border-color: var(--accent-clay);
-    box-shadow: 0 0 0 1px var(--accent-clay), 0 8px 20px -10px var(--accent-clay-soft);
-  }
-  .pool-tab-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--ink-muted);
-    white-space: nowrap;
-  }
-  .pool-tab-name {
-    font-size: 12.5px;
-    font-weight: 600;
-    color: var(--ink-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .pool-tab-metrics {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 4px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    white-space: nowrap;
-    overflow: hidden;
-  }
-  .pool-mini-track {
-    position: relative;
-    height: 6px;
-    background: var(--bar-free);
-    border-radius: 999px;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-  }
-  .pool-mini-fill {
-    height: 100%;
-    transition: width 320ms var(--spring-soft), background-color 180ms ease;
-    will-change: width;
-  }
-  .pool-mini-focus {
-    height: 100%;
-    background: var(--accent-clay);
-    transition: width 320ms var(--spring-rebound);
-  }
-  .pool-mini-reclaim {
-    height: 100%;
-    background: var(--tone-sage);
-    transition: width 320ms var(--spring-rebound);
-  }
-  .pool-reclaim-pill {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--tone-sage);
-    margin-left: auto;
-    margin-right: 4px;
-  }
+.popup { position: relative; display: inline-flex; align-items: center; }
+.popup select {
+  appearance: none; -webkit-appearance: none; height: 30px; padding: 0 30px 0 12px; border-radius: 8px;
+  border: 0.5px solid var(--separator); background: var(--field); font-size: 13px; font-weight: 500; cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.popup .ico { position: absolute; right: 9px; width: 13px; height: 13px; pointer-events: none; color: var(--label-2); }
 
-  /* Active Pool Deep-Dive Anatomy Chart: Left = Total Capacity, Middle = Progress Bar (adjusting Cleaned Capacity in middle), Right = Used Capacity */
-  .anatomy-panel {
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-radius: 9px;
-    padding: 15px 16px;
-    margin-bottom: 12px;
-  }
-  .anatomy-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 10px;
-  }
-  .anatomy-title-group {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .anatomy-title {
-    font-size: 13.8px;
-    font-weight: 600;
-    color: var(--ink-primary);
-  }
-  .anatomy-focus-badge {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--accent-clay);
-    background: var(--accent-clay-soft);
-    padding: 2px 8px;
-    border-radius: 999px;
-  }
-  .anatomy-mid-badge {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--tone-sage);
-    background: var(--tone-sage-bg);
-    padding: 2px 8px;
-    border-radius: 999px;
-  }
-  .anatomy-readout {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    color: var(--ink-secondary);
-  }
-  .main-storage-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 10px;
-  }
-  .main-storage-total {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--ink-secondary);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .main-storage-used {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--ink-secondary);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
+/* ---------- Volume strip (mini rings) ---------- */
+.volume-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(172px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.vol {
+  display: flex; align-items: center; gap: 11px; min-width: 0; padding: 10px 12px 10px 10px; border-radius: 16px; text-align: left;
+  transition: transform var(--dur-bounce) var(--ease-bounce), box-shadow 0.25s var(--ease-out), background 0.2s;
+}
+.vol:hover { background: var(--surface-strong); }
+.vol:active { transform: scale(0.97); transition-duration: 70ms; }
+.vol[aria-selected="true"] { box-shadow: 0 0 0 2px var(--blue), var(--shadow-card); background: var(--surface-strong); }
+.vol-ring-wrap { position: relative; width: 46px; height: 46px; flex: none; display: grid; place-items: center; }
+.vol-ring { position: absolute; inset: 0; width: 100%; height: 100%; }
+.vol-ring circle { fill: none; stroke-width: 5.5; }
+.vol-ring .vt { stroke: var(--track); }
+.vol-ring .vr { stroke: var(--used); }
+.vol-ring .vc { stroke: var(--green); }
+.vol-text { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.vol-name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vol-meta { font-size: 12px; color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.vol-meta.free { color: var(--green-text); font-weight: 560; }
+.vol-pct { position: relative; font-size: 11px; font-weight: 680; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.vol-pct.warn { color: var(--orange-text); }
+.vol-pct.crit { color: var(--red); }
 
-  /* 28px Apple macOS Storage Bar with Specular Sheen & Spring Segments */
-  .segmented-storage-bar {
-    position: relative;
-    height: 30px;
-    flex: 1;
-    min-width: 120px;
-    background: var(--bar-free);
-    border: 1px solid var(--border-hairline);
-    border-radius: 10px;
-    overflow: hidden;
-    display: flex;
-    align-items: stretch;
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.22), inset 0 1px 0 var(--border-specular);
-  }
-  .segmented-storage-bar::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 55%);
-    pointer-events: none;
-  }
-  .seg-retained {
-    height: 100%;
-    background: linear-gradient(90deg, var(--bar-retained), var(--bar-retained-alt));
-    display: flex;
-    align-items: center;
-    padding: 0 10px;
-    color: #FFFFFF;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    transition: width 380ms var(--spring-rebound);
-    will-change: width;
-  }
-  .seg-reclaim-item {
-    height: 100%;
-    background: var(--accent-clay);
-    border-right: 1.5px solid rgba(9, 12, 21, 0.35);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #FFFFFF;
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    font-weight: 700;
-    white-space: nowrap;
-    overflow: hidden;
-    transition: width 380ms var(--spring-rebound);
-  }
-  .seg-reclaim-mid {
-    height: 100%;
-    background: var(--tone-sage);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    color: #06281E;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 700;
-    white-space: nowrap;
-    overflow: hidden;
-    transition: width 380ms var(--spring-rebound);
-    will-change: width;
-  }
-  .seg-free {
-    flex: 1;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    padding: 0 10px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--ink-muted);
-    white-space: nowrap;
-    overflow: hidden;
-  }
-  @media (max-width: 760px) {
-    .seg-retained, .seg-reclaim-item, .seg-reclaim-mid, .seg-free { font-size: 0 !important; padding: 0 !important; }
-  }
-  .storage-legend {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px 12px;
-    font-size: 11px;
-    color: var(--ink-secondary);
-  }
-  .legend-items {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px 13px;
-  }
-  .legend-dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 2px;
-    margin-right: 4px;
-    vertical-align: -0.5px;
-  }
-  .legend-free-pill {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--ink-secondary);
-    background: var(--bg-card);
-    border: 1px solid var(--border-hairline);
-    padding: 1.5px 8px;
-    border-radius: 5px;
-    white-space: nowrap;
-  }
+/* ---------- Hero: storage ring ---------- */
+.hero { display: grid; grid-template-columns: minmax(250px, 330px) minmax(0, 1fr); gap: 44px; align-items: center; padding: 34px 40px; border-radius: 28px; }
+.ring-stage { position: relative; width: 100%; max-width: 330px; aspect-ratio: 1; justify-self: center; }
+.ring { display: block; width: 100%; height: 100%; overflow: visible; }
+.ring circle { fill: none; stroke-width: 26; }
+.ring-track { stroke: var(--track); }
+.ring-arc-retained { stroke: var(--used); }
+.ring-arc-cleaned { stroke: url(#grad-clean); }
+.ring-arc-focus { stroke: var(--blue); }
+.ring-arc-glow { stroke: url(#grad-clean); filter: url(#ring-glow); opacity: var(--glow-opacity); }
+.ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; padding: 0 18%; }
+.ring-kicker { font-size: 13px; font-weight: 560; color: var(--label-2); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ring-num { display: flex; align-items: baseline; gap: 5px; margin: 2px 0 4px; font-family: var(--font-display); font-variant-numeric: tabular-nums; }
+.ring-num .n { font-size: clamp(40px, 4.6vw, 58px); font-weight: 700; letter-spacing: -0.04em; line-height: 1; transition: color 0.3s; }
+.ring-num .u { font-size: 19px; font-weight: 620; color: var(--label-2); }
+.ring-num.is-free .n { color: var(--green-text); }
+.ring-num.is-focus .n { color: var(--blue); }
+.ring-water { font-size: 13px; color: var(--label-2); font-variant-numeric: tabular-nums; }
 
-  /* Category / Directory Breakdown Mini-Bars: Left = Total, Middle = [Retained][Current Item (Terracotta)][Other Cleaned (Sage)], Right = Used */
-  .category-breakdown-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
-    gap: 8px;
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid var(--border-hairline);
-  }
-  .cat-bar-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border-hairline);
-    border-radius: 6px;
-    padding: 9px 11px;
-    min-width: 0;
-    transition: border-color 160ms ease, background-color 160ms ease;
-  }
-  .cat-bar-card.focused-cat {
-    border-color: rgba(217, 119, 87, 0.5);
-  }
-  .cat-bar-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 6px;
-    font-size: 11.5px;
-    margin-bottom: 5px;
-  }
-  .cat-bar-name {
-    font-weight: 600;
-    color: var(--ink-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .cat-bar-clean-tag {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    font-weight: 600;
-    color: var(--tone-sage);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .cat-bar-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-  }
-  .cat-bar-total {
-    color: var(--ink-muted);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .cat-bar-val {
-    color: var(--ink-secondary);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .cat-bar-track {
-    flex: 1;
-    height: 8px;
-    background: var(--bar-free);
-    border-radius: 999px;
-    overflow: hidden;
-    display: flex;
-    align-items: stretch;
-  }
-  .cat-bar-remain {
-    height: 100%;
-    background: var(--bar-retained);
-    transition: width 320ms var(--spring-soft);
-  }
-  .cat-bar-focus {
-    height: 100%;
-    background: var(--accent-clay);
-    transition: width 320ms var(--spring-rebound);
-  }
-  .cat-bar-saved {
-    height: 100%;
-    background: var(--tone-sage);
-    transition: width 320ms var(--spring-rebound);
-  }
+.hero-info { min-width: 0; }
+.hero-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hero-title { margin: 0; font-family: var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: -0.022em; }
+.status-pill { font-size: 12px; font-weight: 620; padding: 3px 10px; border-radius: 999px; color: var(--pill, var(--label-2)); background: color-mix(in srgb, var(--pill, var(--label-2)) 14%, transparent); }
+.status-pill.ok { --pill: var(--green-text); }
+.status-pill.warn { --pill: var(--orange-text); }
+.status-pill.crit { --pill: var(--red); }
+.hero-mount { margin: 5px 0 0; font: 12.5px/1.4 var(--font-mono); color: var(--label-3); word-break: break-all; }
+.hero-mount.plain { font-family: var(--font); font-size: 13px; }
+.hero-sentence { margin: 14px 0 18px; max-width: 54ch; font-size: 15px; line-height: 1.55; }
+.hero-sentence b { font-weight: 650; }
+.stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5px; margin: 0; border-radius: 14px; overflow: hidden; background: var(--separator); }
+.stat { margin: 0; padding: 12px 14px; background: var(--cell); }
+.stat dt { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--label-2); }
+.stat dd { margin: 3px 0 0; font-size: 20px; font-weight: 650; letter-spacing: -0.018em; font-variant-numeric: tabular-nums; }
+.stat dd.free { color: var(--green-text); }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--dot, var(--used)); }
+.dot.ring-used { --dot: var(--used); }
+.dot.ring-clean { background: linear-gradient(135deg, var(--green), var(--teal)); }
+.dot.ring-focus { --dot: var(--blue); }
+.dot.ring-free { --dot: var(--track); box-shadow: inset 0 0 0 1px var(--separator); }
 
-  /* Live Action Spotlight Banner */
-  .spotlight-banner {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 8px 12px;
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-left: 3px solid var(--tone-sage);
-    border-radius: 7px;
-    font-size: 12px;
-    transition: transform 260ms var(--spring-rebound);
-  }
-  .spotlight-banner.bump {
-    transform: scale(1.01);
-  }
+.comp { margin-top: 20px; }
+.comp-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; font-size: 13px; color: var(--label-2); }
+.comp-head b { color: var(--label); font-weight: 620; font-size: 13.5px; }
+.sbar { display: flex; gap: 2px; height: 16px; border-radius: 6px; overflow: hidden; background: var(--track); }
+.sbar > i { display: block; height: 100%; flex: none; width: 0; transition: width var(--dur-bounce) var(--ease-bounce), opacity 0.2s; }
+.sbar.lg { height: 22px; border-radius: 7px; }
+.sbar.dim > i:not(.on) { opacity: 0.28; }
+.comp-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 12.5px; color: var(--label-2); }
+.comp-legend > span { display: inline-flex; align-items: center; gap: 6px; cursor: default; transition: opacity 0.2s; }
+.comp-legend b { color: var(--label); font-weight: 600; font-variant-numeric: tabular-nums; }
+.comp-legend em { font-style: normal; color: var(--green-text); font-weight: 600; }
+.comp-legend.dim > span:not(.on) { opacity: 0.4; }
 
-  /* Baseline Diff Ledger */
-  .diff-card {
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-radius: 10px;
-    padding: 14px 16px;
-  }
-  .diff-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
-    margin-top: 8px;
-  }
-  #diff-growth.diff-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  @media (max-width: 920px) {
-    .diff-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
-  @media (max-width: 600px) {
-    .diff-grid, #diff-growth.diff-grid { grid-template-columns: 1fr; }
-  }
-  .diff-item {
-    background: var(--bg-card);
-    border: 1px solid var(--border-hairline);
-    border-radius: 6px;
-    padding: 8px 12px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    font-size: 12px;
-    min-width: 0;
-    overflow: hidden;
-  }
-  .diff-item-label {
-    color: var(--ink-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    min-width: 0;
-    flex: 1;
-  }
-  .diff-item-val {
-    font-family: var(--font-mono);
-    font-weight: 600;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
+/* ---------- Sections & grouped lists ---------- */
+.section { margin-top: 38px; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 4px 10px; }
+.section-title { margin: 0; font-family: var(--font-display); font-size: 21px; font-weight: 700; letter-spacing: -0.018em; }
+.section-note { font-size: 13px; color: var(--label-2); }
+.grouped { border-radius: 16px; overflow: hidden; }
+.cell { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 11px 16px; text-align: left; width: 100%; transition: background 0.15s; }
+.cell + .cell::before { content: ""; position: absolute; top: 0; left: 56px; right: 0; height: 0.5px; background: var(--separator); }
+button.cell:hover, .cell.hoverable:hover { background: var(--fill-2); }
+button.cell:active { background: var(--fill); }
+.cell-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cell-title { font-size: 14.5px; font-weight: 520; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell-sub { font-size: 12.5px; color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell-sub code, .mono { font-family: var(--font-mono); font-size: 11.5px; }
+.cell-right { text-align: right; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+.amount { font-size: 14.5px; font-weight: 620; white-space: nowrap; }
+.amount.free { color: var(--green-text); }
+.amount.grow { color: var(--orange-text); }
+.amount.muted { color: var(--label-2); font-weight: 520; font-size: 13px; }
+.minibar { width: 92px; height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
+.minibar > i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--green), var(--teal)); }
+.minibar.grow > i { background: linear-gradient(90deg, var(--orange), var(--pink)); }
+.cell-more { justify-content: center; grid-template-columns: 1fr; color: var(--blue); font-size: 13.5px; font-weight: 560; text-align: center; }
+.empty { padding: 26px 20px; text-align: center; color: var(--label-2); font-size: 14px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.empty b { color: var(--label); font-size: 15px; }
+.diff-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.diff-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 4px 12px; }
+.chip { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: 6px; font-size: 11.5px; font-weight: 620; white-space: nowrap; background: var(--fill-2); color: var(--label-2); }
+.chip.lg { height: 26px; padding: 0 11px; border-radius: 999px; font-size: 12.5px; }
+.chip.tier-a, .chip.good { color: var(--green-text); background: color-mix(in srgb, var(--green) 15%, transparent); }
+.chip.tier-b, .chip.info { color: var(--blue); background: color-mix(in srgb, var(--blue) 13%, transparent); }
+.chip.tier-c, .chip.warn { color: var(--orange-text); background: color-mix(in srgb, var(--orange) 15%, transparent); }
 
-  /* Two-Level Segmented Filter Bar (Domain Row + Action Category Row) */
-  .filter-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-bottom: 14px;
-  }
-  .filter-bar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-  }
-  .filter-subrow {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-  }
-  .sub-pills {
-    display: inline-flex;
-    flex-wrap: wrap;
-    gap: 2px;
-    padding: 3px;
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-radius: 7px;
-  }
-  .sub-pills button {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    border: 1px solid transparent;
-    background: transparent;
-    box-shadow: none;
-    padding: 4px 10px;
-    border-radius: 5px;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--ink-secondary);
-    outline: none;
-    transition:
-      background-color 160ms ease,
-      border-color 160ms ease,
-      color 160ms ease,
-      transform 220ms var(--spring-rebound);
-  }
-  .sub-pills button:hover {
-    color: var(--ink-primary);
-  }
-  .sub-pills button.active {
-    background: var(--bg-card);
-    border-color: var(--border-hairline);
-    color: var(--ink-primary);
-    font-weight: 600;
-    box-shadow: var(--shadow-subtle);
-  }
-  .sub-dot {
-    width: 6.5px;
-    height: 6.5px;
-    border-radius: 50%;
-    display: inline-block;
-  }
-  .btn-sub-select {
-    font-size: 11.5px;
-    padding: 4px 10px;
-    border-radius: 6px;
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    color: var(--ink-secondary);
-  }
-  .btn-sub-select:hover {
-    color: var(--ink-primary);
-    border-color: var(--border-strong);
-  }
-  .segmented-control {
-    position: relative;
-    display: inline-flex;
-    flex-wrap: wrap;
-    gap: 2px;
-    padding: 3.5px;
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-radius: 999px;
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.14);
-  }
-  .tab-glider {
-    position: absolute;
-    top: 3.5px;
-    bottom: 3.5px;
-    left: 0;
-    width: 0;
-    border-radius: 999px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-strong);
-    box-shadow: var(--shadow-subtle), inset 0 1px 0 var(--border-specular);
-    pointer-events: none;
-    z-index: 0;
-    opacity: 0;
-    transition:
-      transform 340ms var(--spring-rebound),
-      width 340ms var(--spring-rebound),
-      opacity 180ms ease;
-  }
-  .segmented-control button {
-    position: relative;
-    z-index: 1;
-    border: 1px solid transparent;
-    background: transparent;
-    box-shadow: none;
-    padding: 5px 12px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--ink-secondary);
-    outline: none;
-    transition:
-      background-color 160ms ease,
-      border-color 160ms ease,
-      color 160ms ease,
-      transform 240ms var(--spring-rebound);
-  }
-  .segmented-control button.active {
-    background: var(--bg-card);
-    border-color: var(--border-strong);
-    color: var(--ink-primary);
-    font-weight: 600;
-    box-shadow: var(--shadow-subtle);
-  }
-  .segmented-control.has-glider button.active {
-    background: transparent;
-    border-color: transparent;
-    box-shadow: none;
-  }
-  .tab-count {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--ink-muted);
-    margin-left: 3px;
-  }
+/* ---------- Workbench ---------- */
+.impact { padding: 20px 22px; border-radius: 22px; margin-bottom: 14px; }
+.impact-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
+.impact-title { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -0.012em; }
+.impact-sub { margin: 2px 0 0; font-size: 13px; color: var(--label-2); font-variant-numeric: tabular-nums; }
+.sbar-used { background: var(--used); }
+.sbar-focus { background: var(--blue); }
+.sbar-focus.preview { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--blue) 70%, transparent) 0 5px, color-mix(in srgb, var(--blue) 40%, transparent) 5px 10px); }
+.sbar-clean { background: linear-gradient(90deg, var(--green), var(--teal)); }
+.toolbar { position: sticky; top: 0; z-index: 6; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 0; margin-bottom: 8px; }
+.toolbar::before {
+  content: ""; position: absolute; inset: 0 -14px -12px; z-index: -1; pointer-events: none;
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%);
+  -webkit-mask-image: linear-gradient(#000 72%, transparent); mask-image: linear-gradient(#000 72%, transparent);
+}
+.toolbar-right { display: flex; align-items: center; gap: 8px; }
+.list-group { margin-bottom: 26px; }
+.group-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 0 6px 8px; }
+.group-head h3 { margin: 0; font-size: 13.5px; font-weight: 620; color: var(--label-2); display: flex; align-items: center; gap: 8px; }
+.group-head span { font-size: 12.5px; color: var(--label-3); font-variant-numeric: tabular-nums; }
+.group-body { border-radius: 16px; overflow: hidden; }
+.row { position: relative; display: grid; grid-template-columns: 50px minmax(0, 1fr); transition: background 0.18s; }
+.row + .row::before { content: ""; position: absolute; top: 0; left: 50px; right: 0; height: 0.5px; background: var(--separator); }
+.row:hover { background: var(--fill-2); }
+.row.flash { animation: flash 1.2s var(--ease-out); }
+@keyframes flash { 0%, 30% { background: color-mix(in srgb, var(--blue) 16%, transparent); } 100% { background: transparent; } }
+.check { width: 50px; display: grid; place-items: start center; padding-top: 15px; align-self: stretch; }
+.check svg {
+  width: 22px; height: 22px; padding: 3px; border-radius: 50%; overflow: visible;
+  fill: none; stroke: #fff; stroke-width: 2.8; stroke-linecap: round; stroke-linejoin: round;
+  box-shadow: inset 0 0 0 1.5px var(--check-border); transition: background 0.18s, box-shadow 0.18s; will-change: transform;
+}
+.check svg path { stroke-dasharray: 22; stroke-dashoffset: 22; transition: stroke-dashoffset 0.3s var(--ease-out) 0.03s; }
+.check[aria-checked="true"] svg { background: var(--green); box-shadow: inset 0 0 0 1.5px var(--green); }
+.check[aria-checked="true"] svg path { stroke-dashoffset: 0; }
+.check:disabled { cursor: default; }
+.row.is-done .check svg { background: var(--label-3); box-shadow: none; }
+.row.is-done .check svg path { stroke-dashoffset: 0; }
+.row.is-protected .check svg { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--orange) 60%, transparent); }
+.row-main { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 11px 14px 11px 0; text-align: left; width: 100%; min-width: 0; }
+.row-text { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.row-title { font-size: 14.5px; font-weight: 520; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-sub { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; font-size: 12px; color: var(--label-2); }
+.row-sub .cat { overflow: hidden; text-overflow: ellipsis; }
+.row-size { font-size: 14px; font-weight: 620; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.row-size.badge { max-width: 170px; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; font-weight: 520; color: var(--label-2); }
+.chev { color: var(--label-3); display: grid; transition: transform var(--dur-bounce) var(--ease-bounce); }
+.chev .ico { width: 14px; height: 14px; stroke-width: 2.2; }
+.row-main[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.row-detail { grid-column: 2; overflow: hidden; }
+.row-detail-inner { padding: 0 16px 16px 40px; }
+.evidence { margin: 0 0 10px; max-width: 82ch; font-size: 13.5px; line-height: 1.6; color: var(--label-2); }
+.path-line code { display: inline-block; max-width: 100%; padding: 3px 8px; border-radius: 6px; background: var(--fill-2); font: 12px/1.5 var(--font-mono); color: var(--label-2); word-break: break-all; }
+.note-field { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; font-size: 12px; font-weight: 600; color: var(--label-2); }
+.note-field input { padding: 8px 11px; border-radius: 9px; border: 0.5px solid var(--separator); background: var(--field); font-size: 13.5px; font-weight: 400; color: var(--label); transition: box-shadow 0.18s, border-color 0.18s; }
+.note-field input:focus { border-color: var(--blue); box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--blue) 30%, transparent); }
+.detail-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; font-size: 12.5px; color: var(--label-2); font-variant-numeric: tabular-nums; }
 
-  .sort-control {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    padding: 3.5px;
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-radius: 999px;
-  }
-  .sort-control button {
-    border: none;
-    background: transparent;
-    box-shadow: none;
-    padding: 4.5px 11px;
-    border-radius: 999px;
-    font-size: 11.5px;
-    color: var(--ink-secondary);
-    transition: transform 220ms var(--spring-rebound), background-color 160ms ease, color 160ms ease;
-  }
-  .sort-control button.active {
-    background: var(--bg-card);
-    color: var(--ink-primary);
-    font-weight: 600;
-    box-shadow: var(--shadow-subtle);
-  }
+/* ---------- Dock, menu, sheet, toast ---------- */
+.dock {
+  position: fixed; z-index: 20; left: calc(50% + 126px); bottom: 22px; translate: -50% 0;
+  display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 22px; border-radius: 999px;
+  background: var(--surface-strong); box-shadow: var(--shadow-float);
+  -webkit-backdrop-filter: blur(34px) saturate(190%); backdrop-filter: blur(34px) saturate(190%);
+  border: 0.5px solid var(--glass-edge);
+}
+.dock-stat { display: flex; flex-direction: column; line-height: 1.22; min-width: 150px; margin-right: 8px; transform-origin: left center; will-change: transform; }
+.dock-count { font-size: 12px; color: var(--label-2); font-variant-numeric: tabular-nums; }
+.dock-count b { color: var(--label); font-weight: 620; }
+.dock-bytes { font-size: 16.5px; font-weight: 650; letter-spacing: -0.012em; font-variant-numeric: tabular-nums; }
+.dock-bytes b { color: var(--green-text); font-weight: 680; }
+.menu {
+  position: fixed; z-index: 30; min-width: 250px; padding: 6px; border-radius: 14px;
+  background: var(--surface-strong); box-shadow: var(--shadow-float); border: 0.5px solid var(--glass-edge);
+  -webkit-backdrop-filter: blur(34px) saturate(190%); backdrop-filter: blur(34px) saturate(190%);
+  transform-origin: 50% 100%; will-change: transform, opacity;
+}
+.menu button { display: flex; flex-direction: column; align-items: flex-start; width: 100%; padding: 7px 11px; border-radius: 8px; font-size: 13.5px; font-weight: 520; text-align: left; }
+.menu button small { font-size: 11.5px; font-weight: 400; color: var(--label-2); }
+.menu button:hover, .menu button:focus-visible { background: var(--blue); color: #fff; outline: none; }
+.menu button:hover small, .menu button:focus-visible small { color: rgba(255, 255, 255, 0.82); }
+.menu hr { border: 0; height: 0.5px; margin: 5px 9px; background: var(--separator); }
+.menu .is-armed { color: var(--orange-text); }
+.sheet-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px; background: var(--scrim); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.sheet {
+  width: min(660px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column; gap: 14px;
+  padding: 24px; border-radius: 24px; background: var(--surface-solid);
+  box-shadow: 0 30px 90px -20px rgba(0, 0, 0, 0.5), 0 0 0 0.5px var(--hairline); will-change: transform, opacity;
+}
+.sheet-head { display: flex; gap: 14px; align-items: flex-start; }
+.sheet h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.016em; }
+.sheet p { margin: 3px 0 0; font-size: 13.5px; color: var(--label-2); }
+.sheet p.ok { color: var(--green-text); }
+.sheet p.warn { color: var(--orange-text); }
+.sheet textarea { flex: 1; min-height: 260px; resize: vertical; padding: 14px; border-radius: 12px; border: 0.5px solid var(--separator); background: var(--fill-2); font: 12.5px/1.65 var(--font-mono); color: var(--label); outline: none; }
+.sheet footer { display: flex; justify-content: flex-end; gap: 8px; }
+.toast {
+  position: fixed; z-index: 50; left: 50%; bottom: 96px; translate: -50% 14px; opacity: 0; pointer-events: none;
+  padding: 9px 16px; border-radius: 999px; background: var(--toast-bg); color: var(--toast-fg); font-size: 13px; font-weight: 560;
+  box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.35);
+  transition: opacity 0.2s var(--ease-out), translate var(--dur-bounce) var(--ease-bounce);
+}
+.toast.show { opacity: 1; translate: -50% 0; }
 
-  /* Candidate Cards with Liquid Glass & Spring Rebound */
-  .candidate-list {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  @keyframes editorialSlideIn {
-    0% { opacity: 0; transform: translateY(6px) scale(0.992); }
-    100% { opacity: 1; transform: translateY(0) scale(1); }
-  }
-  .candidate-card {
-    background: var(--bg-card);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--border-hairline);
-    border-top-color: var(--border-specular);
-    border-radius: 14px;
-    padding: 14px 17px;
-    display: flex;
-    align-items: flex-start;
-    gap: 13px;
-    box-shadow: var(--shadow-subtle), inset 0 1px 0 var(--border-specular);
-    animation: editorialSlideIn 280ms var(--spring-rebound);
-    transition:
-      transform 280ms var(--spring-rebound),
-      border-color 160ms ease,
-      background-color 180ms ease,
-      box-shadow 200ms ease;
-  }
-  .candidate-card:hover,
-  .candidate-card.highlighted {
-    border-color: var(--border-strong);
-    transform: translateY(-1.5px);
-  }
-  .candidate-card.checked {
-    background: var(--bg-card-selected);
-    border-color: var(--accent-clay);
-    box-shadow: inset 3.5px 0 0 var(--accent-clay), var(--shadow-subtle);
-  }
-  .candidate-card.checked:hover,
-  .candidate-card.checked.highlighted {
-    border-color: var(--accent-clay);
-  }
-  .candidate-card.pulse {
-    transform: scale(1.008);
-  }
-  .candidate-card.done { opacity: 0.65; }
-  .candidate-card.whitelisted { opacity: 0.78; }
+/* One orchestrated entrance on first load only */
+.enter { animation: rise var(--dur-bounce) var(--ease-bounce) both; animation-delay: calc(var(--i, 0) * 45ms); }
+@keyframes rise { from { opacity: 0; transform: translateY(12px) scale(0.98); } to { opacity: 1; transform: none; } }
 
-  /* 16px Apple Rounded Checkbox with Spring Checkmark */
-  .check-wrap {
-    position: relative;
-    width: 16px;
-    height: 16px;
-    margin-top: 2px;
-    flex-shrink: 0;
-    cursor: pointer;
-  }
-  .check-wrap input {
-    position: absolute;
-    opacity: 0;
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    cursor: pointer;
-    z-index: 2;
-  }
-  .check-box {
-    width: 16px;
-    height: 16px;
-    border-radius: 5px;
-    border: 1.5px solid var(--border-strong);
-    background: var(--bg-recessed);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition:
-      transform 280ms var(--spring-rebound),
-      background-color 160ms ease,
-      border-color 160ms ease,
-      box-shadow 180ms ease;
-  }
-  .check-wrap:active .check-box {
-    transform: scale(0.84);
-    transition-duration: 60ms;
-  }
-  .check-wrap input:checked + .check-box {
-    background: var(--tone-sage);
-    border-color: var(--tone-sage);
-    box-shadow: 0 2px 8px var(--tone-sage-bg);
-    transform: scale(1.06);
-  }
-  .check-svg {
-    width: 10px;
-    height: 10px;
-    fill: none;
-    stroke: #042419;
-    stroke-width: 2.5;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    stroke-dasharray: 18;
-    stroke-dashoffset: 18;
-    transition: stroke-dashoffset 260ms var(--spring-rebound);
-  }
-  .check-wrap input:checked + .check-box .check-svg {
-    stroke-dashoffset: 0;
-  }
+/* ---------- Responsive ---------- */
+@media (max-width: 1100px) {
+  .hero { grid-template-columns: 1fr; justify-items: center; gap: 28px; padding: 30px 26px; }
+  .hero-info { width: 100%; }
+  .diff-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 860px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { position: sticky; z-index: 15; height: auto; flex-direction: row; align-items: center; gap: 8px; padding: 10px 12px; border-right: 0; border-bottom: 0.5px solid var(--separator); overflow-x: auto; scrollbar-width: none; }
+  .sidebar::-webkit-scrollbar { display: none; }
+  .brand-text, .nav-label, .sidebar-foot, .nav-pill, .nav-count { display: none; }
+  .brand { padding: 0; }
+  .nav { flex-direction: row; gap: 4px; }
+  .nav-item { white-space: nowrap; padding: 0 12px 0 6px; }
+  .nav-item.active { background: var(--nav-selected); box-shadow: var(--shadow-sm); }
+  .main { padding: 0 16px 160px; }
+  .page-head { padding-top: 28px; }
+  .dock { left: 12px; right: 12px; bottom: 12px; translate: none; border-radius: 22px; padding-left: 16px; }
+  .dock-stat { min-width: 0; flex: 1; }
+  .row-size.badge, .minibar { display: none; }
+  .volume-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .toolbar { position: static; }
+}
+@media (max-width: 520px) {
+  #quick-btn .label { display: none; }
+  .row-detail-inner { padding-left: 0; }
+}
 
-  .candidate-body { flex: 1; min-width: 0; }
-  .candidate-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 4px;
-  }
-  .item-id {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--ink-muted);
-  }
-  .pool-badge {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--ink-secondary);
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    padding: 0.5px 6px;
-    border-radius: 4px;
-  }
-  .tier-tag {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 500;
-    padding: 1px 7px;
-    border-radius: 4px;
-  }
-  .tier-A { background: var(--tone-sage-bg); color: var(--tone-sage); }
-  .tier-B { background: var(--accent-clay-soft); color: var(--accent-clay); }
-  .tier-C { background: var(--tone-ochre-bg); color: var(--tone-ochre); }
-  .action-tag {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: 4px;
-    border: 1px solid var(--border-hairline);
-  }
-  .action-update { background: rgba(110, 152, 184, 0.16); color: #6E98B8; border-color: rgba(110, 152, 184, 0.32); }
-  .action-optimize { background: var(--tone-sage-bg); color: var(--tone-sage); border-color: rgba(82, 163, 122, 0.3); }
-  .action-organize { background: var(--tone-ochre-bg); color: var(--tone-ochre); border-color: rgba(217, 146, 66, 0.3); }
-  .action-cleanup { background: var(--bg-recessed); color: var(--ink-secondary); }
-  .status-pip {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: 4px;
-    white-space: nowrap;
-  }
-  .pip-crit { background: var(--tone-rust-bg); color: var(--tone-rust); }
-  .pip-warn { background: var(--tone-ochre-bg); color: var(--tone-ochre); }
-  .pip-ok { background: var(--tone-sage-bg); color: var(--tone-sage); }
-
-  .candidate-size {
-    margin-left: auto;
-    font-family: var(--font-mono);
-    font-size: 13.5px;
-    font-weight: 600;
-    color: var(--ink-primary);
-    white-space: nowrap;
-  }
-  .candidate-title {
-    font-weight: 600;
-    font-size: 14px;
-    color: var(--ink-primary);
-    cursor: pointer;
-    margin-bottom: 6px;
-  }
-
-  /* Inline Per-Card Storage Bar:
-     Row 1: [Left: Total Capacity] [Middle: ● Current Item Cleanup (Terracotta) · ● Total Pool Cleanup (Sage)] [Right: Used Capacity]
-     Row 2: Unobstructed Progress Bar [Retained Used (Gray)] [Current Item (Terracotta)] [Other Pool Cleanup (Sage)] [Free Space] */
-  .card-impact-meter {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-radius: 6px;
-    padding: 7px 10px;
-    margin-bottom: 7px;
-  }
-  .card-impact-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .card-impact-total {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--ink-muted);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .card-impact-mid-tag {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-  .card-impact-label {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--ink-secondary);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .card-impact-track {
-    position: relative;
-    width: 100%;
-    height: 11px;
-    background: var(--bar-free);
-    border: 1px solid var(--border-hairline);
-    border-radius: 999px;
-    overflow: hidden;
-    display: flex;
-    align-items: stretch;
-  }
-  .card-impact-retained {
-    height: 100%;
-    background: var(--bar-retained);
-    transition: width 340ms var(--spring-soft);
-  }
-  .card-impact-preview {
-    height: 100%;
-    background: var(--accent-clay);
-    opacity: 0.28;
-    transition: width 340ms var(--spring-rebound);
-  }
-  .card-impact-reclaim {
-    height: 100%;
-    background: var(--accent-clay);
-    border-right: 1.5px solid var(--bg-recessed);
-    transition: width 340ms var(--spring-rebound);
-  }
-  .card-impact-other {
-    height: 100%;
-    background: var(--tone-sage);
-    transition: width 340ms var(--spring-soft);
-  }
-  .dot-item {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    border-radius: 2px;
-    background: var(--accent-clay);
-    flex-shrink: 0;
-  }
-  .dot-item-ghost {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    border-radius: 2px;
-    border: 1.5px solid var(--accent-clay);
-    background: transparent;
-    flex-shrink: 0;
-  }
-  .dot-pool {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    border-radius: 2px;
-    background: var(--tone-sage);
-    flex-shrink: 0;
-  }
-
-  .candidate-meta-row {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin-bottom: 8px;
-  }
-  .candidate-path {
-    display: inline-block;
-    align-self: flex-start;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--ink-muted);
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    padding: 1.5px 7px;
-    border-radius: 4px;
-    word-break: break-all;
-  }
-  .candidate-evidence {
-    font-size: 12.6px;
-    color: var(--ink-secondary);
-    line-height: 1.48;
-  }
-  .candidate-controls {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 7px;
-    align-items: center;
-  }
-  .note-input {
-    flex: 1;
-    min-width: 200px;
-    height: 28px;
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    color: var(--ink-primary);
-    padding: 3px 9px;
-    border-radius: 5px;
-    font-family: var(--font-sans);
-    font-size: 11.5px;
-  }
-  .note-input:focus {
-    outline: none;
-    background: var(--bg-card);
-    border-color: var(--accent-clay);
-  }
-  .btn-whitelist {
-    height: 28px;
-    padding: 0 10px;
-    font-size: 11.5px;
-    background: transparent;
-    box-shadow: none;
-    color: var(--ink-muted);
-  }
-  .btn-whitelist:hover {
-    color: var(--ink-primary);
-  }
-
-  /* Modal Dialog (Apple Sheet Materialization) */
-  .modal-backdrop {
-    display: flex;
-    position: fixed;
-    inset: 0;
-    background: rgba(6, 9, 16, 0.58);
-    backdrop-filter: blur(12px) saturate(160%);
-    -webkit-backdrop-filter: blur(12px) saturate(160%);
-    z-index: 100;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 220ms ease;
-  }
-  .modal-backdrop.open { opacity: 1; pointer-events: auto; }
-  .modal {
-    background: var(--bg-card);
-    backdrop-filter: blur(32px) saturate(190%);
-    -webkit-backdrop-filter: blur(32px) saturate(190%);
-    border: 1px solid var(--border-strong);
-    border-radius: 18px;
-    max-width: 680px;
-    width: 100%;
-    padding: 24px;
-    box-shadow: var(--shadow-modal), inset 0 1px 0 var(--border-specular);
-    transform: scale(0.92) translateY(14px);
-    transition: transform 360ms var(--spring-rebound);
-  }
-  .modal-backdrop.open .modal { transform: scale(1) translateY(0); }
-  textarea.prompt-box {
-    width: 100%;
-    height: 220px;
-    background: var(--bg-recessed);
-    color: var(--ink-primary);
-    border: 1px solid var(--border-hairline);
-    border-radius: 11px;
-    padding: 13px;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    line-height: 1.5;
-    margin: 12px 0 16px;
-    resize: vertical;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
-      animation-duration: 0.01ms !important;
-      transition-duration: 120ms !important;
-      transition-timing-function: ease !important;
-      transform: none !important;
-    }
-  }
-  @media (prefers-reduced-transparency: reduce) {
-    .top-bar, .ring-hero-card, .detail-group-block, .viz-studio, .candidate-card, .modal {
-      backdrop-filter: none !important;
-      -webkit-backdrop-filter: none !important;
-      background: var(--bg-page) !important;
-    }
-  }
-
-  /* ==========================================================================
-     FIRST-SCREEN GIANT STORAGE RING HERO & DETAILED BREAKDOWN (CleanMyMac × Mole)
-     ========================================================================== */
-  .view-mode-switch {
-    display: inline-flex;
-    padding: 3px;
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-radius: 10px;
-    gap: 3px;
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.14);
-  }
-  .view-mode-switch button {
-    border: none;
-    background: transparent;
-    box-shadow: none;
-    padding: 4.5px 12px;
-    border-radius: 7px;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--ink-secondary);
-    transition:
-      background-color 180ms ease,
-      color 180ms ease,
-      transform 260ms var(--spring-rebound),
-      box-shadow 180ms ease;
-  }
-  .view-mode-switch button.active {
-    background: linear-gradient(135deg, var(--accent-clay), #0284C7);
-    color: #FFFFFF;
-    font-weight: 600;
-    box-shadow: 0 3px 12px -2px rgba(56, 189, 248, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.28);
-  }
-  .top-ring-summary {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4.5px 12px;
-    border-radius: 999px;
-    background: var(--tone-sage-bg);
-    border: 1px solid rgba(16, 217, 142, 0.32);
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--tone-sage);
-    box-shadow: 0 0 18px -4px rgba(16, 217, 142, 0.28);
-  }
-  .workbench-only-cluster {
-    display: none;
-    align-items: center;
-    gap: 7px;
-    flex-wrap: wrap;
-  }
-  .header-kpi-pills {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-  }
-  .header-kpi-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5.5px 12px;
-    border-radius: 999px;
-    background: var(--bg-card);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    border: 1px solid var(--border-hairline);
-    font-size: 12px;
-    color: var(--ink-secondary);
-    box-shadow: var(--shadow-subtle);
-    transition: transform 260ms var(--spring-rebound), border-color 160ms ease;
-  }
-  .header-kpi-pill:hover {
-    transform: translateY(-1px) scale(1.015);
-    border-color: var(--border-strong);
-  }
-  .header-kpi-pill strong {
-    font-family: var(--font-mono);
-    color: var(--ink-primary);
-    font-weight: 600;
-  }
-
-  .ring-hero-card {
-    background: var(--bg-card);
-    backdrop-filter: blur(28px) saturate(190%);
-    -webkit-backdrop-filter: blur(28px) saturate(190%);
-    border: 1px solid var(--border-hairline);
-    border-radius: 20px;
-    padding: 28px 30px;
-    box-shadow: var(--shadow-elevated);
-    margin-bottom: 24px;
-    position: relative;
-    overflow: hidden;
-  }
-  .ring-hero-card::before {
-    content: "";
-    position: absolute;
-    top: -120px;
-    left: -80px;
-    width: 380px;
-    height: 380px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(16, 217, 142, 0.10) 0%, transparent 70%);
-    pointer-events: none;
-  }
-  .ring-hero-layout {
-    position: relative;
-    z-index: 1;
-    display: grid;
-    grid-template-columns: 336px minmax(0, 1fr);
-    gap: 32px;
-    align-items: stretch;
-  }
-  @media (max-width: 920px) {
-    .ring-hero-layout {
-      grid-template-columns: 1fr;
-      justify-items: center;
-    }
-  }
-  .giant-ring-col {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-radius: 16px;
-    padding: 24px 18px 18px;
-    width: 100%;
-    box-shadow: inset 0 1px 0 var(--border-specular);
-  }
-  .giant-ring-stage {
-    position: relative;
-    width: 288px;
-    height: 288px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-  .giant-ring-svg {
-    width: 288px;
-    height: 288px;
-    transform: rotate(-90deg);
-    overflow: visible;
-  }
-  .ring-seg {
-    fill: none;
-    stroke-width: 24;
-    stroke-linecap: butt;
-  }
-  .ring-seg-cleaned {
-    filter: drop-shadow(0 0 14px rgba(16, 217, 142, 0.45));
-  }
-  .ring-seg-focus {
-    filter: drop-shadow(0 0 16px rgba(56, 189, 248, 0.58));
-  }
-  .giant-ring-center {
-    position: absolute;
-    inset: 36px;
-    border-radius: 50%;
-    background: radial-gradient(circle at 50% 35%, rgba(255, 255, 255, 0.04), transparent 72%);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    padding: 6px;
-    pointer-events: none;
-    gap: 5px;
-    transition: transform 320ms var(--spring-rebound);
-  }
-  .ring-center-kicker {
-    font-family: var(--font-sans);
-    font-size: 11.5px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    color: var(--ink-secondary);
-    white-space: nowrap;
-  }
-  .ring-center-val-wrap {
-    display: inline-flex;
-    align-items: baseline;
-    justify-content: center;
-    gap: 4px;
-    white-space: nowrap;
-    margin: 1px 0 2px;
-  }
-  .ring-center-num {
-    font-family: var(--font-serif);
-    font-size: 40px;
-    font-weight: 700;
-    line-height: 1.02;
-    letter-spacing: -0.035em;
-    color: var(--tone-sage);
-    text-shadow: 0 0 24px rgba(16, 217, 142, 0.25);
-  }
-  .ring-center-unit {
-    font-family: var(--font-mono);
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--tone-sage);
-    opacity: 0.92;
-  }
-  .ring-center-water {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    font-weight: 600;
-    padding: 3px 11px;
-    border-radius: 999px;
-    background: var(--tone-sage-bg);
-    border: 1px solid rgba(16, 217, 142, 0.32);
-    color: var(--tone-sage);
-    white-space: nowrap;
-  }
-  .ring-center-sub {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--ink-muted);
-    white-space: nowrap;
-    margin-top: 1px;
-  }
-  .ring-legend-bar {
-    width: 100%;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-    padding-top: 14px;
-    margin-top: 12px;
-    border-top: 1px solid var(--border-hairline);
-  }
-  .ring-legend-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 3px;
-    text-align: center;
-  }
-  .ring-legend-label {
-    font-size: 11px;
-    color: var(--ink-secondary);
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    white-space: nowrap;
-  }
-  .ring-legend-val {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--ink-primary);
-    white-space: nowrap;
-  }
-
-  .ring-right-panel {
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    gap: 16px;
-    min-width: 0;
-    width: 100%;
-  }
-  .ring-headline-box {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--border-hairline);
-  }
-  .ring-headline-top {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-  }
-  .ring-title-cluster {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .ring-pool-title {
-    font-family: var(--font-serif);
-    font-size: 22px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: var(--ink-primary);
-    margin: 0;
-    line-height: 1.2;
-  }
-  .ring-pool-mount {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    color: var(--ink-secondary);
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    padding: 2.5px 9px;
-    border-radius: 6px;
-  }
-  .ring-headline-badge {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--tone-sage);
-    background: var(--tone-sage-bg);
-    border: 1px solid rgba(16, 217, 142, 0.34);
-    padding: 3.5px 11px;
-    border-radius: 999px;
-    white-space: nowrap;
-  }
-  .ring-pool-desc {
-    font-size: 13px;
-    color: var(--ink-secondary);
-    margin: 0;
-  }
-
-  .ring-kpi-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 10px;
-  }
-  @media (max-width: 720px) {
-    .ring-kpi-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-  .ring-kpi-card {
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-radius: 13px;
-    padding: 13px 14px;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    gap: 5px;
-    min-width: 0;
-    box-shadow: inset 0 1px 0 var(--border-specular);
-    transition: transform 280ms var(--spring-rebound), border-color 160ms ease;
-  }
-  .ring-kpi-card:hover {
-    transform: translateY(-2px);
-    border-color: var(--border-strong);
-  }
-  .ring-kpi-card.highlight-cleaned {
-    background: var(--tone-sage-bg);
-    border-color: rgba(16, 217, 142, 0.38);
-    box-shadow: 0 6px 20px -6px rgba(16, 217, 142, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.14);
-  }
-  .ring-kpi-label {
-    font-size: 11.5px;
-    color: var(--ink-secondary);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-  }
-  .ring-kpi-val {
-    font-family: var(--font-mono);
-    font-size: 18.5px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: var(--ink-primary);
-    line-height: 1.2;
-    white-space: nowrap;
-  }
-  .ring-kpi-card.highlight-cleaned .ring-kpi-val {
-    color: var(--tone-sage);
-  }
-  .ring-kpi-sub {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--ink-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .mini-matrix-section {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .mini-matrix-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .mini-matrix-title {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--ink-muted);
-  }
-  .mini-rings-strip {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
-  }
-  @media (max-width: 720px) {
-    .mini-rings-strip {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-  .mini-ring-card {
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-radius: 12px;
-    padding: 10px 12px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
-    min-width: 0;
-    box-shadow: inset 0 1px 0 var(--border-specular);
-    transition:
-      border-color 160ms ease,
-      transform 280ms var(--spring-rebound),
-      background-color 160ms ease,
-      box-shadow 180ms ease;
-  }
-  .mini-ring-card:hover {
-    border-color: var(--border-strong);
-    background: var(--bg-card-hover);
-    transform: translateY(-2px) scale(1.012);
-    box-shadow: var(--shadow-subtle);
-  }
-  .mini-ring-card:active {
-    transform: scale(0.96) !important;
-    transition-duration: 55ms;
-  }
-  .mini-ring-card.active {
-    background: var(--bg-card);
-    border-color: var(--tone-sage);
-    box-shadow: 0 0 0 1.5px var(--tone-sage), 0 8px 20px -6px rgba(16, 217, 142, 0.28);
-  }
-  .mini-ring-wrap {
-    position: relative;
-    width: 38px;
-    height: 38px;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .mini-ring-svg {
-    width: 38px;
-    height: 38px;
-    transform: rotate(-90deg);
-  }
-  .mini-ring-pct {
-    position: absolute;
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    font-weight: 600;
-    color: var(--ink-secondary);
-    pointer-events: none;
-  }
-  .mini-ring-info {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-    flex: 1;
-  }
-  .mini-ring-row1 {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 6px;
-    min-width: 0;
-  }
-  .mini-ring-name {
-    font-size: 12.4px;
-    font-weight: 600;
-    color: var(--ink-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .mini-ring-saved {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--tone-sage);
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .mini-ring-saved.neutral {
-    color: var(--ink-secondary);
-    font-weight: 500;
-  }
-  .mini-ring-meta {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--ink-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  /* Detailed Breakdown Below Ring — Strict 3-Column Table Grid */
-  .detail-group-block {
-    background: var(--bg-card);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border: 1px solid var(--border-hairline);
-    border-radius: 18px;
-    padding: 20px 24px;
-    margin-bottom: 20px;
-    box-shadow: var(--shadow-subtle);
-  }
-  .detail-group-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 10px;
-    padding-bottom: 12px;
-    margin-bottom: 12px;
-    border-bottom: 1px solid var(--border-hairline);
-  }
-  .detail-group-title {
-    font-family: var(--font-serif);
-    font-size: 17px;
-    font-weight: 700;
-    letter-spacing: -0.015em;
-    color: var(--ink-primary);
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .detail-rows {
-    display: flex;
-    flex-direction: column;
-    gap: 9px;
-  }
-  .detail-row {
-    background: var(--bg-recessed);
-    border: 1px solid var(--border-hairline);
-    border-radius: 12px;
-    padding: 13px 16px;
-    display: grid;
-    grid-template-columns: 36px minmax(0, 1fr) 186px;
-    gap: 14px;
-    align-items: flex-start;
-    box-shadow: inset 0 1px 0 var(--border-specular);
-    transition:
-      border-color 160ms ease,
-      background-color 160ms ease,
-      transform 260ms var(--spring-rebound),
-      box-shadow 180ms ease;
-  }
-  @media (max-width: 720px) {
-    .detail-row {
-      grid-template-columns: 32px minmax(0, 1fr);
-    }
-    .drow-right {
-      grid-column: 2;
-      text-align: left !important;
-      align-items: flex-start !important;
-    }
-  }
-  .detail-row:hover {
-    border-color: var(--accent-clay);
-    background: var(--bg-card-hover);
-    transform: translateX(3px) scale(1.004);
-    box-shadow: inset 3.5px 0 0 var(--accent-clay), var(--shadow-subtle);
-  }
-  .drow-idx {
-    width: 30px;
-    height: 24px;
-    margin-top: 1px;
-    border-radius: 7px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-hairline);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--ink-muted);
-    flex-shrink: 0;
-    transition: color 160ms ease, border-color 160ms ease, transform 240ms var(--spring-rebound);
-  }
-  .detail-row:hover .drow-idx {
-    color: var(--accent-clay);
-    border-color: var(--accent-clay);
-    transform: scale(1.08);
-  }
-  .drow-main {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 0;
-  }
-  .drow-title-line {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .drow-title-text {
-    font-weight: 600;
-    font-size: 14px;
-    color: var(--ink-primary);
-    line-height: 1.35;
-  }
-  .drow-meta-strip {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-  }
-  .drow-sub-line {
-    font-size: 12.4px;
-    color: var(--ink-secondary);
-    line-height: 1.48;
-  }
-  .drow-path {
-    display: inline-block;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--ink-muted);
-    background: var(--bg-card);
-    border: 1px solid var(--border-hairline);
-    padding: 1.5px 7px;
-    border-radius: 5px;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .drow-right {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    justify-content: flex-start;
-    gap: 5px;
-    text-align: right;
-    padding-top: 1px;
-  }
-  .drow-amount {
-    font-family: var(--font-mono);
-    font-size: 15px;
-    font-weight: 700;
-    color: var(--tone-sage);
-    white-space: nowrap;
-    line-height: 1.2;
-    transition: color 150ms ease, transform 240ms var(--spring-rebound);
-  }
-  .detail-row:hover .drow-amount.is-space {
-    color: var(--accent-clay);
-    transform: scale(1.04);
-  }
-  .drow-share {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--ink-muted);
-    white-space: nowrap;
-  }
-  .drow-bar-track {
-    width: 136px;
-    height: 6px;
-    background: var(--bar-free);
-    border-radius: 999px;
-    overflow: hidden;
-    display: flex;
-    justify-content: flex-end;
-  }
-  .drow-bar-fill {
-    height: 100%;
-    background: linear-gradient(90deg, #059669, var(--tone-sage));
-    border-radius: 999px;
-    transition: width 360ms var(--spring-rebound), background 160ms ease;
-  }
-  .detail-row:hover .drow-bar-fill {
-    background: linear-gradient(90deg, #0284C7, var(--accent-clay));
-  }
+/* ---------- Accessibility preferences ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; transition-duration: 120ms !important; }
+  .btn:active, .vol:active, .seg button:active, .nav-item:active { transform: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .sidebar, .dock, .menu, .toolbar::before { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--surface-solid); }
+  .backdrop { display: none; }
+}
+@media (prefers-contrast: more) {
+  :root { --separator: rgba(60, 60, 67, 0.45); --glass-edge: rgba(0, 0, 0, 0.3); --label-2: #3a3a3c; }
+  .glass, .dock, .menu { background: var(--surface-solid); }
+}
+@media print {
+  .sidebar, .dock, .backdrop, .toolbar { display: none !important; }
+  .app { display: block; }
+  .page[hidden] { display: block !important; }
+}
 </style>
 </head>
-<body>
+"""
 
-<header class="top-bar">
-  <div class="top-bar-inner">
-    <div class="brand-cluster">
-      <span class="brand-mark"></span>
-      <span class="brand-meta">FULL-STACK MAINTENANCE · STORAGE VISUALIZER</span>
-      <span class="top-ring-summary tabular" id="top-ring-summary">✨ 全栈已清理释放</span>
+
+TEMPLATE_BODY = r"""<body>
+<div class="backdrop" aria-hidden="true"></div>
+<div class="app">
+  <aside class="sidebar" aria-label="侧栏">
+    <div class="brand">
+      <span class="brand-icon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7a5 5 0 1 0 5 5"/><path d="M12 12h9"/></svg></span>
+      <div class="brand-text">
+        <div class="brand-name">全栈巡检</div>
+        <div class="brand-sub" id="brand-time" data-raw="__GENERATED_AT__">__GENERATED_AT__</div>
+      </div>
     </div>
-    <div class="action-cluster">
-      <div class="workbench-only-cluster" id="workbench-action-cluster">
-        <div class="summary-stat tabular" id="sticky-summary">
-          <span>已选 <strong id="selected-count">0</strong> 项</span>
-          <span style="color:var(--border-strong)">|</span>
-          <span>释放 <strong id="selected-gib" style="color:var(--tone-sage)">0.00 GiB</strong></span>
+    <nav class="nav" id="nav" aria-label="页面导航">
+      <span class="nav-pill" id="nav-pill" aria-hidden="true"></span>
+      <button type="button" class="nav-item" data-view="overview"><span class="app-icon sm tint-rainbow" data-icon="gauge"></span>概览</button>
+      <div class="nav-label">待审批</div>
+      <button type="button" class="nav-item" data-view="all"><span class="app-icon sm tint-indigo" data-icon="list"></span>全部建议<span class="nav-count" id="cnt-all"></span></button>
+      <button type="button" class="nav-item" data-view="mac"><span class="app-icon sm tint-blue" data-icon="laptop"></span>Mac 与备份<span class="nav-count" id="cnt-mac"></span></button>
+      <button type="button" class="nav-item" data-view="projects"><span class="app-icon sm tint-purple" data-icon="folder"></span>本地项目<span class="nav-count" id="cnt-projects"></span></button>
+      <button type="button" class="nav-item" data-view="github"><span class="app-icon sm tint-graphite" data-icon="branch"></span>GitHub<span class="nav-count" id="cnt-github"></span></button>
+      <button type="button" class="nav-item" data-view="nas"><span class="app-icon sm tint-teal" data-icon="server"></span>NAS 与 PVE<span class="nav-count" id="cnt-nas"></span></button>
+      <div class="nav-label">保护</div>
+      <button type="button" class="nav-item" data-view="whitelisted"><span class="app-icon sm tint-orange" data-icon="shield"></span>白名单<span class="nav-count" id="cnt-whitelisted"></span></button>
+    </nav>
+    <div class="sidebar-foot">
+      <span class="foot-label">外观</span>
+      <div class="seg small" id="theme-seg" role="radiogroup" aria-label="外观">
+        <span class="seg-glider" aria-hidden="true"></span>
+        <button type="button" role="radio" data-value="auto">自动</button>
+        <button type="button" role="radio" data-value="light">浅色</button>
+        <button type="button" role="radio" data-value="dark">深色</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <!-- 概览：大圆环 + 存储卷 + 基线变化 + 本次清单 -->
+    <div class="page" id="ring-overview-page">
+      <header class="page-head">
+        <h1 class="large-title">__HEADING__</h1>
+        <p class="page-sub" id="overview-sub"></p>
+      </header>
+
+      <div class="volume-strip" id="mini-rings-strip" role="tablist" aria-label="存储卷"></div>
+
+      <section class="hero glass enter" id="hero" style="--i:2">
+        <div class="ring-stage">
+          <svg class="ring" viewBox="0 0 320 320" role="img" aria-labelledby="ring-aria">
+            <title id="ring-aria">存储卷容量与预计释放空间</title>
+            <defs>
+              <linearGradient id="grad-clean" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" style="stop-color: var(--green)"></stop>
+                <stop offset="1" style="stop-color: var(--teal)"></stop>
+              </linearGradient>
+              <filter id="ring-glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="9"></feGaussianBlur></filter>
+            </defs>
+            <g transform="rotate(-90 160 160)">
+              <circle class="ring-track" cx="160" cy="160" r="136"></circle>
+              <circle class="ring-arc-glow" id="ring-arc-glow" cx="160" cy="160" r="136" stroke-dasharray="0 1000"></circle>
+              <circle class="ring-arc-retained" id="ring-arc-retained" cx="160" cy="160" r="136" stroke-dasharray="0 1000"></circle>
+              <circle class="ring-arc-cleaned" id="ring-arc-cleaned" cx="160" cy="160" r="136" stroke-dasharray="0 1000"></circle>
+              <circle class="ring-arc-focus" id="ring-arc-focus" cx="160" cy="160" r="136" stroke-dasharray="0 1000"></circle>
+            </g>
+          </svg>
+          <div class="ring-center">
+            <span class="ring-kicker" id="ring-center-kicker">预计可释放</span>
+            <div class="ring-num" id="ring-num"><span class="n" id="ring-center-num">0</span><span class="u" id="ring-center-unit">GiB</span></div>
+            <span class="ring-water" id="ring-center-water"></span>
+          </div>
         </div>
-        <button onclick="selectByTier(['A'])">全选 A 级</button>
-        <button onclick="selectByTier(['A', 'B'])">选 A+B</button>
-        <button onclick="selectOptimizations()">选优化/整理/更新</button>
-        <button onclick="clearSelections()">清空</button>
-        <button class="btn-ghost" onclick="resetSavedState()">重置</button>
-        <button class="btn-primary" onclick="copyExecutionPrompt()">导出执行指令</button>
-      </div>
-      <div class="view-mode-switch" role="tablist" aria-label="页面视图切换">
-        <button type="button" id="view-btn-ring" class="active" onclick="switchMainView('ring')">🎯 圆环总览与明细</button>
-        <button type="button" id="view-btn-workbench" onclick="switchMainView('workbench')">🎛️ 勾选与微调工作台</button>
-      </div>
-      <div class="theme-switch" role="group" aria-label="外观模式切换">
-        <button type="button" id="theme-dark-btn" class="active" onclick="setTheme('dark')">深色</button>
-        <button type="button" id="theme-light-btn" onclick="setTheme('light')">浅色</button>
-      </div>
+        <div class="hero-info">
+          <div class="hero-title-row">
+            <h2 class="hero-title" id="ring-active-title">存储卷</h2>
+            <span class="status-pill" id="ring-active-badge"></span>
+          </div>
+          <p class="hero-mount" id="ring-active-mount"></p>
+          <p class="hero-sentence" id="ring-active-desc"></p>
+          <dl class="stat-grid">
+            <div class="stat"><dt><i class="dot ring-used"></i>清理后已用</dt><dd id="rkpi-retained">0</dd></div>
+            <div class="stat"><dt><i class="dot ring-clean"></i>将释放</dt><dd class="free" id="rkpi-cleaned">0</dd></div>
+            <div class="stat"><dt><i class="dot ring-free"></i>清理后可用</dt><dd id="rkpi-free-after">0</dd></div>
+            <div class="stat"><dt><i class="dot" style="--dot: var(--label-3)"></i>总容量</dt><dd id="rkpi-total">0</dd></div>
+          </dl>
+          <div class="comp" id="composition"></div>
+        </div>
+      </section>
+      <div class="empty glass grouped" id="hero-empty" hidden><b>这份快照没有存储卷数据</b>下面的清单仍然可以勾选和导出。</div>
+
+      <section class="section" id="diff-section" hidden>
+        <div class="section-head">
+          <h2 class="section-title">距上次巡检基线变化</h2>
+          <span class="section-note" id="diff-time"></span>
+        </div>
+        <div class="diff-chips" id="diff-chips"></div>
+        <div class="diff-grid">
+          <div class="grouped glass" id="diff-gauges"></div>
+          <div class="grouped glass" id="diff-growth"></div>
+        </div>
+      </section>
+
+      <div id="ring-detailed-lists"></div>
     </div>
+
+    <!-- 勾选与微调工作台 -->
+    <div class="page" id="workbench-page" hidden>
+      <header class="page-head">
+        <h1 class="large-title" id="list-title">全部建议</h1>
+        <p class="page-sub" id="list-sub"></p>
+      </header>
+
+      <section class="impact glass" id="impact-card">
+        <div class="impact-head">
+          <div>
+            <h3 class="impact-title" id="impact-title">存储卷</h3>
+            <p class="impact-sub" id="impact-sub"></p>
+          </div>
+          <label class="popup">
+            <span class="visually-hidden">切换存储卷</span>
+            <select id="impact-pool"></select>
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
+          </label>
+        </div>
+        <div class="sbar lg" aria-hidden="true">
+          <i class="sbar-used" id="seg-retained"></i><i class="sbar-focus" id="seg-reclaim-item"></i><i class="sbar-clean" id="seg-reclaim-mid"></i>
+        </div>
+        <div class="comp-legend" id="impact-legend"></div>
+      </section>
+
+      <div class="toolbar">
+        <div class="seg" id="action-seg" role="radiogroup" aria-label="按动作筛选">
+          <span class="seg-glider" aria-hidden="true"></span>
+          <button type="button" role="radio" data-value="all">全部 <span class="count" id="acnt-all"></span></button>
+          <button type="button" role="radio" data-value="cleanup">空间清理 <span class="count" id="acnt-cleanup"></span></button>
+          <button type="button" role="radio" data-value="organize">结构整理 <span class="count" id="acnt-organize"></span></button>
+          <button type="button" role="radio" data-value="optimize">性能优化 <span class="count" id="acnt-optimize"></span></button>
+          <button type="button" role="radio" data-value="update">版本更新 <span class="count" id="acnt-update"></span></button>
+        </div>
+        <div class="toolbar-right">
+          <label class="popup">
+            <span class="visually-hidden">排序方式</span>
+            <select id="sort-select">
+              <option value="default">默认顺序</option>
+              <option value="size">按释放空间</option>
+              <option value="pool">按存储卷</option>
+              <option value="opt">优化和更新优先</option>
+            </select>
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
+          </label>
+          <button type="button" class="btn btn-plain" id="select-visible-btn">全选本页</button>
+        </div>
+      </div>
+
+      <div id="candidate-list"></div>
+    </div>
+  </main>
+</div>
+
+<div class="dock" id="dock" role="region" aria-label="已选项目">
+  <div class="dock-stat" id="dock-stat">
+    <span class="dock-count">已选 <b id="selected-count">0</b> 项</span>
+    <span class="dock-bytes">将释放 <b id="selected-gib">0 GiB</b></span>
   </div>
-</header>
+  <button type="button" class="btn" id="quick-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="quick-menu">
+    <span class="label">快速选择</span><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14l5-5 5 5"/></svg>
+  </button>
+  <button type="button" class="btn btn-primary btn-large" id="export-btn">生成执行指令</button>
+</div>
 
-<div class="container">
-  <div class="editorial-header">
-    <div>
-      <div class="editorial-kicker">STORAGE RING OVERVIEW &amp; CLEANUP REPORT</div>
-      <h1>__HEADING__</h1>
-      <p class="editorial-subtitle">
-        巡检快照时间：__GENERATED_AT__ · 首屏圆环直观展示硬盘总容量与<strong>本次清掉的空间（翡翠绿高亮扇区）</strong>，下方按存储卷与类别列出全部空间清理、系统优化与白名单保护明细。
-      </p>
-    </div>
-    <div class="header-kpi-pills tabular" id="header-kpi-pills"></div>
-  </div>
+<div class="menu" id="quick-menu" role="menu" aria-label="快速选择" hidden>
+  <button type="button" role="menuitem" data-quick="tierA">只选 A 级<small>可安全重建，删了能自动恢复</small></button>
+  <button type="button" role="menuitem" data-quick="tierAB">选 A 级和 B 级<small>加上建议整理的项目</small></button>
+  <button type="button" role="menuitem" data-quick="opt">加选优化、整理和更新<small>不释放空间的维护项</small></button>
+  <hr>
+  <button type="button" role="menuitem" data-quick="clear">清空选择</button>
+  <button type="button" role="menuitem" data-quick="reset" id="reset-item">恢复初始勾选<small>同时清掉备注和白名单改动</small></button>
+</div>
 
-  <!-- ==================== PAGE 1 (DEFAULT): GIANT STORAGE RING & DETAILED LIST ==================== -->
-  <div id="ring-overview-page">
-    <section class="ring-hero-card">
-      <div class="ring-hero-layout">
-        <!-- Left Column: Precision Giant Donut Ring + Aligned 3-Segment Legend -->
-        <div class="giant-ring-col">
-          <div class="giant-ring-stage">
-            <svg class="giant-ring-svg" viewBox="0 0 288 288" aria-label="磁盘容量与本次清理比例圆环图">
-              <!-- Subtle outer precision scale ring -->
-              <circle cx="144" cy="144" r="135" fill="none" stroke="var(--border-hairline)" stroke-width="1" stroke-dasharray="2 5"></circle>
-              <!-- Base track: 100% capacity (uncovered part = Original Free Space) -->
-              <circle cx="144" cy="144" r="116" fill="none" stroke="var(--bar-free)" stroke-width="24"></circle>
-              <!-- Segment 1: Retained Used Space after cleanup -->
-              <circle id="ring-arc-retained" class="ring-seg" cx="144" cy="144" r="116"
-                stroke="var(--bar-retained)" stroke-dasharray="0 728.85" stroke-dashoffset="0"></circle>
-              <!-- Segment 2: Cleaned / Reclaimed Space (Distinct Emerald Sage Color!) -->
-              <circle id="ring-arc-cleaned" class="ring-seg ring-seg-cleaned" cx="144" cy="144" r="116"
-                stroke="var(--tone-sage)" stroke-dasharray="0 728.85" stroke-dashoffset="0"></circle>
-              <!-- Segment 3: Hovered Focus Item Slice (Terracotta Orange) -->
-              <circle id="ring-arc-focus" class="ring-seg ring-seg-focus" cx="144" cy="144" r="116"
-                stroke="var(--accent-clay)" stroke-dasharray="0 728.85" stroke-dashoffset="0"></circle>
-            </svg>
-            <div class="giant-ring-center tabular">
-              <span class="ring-center-kicker" id="ring-center-kicker">本次已清掉空间</span>
-              <div class="ring-center-val-wrap">
-                <span class="ring-center-num" id="ring-center-num">-0.00</span>
-                <span class="ring-center-unit" id="ring-center-unit">GiB</span>
-              </div>
-              <div class="ring-center-water" id="ring-center-water">水位 0% → 0%</div>
-              <div class="ring-center-sub" id="ring-center-sub">可用 0 GiB / 总 0 GiB</div>
-            </div>
-          </div>
-
-          <div class="ring-legend-bar tabular">
-            <div class="ring-legend-item">
-              <span class="ring-legend-label"><i class="legend-dot" style="background:var(--bar-retained)"></i>清理后已用</span>
-              <span class="ring-legend-val" id="rleg-retained">0 GiB</span>
-            </div>
-            <div class="ring-legend-item">
-              <span class="ring-legend-label"><i class="legend-dot" style="background:var(--tone-sage)"></i>本次清掉</span>
-              <span class="ring-legend-val" style="color:var(--tone-sage)" id="rleg-cleaned">-0 GiB</span>
-            </div>
-            <div class="ring-legend-item">
-              <span class="ring-legend-label"><i class="legend-dot" style="background:var(--bar-free);border:1px solid var(--border-strong)"></i>清理后可用</span>
-              <span class="ring-legend-val" id="rleg-free">0 GiB</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Right side of Giant Ring: Active Volume Header + 4 KPI Cards + 3x3 Storage Pool Matrix -->
-        <div class="ring-right-panel">
-          <div class="ring-headline-box">
-            <div class="ring-headline-top">
-              <div class="ring-title-cluster">
-                <h2 class="ring-pool-title" id="ring-active-title">Mac 本机磁盘</h2>
-                <span class="ring-pool-mount" id="ring-active-mount">/System/Volumes/Data</span>
-              </div>
-              <span class="ring-headline-badge tabular" id="ring-active-badge">释放 0.0% 容量</span>
-            </div>
-            <p class="ring-pool-desc" id="ring-active-desc">
-              圆环整圈代表当前存储卷 100% 总容量：深蓝灰段为清理后保留的已用空间，<strong>翡翠绿高亮扇区为本次清掉释放的空间</strong>；悬停下方任意明细行可在圆环上以电光青高亮该项占比。
-            </p>
-          </div>
-
-          <div class="ring-kpi-grid tabular">
-            <div class="ring-kpi-card">
-              <span class="ring-kpi-label"><i class="legend-dot" style="background:var(--border-strong)"></i>硬盘总容量 (100%)</span>
-              <span class="ring-kpi-val" id="rkpi-total">0 GiB</span>
-              <span class="ring-kpi-sub" id="rkpi-before-used">清理前已用 0 GiB</span>
-            </div>
-            <div class="ring-kpi-card highlight-cleaned">
-              <span class="ring-kpi-label"><i class="legend-dot" style="background:var(--tone-sage)"></i>✨ 本次清掉空间</span>
-              <span class="ring-kpi-val" id="rkpi-cleaned">-0 GiB</span>
-              <span class="ring-kpi-sub" id="rkpi-cleaned-pct">占总容量 0.0%</span>
-            </div>
-            <div class="ring-kpi-card">
-              <span class="ring-kpi-label"><i class="legend-dot" style="background:var(--bar-retained)"></i>清理后已用空间</span>
-              <span class="ring-kpi-val" id="rkpi-retained">0 GiB</span>
-              <span class="ring-kpi-sub" id="rkpi-retained-pct">现水位 0.0%</span>
-            </div>
-            <div class="ring-kpi-card">
-              <span class="ring-kpi-label"><i class="legend-dot" style="background:var(--bar-free);border:1px solid var(--border-strong)"></i>清理后总可用</span>
-              <span class="ring-kpi-val" id="rkpi-free-after" style="color:var(--tone-sage)">0 GiB</span>
-              <span class="ring-kpi-sub" id="rkpi-free-before">清理前可用 0 GiB</span>
-            </div>
-          </div>
-
-          <div class="mini-matrix-section">
-            <div class="mini-matrix-head">
-              <span class="mini-matrix-title">全栈存储卷切换矩阵（点击切换左侧主圆环与下方明细）</span>
-              <span class="section-caption" id="mini-matrix-hint">共 9 个视图</span>
-            </div>
-            <div class="mini-rings-strip" id="mini-rings-strip"></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Detailed List Directly Below the Giant Ring -->
-    <div id="ring-detailed-lists"></div>
-  </div>
-
-  <!-- ==================== PAGE 2: INTERACTIVE BAR & CHECKBOX WORKBENCH ==================== -->
-  <div id="workbench-page" style="display:none">
-  <section class="section-block">
-    <div class="section-header">
-      <h2 class="section-title">存储空间总容量与已用容量实时视图</h2>
-      <span class="section-caption" id="studio-summary-caption">双色清理标尺：电光青 ＝ 当前焦点项 ｜ 翡翠绿 ＝ 本池其他已选汇总</span>
-    </div>
-
-    <div class="viz-studio">
-      <!-- 5-Pool Selector Strip -->
-      <div class="pool-selector-strip" id="pool-selector-strip"></div>
-
-      <!-- Active Pool Bar: Left = Total Capacity, Middle = Progress Bar (Cleaned in Middle), Right = Used Capacity -->
-      <div class="anatomy-panel" id="anatomy-panel">
-        <div class="anatomy-head">
-          <div class="anatomy-title-group">
-            <span class="anatomy-title" id="anatomy-pool-title">Mac 内置 SSD (APFS)</span>
-            <span class="anatomy-focus-badge tabular" id="anatomy-focus-badge" style="display:none">当前项目 -0 GiB</span>
-            <span class="anatomy-mid-badge tabular" id="anatomy-mid-badge">总清理 -0.00 GiB</span>
-          </div>
-          <span class="anatomy-readout tabular" id="anatomy-pool-sub">原已用 0 GiB → 清理后已用 0 GiB</span>
-        </div>
-        <div class="main-storage-row tabular">
-          <span class="main-storage-total" id="main-storage-total">总容量 0 GiB</span>
-          <div class="segmented-storage-bar" id="segmented-storage-bar">
-            <div class="seg-retained" id="seg-retained" style="width:48%"></div>
-            <div class="seg-reclaim-item" id="seg-reclaim-item" style="width:7%"></div>
-            <div class="seg-reclaim-mid" id="seg-reclaim-mid" style="width:15%"></div>
-            <div class="seg-free" id="seg-free"></div>
-          </div>
-          <span class="main-storage-used" id="anatomy-pool-readout">已用 0 GiB</span>
-        </div>
-        <div class="storage-legend">
-          <div class="legend-items">
-            <span><i class="legend-dot" style="background:var(--bar-retained)"></i>清理后已用 <strong class="mono" id="leg-retained">0 GiB</strong></span>
-            <span><i class="legend-dot" style="background:var(--accent-clay)"></i>当前项目 <strong class="mono" style="color:var(--accent-clay)" id="leg-focus-item">0 GiB</strong></span>
-            <span><i class="legend-dot" style="background:var(--tone-sage)"></i>本池总清理 <strong class="mono" style="color:var(--tone-sage)" id="leg-reclaim">0 GiB</strong></span>
-            <span><i class="legend-dot" style="background:var(--bar-free);border:1px solid var(--border-strong)"></i>原本空闲 <strong class="mono" id="leg-free">0 GiB</strong></span>
-          </div>
-          <span class="legend-free-pill" id="leg-total-free-after"></span>
-        </div>
-
-        <!-- Directory / Category Breakdown Mini-Charts -->
-        <div class="category-breakdown-grid" id="category-breakdown-grid"></div>
-      </div>
-
-      <!-- Live Action Spotlight Banner -->
-      <div class="spotlight-banner" id="spotlight-banner">
-        <span id="spotlight-text">悬停或切换下方任意项目，上方主存储池、目录分项与卡片内嵌条将同步以「电光青（本项）＋ 翡翠绿（其他已选）」联动。</span>
-        <span class="mono" style="color:var(--tone-sage);font-weight:600" id="spotlight-badge">实时联动</span>
+<div class="sheet-backdrop" id="prompt-modal" hidden>
+  <div class="sheet" id="prompt-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <div class="sheet-head">
+      <span class="app-icon tint-blue" data-icon="doc"></span>
+      <div>
+        <h2 id="sheet-title">执行指令已生成</h2>
+        <p id="sheet-status">粘贴回对话框，Agent 会先跑 preflight 复查再动手。</p>
       </div>
     </div>
-  </section>
-
-  <!-- Baseline Diff Section -->
-  <section class="section-block" id="diff-section" style="display:none">
-    <div class="section-header">
-      <h2 class="section-title">距上次巡检基线变化</h2>
-      <span class="section-caption" id="diff-time"></span>
-    </div>
-    <div class="diff-card">
-      <div id="diff-gauges" class="diff-grid" style="margin-top:0"></div>
-      <div id="diff-growth" class="diff-grid"></div>
-    </div>
-  </section>
-
-  <!-- Layer 3: Actionable Checklist with Inline Per-Card Visual Magnitude Bars -->
-  <section class="section-block">
-    <div class="section-header">
-      <h2 class="section-title">可执行优化与清理清单</h2>
-      <span class="section-caption" id="visible-count-caption"></span>
-    </div>
-
-    <div class="filter-stack">
-      <!-- Level 1: Primary Domain Menu + Sort Control -->
-      <div class="filter-bar">
-        <div class="segmented-control" id="domain-tabs" role="tablist" aria-label="一级巡检领域">
-          <div class="tab-glider" id="tab-glider"></div>
-          <button class="active" data-domain="all" onclick="setDomain('all', this)">全部领域 <span class="tab-count" id="cnt-all"></span></button>
-          <button data-domain="mac" onclick="setDomain('mac', this)">Mac 与备份 <span class="tab-count" id="cnt-mac"></span></button>
-          <button data-domain="projects" onclick="setDomain('projects', this)">本地项目 <span class="tab-count" id="cnt-projects"></span></button>
-          <button data-domain="github" onclick="setDomain('github', this)">GitHub <span class="tab-count" id="cnt-github"></span></button>
-          <button data-domain="nas" onclick="setDomain('nas', this)">NAS 与 PVE <span class="tab-count" id="cnt-nas"></span></button>
-          <button data-domain="whitelisted" onclick="setDomain('whitelisted', this)">白名单 <span class="tab-count" id="cnt-whitelisted"></span></button>
-        </div>
-        <div class="sort-control" role="group" aria-label="排序方式">
-          <button type="button" class="active" data-sort="default" onclick="setSortMode('default', this)">默认顺序</button>
-          <button type="button" data-sort="opt" onclick="setSortMode('opt', this)">优化/更新优先</button>
-          <button type="button" data-sort="size" onclick="setSortMode('size', this)">按释放空间</button>
-          <button type="button" data-sort="pool" onclick="setSortMode('pool', this)">按存储池</button>
-        </div>
-      </div>
-
-      <!-- Level 2: Clean Secondary Action Category Row -->
-      <div class="filter-subrow" id="action-subbar">
-        <div class="sub-pills" id="action-tabs" role="tablist" aria-label="动作分类">
-          <button class="active" data-action="all" onclick="setActionFilter('all', this)">
-            全部 <span class="tab-count" id="acnt-all"></span>
-          </button>
-          <button data-action="cleanup" onclick="setActionFilter('cleanup', this)">
-            <i class="sub-dot" style="background:var(--accent-clay)"></i>空间清理 <span class="tab-count" id="acnt-cleanup"></span>
-          </button>
-          <button data-action="organize" onclick="setActionFilter('organize', this)">
-            <i class="sub-dot" style="background:var(--tone-ochre)"></i>结构整理 <span class="tab-count" id="acnt-organize"></span>
-          </button>
-          <button data-action="optimize" onclick="setActionFilter('optimize', this)">
-            <i class="sub-dot" style="background:var(--tone-sage)"></i>性能优化 <span class="tab-count" id="acnt-optimize"></span>
-          </button>
-          <button data-action="update" onclick="setActionFilter('update', this)">
-            <i class="sub-dot" style="background:#6E98B8"></i>版本更新 <span class="tab-count" id="acnt-update"></span>
-          </button>
-        </div>
-        <button type="button" class="btn-sub-select" onclick="selectVisibleCategory()">全选当前列表</button>
-      </div>
-    </div>
-
-    <main class="candidate-list" id="candidate-list"></main>
-  </section>
+    <textarea id="prompt-textarea" readonly aria-label="执行指令文本"></textarea>
+    <footer>
+      <button type="button" class="btn" id="sheet-close">完成</button>
+      <button type="button" class="btn btn-primary" id="copy-confirm-btn">复制指令</button>
+    </footer>
   </div>
 </div>
 
-<div class="modal-backdrop" id="prompt-modal" onclick="if(event.target===this)closeModal()">
-  <div class="modal">
-    <div class="section-header" style="margin-bottom:4px">
-      <h2 class="section-title">已生成执行指令</h2>
-      <button onclick="closeModal()">关闭</button>
-    </div>
-    <p style="margin:0;font-size:12.5px;color:var(--ink-secondary)">
-      以下文本已自动复制到剪贴板，可直接粘贴回对话框交给 Agent 执行：
-    </p>
-    <textarea class="prompt-box" id="prompt-textarea" readonly></textarea>
-    <div style="display:flex;justify-content:flex-end;gap:8px">
-      <button class="btn-primary" id="copy-confirm-btn" onclick="copyModalText()">复制指令文本</button>
-    </div>
-  </div>
-</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+"""
 
-<script>
+
+TEMPLATE_SCRIPT_CORE = r"""<script>
+"use strict";
 const REPORT_DATA = __REPORT_JSON__;
+const SPRING = __SPRING_PRESETS__;
+const CANDS = Array.isArray(REPORT_DATA.candidates) ? REPORT_DATA.candidates : [];
+const GAUGES = Array.isArray(REPORT_DATA.storage_gauges) ? REPORT_DATA.storage_gauges : [];
 const STORAGE_KEY = "full_stack_maint_" + REPORT_DATA.report_id;
 const THEME_KEY = "full_stack_maint_theme";
-const REDUCED_MOTION = Boolean(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+const motionQuery = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+let REDUCED_MOTION = Boolean(motionQuery && motionQuery.matches);
+if (motionQuery && motionQuery.addEventListener) motionQuery.addEventListener("change", e => { REDUCED_MOTION = e.matches; });
 
-// Apple macOS & CleanMyMac inspired vibrant categorical palette
-const SLICE_PALETTE = [
-  "#38BDF8", "#10D98E", "#6366F1", "#F59E0B", "#EC4899",
-  "#14B8A6", "#8B5CF6", "#0EA5E9", "#22C55E", "#F43F5E"
-];
+/* ================= Spring engine =================
+ * Apple-style parameters: damping ratio (1 = no overshoot, < 1 = light rebound) and
+ * response (seconds to arrive). Springs always continue from their current value and
+ * velocity, so any animation can be interrupted and retargeted mid-flight. */
+const springLoop = { active: new Set(), raf: 0, last: 0, inTick: false, jobs: new Set() };
 
-// Safe storage helpers: sandboxed iframes (without allow-same-origin) throw SecurityError on window.localStorage access
-function safeStorageGet(key) {
-  try {
-    return window.localStorage ? window.localStorage.getItem(key) : null;
-  } catch (e) {
-    return null;
-  }
+function flushFrameJobs() {
+  const jobs = Array.from(springLoop.jobs);
+  springLoop.jobs.clear();
+  jobs.forEach(fn => { try { fn(); } catch (e) {} });
 }
 
-function safeStorageSet(key, val) {
-  try {
-    if (window.localStorage) window.localStorage.setItem(key, val);
-  } catch (e) {}
+function queueFrameJob(fn) {
+  springLoop.jobs.add(fn);
+  if (!springLoop.inTick) flushFrameJobs();
 }
 
-function safeStorageRemove(key) {
-  try {
-    if (window.localStorage) window.localStorage.removeItem(key);
-  } catch (e) {}
-}
-
-let currentDomain = "all";
-let currentAction = "all";
-let currentSort = "default";
-let activePoolId = ((REPORT_DATA.storage_gauges || [])[0] || {}).id || "mac";
-let state = loadState();
-
-function initTheme() {
-  const saved = safeStorageGet(THEME_KEY);
-  const theme = saved === "light" ? "light" : "dark";
-  applyTheme(theme);
-}
-
-function applyTheme(theme) {
-  if (theme === "dark") {
-    document.documentElement.setAttribute("data-theme", "dark");
+function springTick(ts) {
+  const dt = springLoop.last ? Math.min(0.05, Math.max(0.001, (ts - springLoop.last) / 1000)) : 1 / 60;
+  springLoop.last = ts;
+  springLoop.inTick = true;
+  springLoop.active.forEach(s => { if (!s.step(dt)) springLoop.active.delete(s); });
+  springLoop.inTick = false;
+  flushFrameJobs();
+  if (springLoop.active.size) {
+    springLoop.raf = requestAnimationFrame(springTick);
   } else {
-    document.documentElement.removeAttribute("data-theme");
+    springLoop.raf = 0;
+    springLoop.last = 0;
   }
-  const darkBtn = document.getElementById("theme-dark-btn");
-  const lightBtn = document.getElementById("theme-light-btn");
-  if (darkBtn) darkBtn.classList.toggle("active", theme === "dark");
-  if (lightBtn) lightBtn.classList.toggle("active", theme !== "dark");
 }
 
-function setTheme(theme) {
-  safeStorageSet(THEME_KEY, theme);
-  applyTheme(theme);
+class Spring {
+  constructor(value, preset, onUpdate, options) {
+    this.value = value;
+    this.target = value;
+    this.velocity = 0;
+    this.onUpdate = onUpdate || null;
+    this.onRest = null;
+    this.precision = (options && options.precision) || 0.002;
+    this.tolerance = (options && options.tolerance) || 0;
+    this.configure(preset || SPRING.soft);
+  }
+  configure(preset) {
+    this.damping = preset.damping;
+    this.response = preset.response;
+    return this;
+  }
+  to(target, preset) {
+    if (preset) this.configure(preset);
+    this.target = target;
+    if (REDUCED_MOTION || !window.requestAnimationFrame) return this.jump(target);
+    springLoop.active.add(this);
+    if (!springLoop.raf) springLoop.raf = requestAnimationFrame(springTick);
+    return this;
+  }
+  jump(value) {
+    this.value = this.target = value;
+    this.velocity = 0;
+    springLoop.active.delete(this);
+    if (this.onUpdate) this.onUpdate(value);
+    if (this.onRest) this.onRest(value);
+    return this;
+  }
+  step(dt) {
+    const stiffness = Math.pow((2 * Math.PI) / this.response, 2);
+    const friction = (4 * Math.PI * this.damping) / this.response;
+    let remain = dt;
+    while (remain > 1e-6) {
+      const h = Math.min(1 / 240, remain);
+      const accel = -stiffness * (this.value - this.target) - friction * this.velocity;
+      this.velocity += accel * h;
+      this.value += this.velocity * h;
+      remain -= h;
+    }
+    const tol = this.tolerance || this.precision * Math.max(1, Math.abs(this.target));
+    const settled = Math.abs(this.value - this.target) < tol && Math.abs(this.velocity) < tol * 10;
+    if (settled) {
+      this.value = this.target;
+      this.velocity = 0;
+    }
+    if (this.onUpdate) this.onUpdate(this.value);
+    if (settled && this.onRest) this.onRest(this.value);
+    return !settled;
+  }
+}
+
+/* A small "press-and-rebound" helper: start below 1 and spring back with light overshoot. */
+function popScale(el, springStore, from) {
+  if (!el || REDUCED_MOTION) return;
+  let s = springStore.get(el);
+  if (!s) {
+    s = new Spring(1, SPRING.bounce, v => { el.style.transform = "scale(" + v.toFixed(4) + ")"; });
+    springStore.set(el, s);
+  }
+  s.value = Math.min(s.value, from);
+  s.to(1, SPRING.bounce);
+}
+const popSprings = new WeakMap();
+
+/* ================= Storage & state ================= */
+function safeStorageGet(key) {
+  try { return window.localStorage ? window.localStorage.getItem(key) : null; } catch (e) { return null; }
+}
+function safeStorageSet(key, val) {
+  try { if (window.localStorage) window.localStorage.setItem(key, val); } catch (e) {}
+}
+function safeStorageRemove(key) {
+  try { if (window.localStorage) window.localStorage.removeItem(key); } catch (e) {}
 }
 
 function loadState() {
@@ -2434,807 +927,928 @@ function loadState() {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object") {
-        return {
-          checked: parsed.checked || {},
-          notes: parsed.notes || {},
-          whitelisted: parsed.whitelisted || {}
-        };
+        return { checked: parsed.checked || {}, notes: parsed.notes || {}, whitelisted: parsed.whitelisted || {} };
       }
     }
   } catch (e) {}
-  const initialChecked = {};
-  const initialWhitelisted = {};
-  (REPORT_DATA.candidates || []).forEach(c => {
-    if (c.whitelisted) initialWhitelisted[c.id] = true;
-    else if (c.default_checked != null ? c.default_checked : c.tier === "A") initialChecked[c.id] = true;
+  const checked = {};
+  const whitelisted = {};
+  CANDS.forEach(c => {
+    if (c.whitelisted) whitelisted[c.id] = true;
+    else if (c.default_checked != null ? c.default_checked : c.tier === "A") checked[c.id] = true;
   });
-  return { checked: initialChecked, notes: {}, whitelisted: initialWhitelisted };
+  return { checked, notes: {}, whitelisted };
 }
 
-function saveState() {
-  safeStorageSet(STORAGE_KEY, JSON.stringify(state));
-}
+let state = loadState();
+function saveState() { safeStorageSet(STORAGE_KEY, JSON.stringify(state)); }
 
-function stripLeadingEmoji(str) {
-  return String(str || "").replace(/^[\\u{1F300}-\\u{1FAFF}\\u{2600}-\\u{27BF}\\u{FE0F}\\s]+/u, "").trim();
-}
+/* ================= Formatting ================= */
+const KIB = 1024, MIB = 1024 ** 2, GIB = 1024 ** 3, TIB = 1024 ** 4;
 
-function shortPoolName(poolId) {
-  const g = (REPORT_DATA.storage_gauges || []).find(x => x.id === poolId);
-  if (!g) return "";
-  const raw = stripLeadingEmoji(g.label || g.id);
-  return raw.replace(/\\s*\\(.*?\\)\\s*/g, "").trim();
+function bytePair(bytes, digits) {
+  const b = Math.abs(Number(bytes) || 0);
+  const d = digits == null ? 2 : digits;
+  if (b >= TIB) return { num: (b / TIB).toFixed(d), unit: "TiB" };
+  if (b >= GIB) return { num: (b / GIB).toFixed(b / GIB >= 100 ? Math.min(d, 1) : d), unit: "GiB" };
+  if (b >= MIB) return { num: (b / MIB).toFixed(b / MIB >= 100 ? 0 : 1), unit: "MiB" };
+  if (b >= KIB) return { num: (b / KIB).toFixed(0), unit: "KiB" };
+  return { num: "0", unit: "GiB" };
 }
-
-function formatBytes(bytes) {
-  const b = Number(bytes) || 0;
-  const abs = Math.abs(b);
-  if (abs >= 1024 ** 4) return (b / (1024 ** 4)).toFixed(2) + " TiB";
-  if (abs >= 1024 ** 3) return (b / (1024 ** 3)).toFixed(2) + " GiB";
-  if (abs >= 1024 ** 2) return (b / (1024 ** 2)).toFixed(1) + " MiB";
-  if (abs > 0) return (b / 1024).toFixed(0) + " KiB";
-  return "规则与配置";
+function formatBytes(bytes, digits) {
+  const p = bytePair(bytes, digits);
+  return p.num + " " + p.unit;
 }
-
-function formatCompactBytes(bytes) {
-  const b = Number(bytes) || 0;
-  const abs = Math.abs(b);
-  if (abs >= 1024 ** 4) return (b / (1024 ** 4)).toFixed(2) + " TiB";
-  if (abs >= 1024 ** 3) return (b / (1024 ** 3)).toFixed(2) + " GiB";
-  if (abs >= 1024 ** 2) return (b / (1024 ** 2)).toFixed(1) + " MiB";
-  if (abs > 0) return (b / 1024).toFixed(0) + " KiB";
-  return "0 GiB";
-}
+function formatShort(bytes) { return formatBytes(bytes, 1); }
+function pct(part, total) { return total > 0 ? (part / total) * 100 : 0; }
+function fmtPct(v) { return (Number(v) || 0).toFixed(1) + "%"; }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
 function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str == null ? "" : String(str);
-  return div.innerHTML;
+  return String(str == null ? "" : str)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
-
-function pulseElement(el, cls = "rebound", ms = 240) {
-  if (!el || REDUCED_MOTION) return;
-  el.classList.remove(cls);
-  void el.offsetWidth;
-  el.classList.add(cls);
-  setTimeout(() => el.classList.remove(cls), ms);
+function stripLeadingEmoji(str) {
+  return String(str || "").replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\s]+/u, "").trim();
 }
-
-function getColorForIndex(idx) {
-  return SLICE_PALETTE[idx % SLICE_PALETTE.length];
+function displayTitle(c) {
+  return stripLeadingEmoji(c.title || c.id).replace(/^【[^】]{1,10}】\s*/, "");
 }
-
-function updatePoolMiniBarState(poolId, pctVal, warnPct) {
-  const clamped = Math.max(0, Math.min(100, pctVal));
-  const fillEl = document.getElementById("gfill-" + poolId);
-  const pipEl = document.getElementById("gpip-" + poolId);
-  const isCrit = clamped >= warnPct;
-  const isWarn = !isCrit && clamped >= warnPct - 10;
-
-  if (fillEl) {
-    fillEl.style.width = clamped.toFixed(2) + "%";
-    fillEl.style.backgroundColor = isCrit ? "var(--tone-rust)" : (isWarn ? "var(--tone-ochre)" : "var(--bar-retained)");
-  }
-  if (pipEl) {
-    pipEl.className = "status-pip " + (isCrit ? "pip-crit" : (isWarn ? "pip-warn" : "pip-ok"));
-    pipEl.textContent = isCrit ? "告警" : (isWarn ? "偏高" : "健康");
+function formatTime(raw) {
+  if (!raw) return "刚刚";
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return String(raw);
+  try {
+    return d.toLocaleString("zh-CN", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch (e) {
+    return String(raw);
   }
 }
 
-function initGaugesDOM() {
-  const strip = document.getElementById("pool-selector-strip");
+/* ================= Icons (SF Symbols-like strokes) ================= */
+const ICONS = {
+  gauge: '<path d="M4.5 17a8 8 0 1 1 15 0"/><path d="M12 13l3.5-4"/>',
+  list: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>',
+  laptop: '<rect x="5" y="5" width="14" height="10" rx="1.5"/><path d="M3 19h18"/>',
+  folder: '<path d="M3.5 7.5a2 2 0 0 1 2-2h3.8l2 2h7.2a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+  branch: '<circle cx="7" cy="6" r="2.2"/><circle cx="7" cy="18" r="2.2"/><circle cx="17" cy="7" r="2.2"/><path d="M7 8.2v7.6M17 9.2c0 4-4.5 3.8-8.6 7"/>',
+  server: '<rect x="4" y="4.5" width="16" height="6" rx="1.6"/><rect x="4" y="13.5" width="16" height="6" rx="1.6"/><path d="M8 7.5h.01M8 16.5h.01"/>',
+  shield: '<path d="M12 3.5l7 2.6v5.6c0 4.4-3 7.6-7 8.8-4-1.2-7-4.4-7-8.8V6.1z"/><path d="M9 12l2.2 2.2L15.5 10"/>',
+  trash: '<path d="M4.5 7h15M10 11v6M14 11v6"/><path d="M6.5 7l.8 11.2a2 2 0 0 0 2 1.8h5.4a2 2 0 0 0 2-1.8L17.5 7M9.5 7V4.5h5V7"/>',
+  tray: '<path d="M4 13.5l2.2-7.2A2 2 0 0 1 8.1 5h7.8a2 2 0 0 1 1.9 1.3l2.2 7.2V18a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18z"/><path d="M4 13.5h4.5l1 2h5l1-2H20"/>',
+  bolt: '<path d="M13 3L5.5 13.5H11l-1 7.5 7.5-10.5H12z"/>',
+  arrowDown: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v8M8.5 12.5l3.5 3.5 3.5-3.5"/>',
+  chevron: '<path d="M9.5 6l6 6-6 6"/>',
+  doc: '<path d="M7 3.5h7l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-9.5A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z"/><path d="M9 12h6M9 16h4"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'
+};
+function icon(name) {
+  return '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">' + (ICONS[name] || "") + "</svg>";
+}
+function hydrateIcons(root) {
+  (root || document).querySelectorAll("[data-icon]").forEach(el => {
+    if (!el.firstChild) el.innerHTML = icon(el.getAttribute("data-icon"));
+  });
+}
+
+/* ================= Candidate model ================= */
+const DOMAIN_META = {
+  all: { label: "全部建议" },
+  mac: { label: "Mac 与备份" },
+  projects: { label: "本地项目" },
+  github: { label: "GitHub" },
+  nas: { label: "NAS 与 PVE" },
+  whitelisted: { label: "白名单" }
+};
+const ACTION_META = {
+  cleanup: { label: "空间清理", icon: "trash", tint: "green", rank: 4 },
+  organize: { label: "结构整理", icon: "tray", tint: "blue", rank: 3 },
+  optimize: { label: "性能优化", icon: "bolt", tint: "orange", rank: 2 },
+  update: { label: "版本更新", icon: "arrowDown", tint: "purple", rank: 1 }
+};
+const TIER_META = {
+  A: { label: "A 级", desc: "可安全重建", cls: "tier-a" },
+  B: { label: "B 级", desc: "建议整理", cls: "tier-b" },
+  C: { label: "C 级", desc: "需要你拍板", cls: "tier-c" }
+};
+const COMP_COLORS = ["#0a84ff", "#bf5af2", "#ff9f0a", "#40c8e0", "#ff375f", "#5e5ce6", "#ffd60a", "#30d158"];
+
+const candById = {};
+CANDS.forEach(c => { candById[c.id] = c; });
+const gaugeById = {};
+GAUGES.forEach(g => { gaugeById[g.id] = g; });
+
+function sizeOf(c) { return Math.max(0, Number(c.size_bytes) || 0); }
+function isWl(c) { return Boolean(state.whitelisted[c.id]); }
+function isDone(c) { return c.status === "done"; }
+function isChecked(c) { return !isWl(c) && !isDone(c) && Boolean(state.checked[c.id]); }
+function tierOf(c) { return TIER_META[c.tier] ? c.tier : "B"; }
+
+function inferActionType(c) {
+  if (c.action_type && ACTION_META[c.action_type]) return c.action_type;
+  const text = `${c.id || ""} ${c.title || ""} ${c.category || ""}`.toLowerCase();
+  const has = words => words.some(w => text.includes(w));
+  if (has(["更新", "升级", "outdated", "upgrade", "rustup"])) return "update";
+  if (has(["优化", "压缩", "pack", "fstrim", "规则", "drift", "修复", "ci_failure"])) return "optimize";
+  if (has(["整理", "归档", "合入", "推送", "纳管", "规范", "软链", "governance", "unpushed", "unlinked"])) return "organize";
+  return "cleanup";
+}
+function isOptOrUpdate(c) { return inferActionType(c) !== "cleanup"; }
+
+function poolTitle(g) {
+  if (!g) return "";
+  const raw = stripLeadingEmoji(g.label || g.id);
+  return raw.replace(/\s*[（(][^）)]*[）)]\s*/g, " ").trim() || String(g.id);
+}
+function warnPctOf(g) { return Number(g && (g.warn_used_pct || g.warn_pct)) || 85; }
+function levelFor(pctValue, warn) {
+  if (pctValue >= warn) return "crit";
+  if (pctValue >= warn - 8) return "warn";
+  return "ok";
+}
+
+function matchesView(c, view) {
+  if (view === "whitelisted") return isWl(c);
+  if (isWl(c)) return false;
+  return view === "all" || c.domain === view;
+}
+
+/* Per-volume numbers used by the ring, the mini rings and the impact bar. */
+function computePoolRingMetrics(g) {
+  const total = Math.max(1, Number(g.total_bytes) || 1);
+  const currentUsed = Math.max(0, Number(g.used_bytes) || 0);
+  const currentFree = g.free_bytes != null ? Math.max(0, Number(g.free_bytes)) : Math.max(0, total - currentUsed);
+  let doneBytes = 0;
+  let checkedBytes = 0;
+  CANDS.forEach(c => {
+    if (c.gauge_id !== g.id || isWl(c)) return;
+    const sz = sizeOf(c);
+    if (!sz) return;
+    if (isDone(c)) doneBytes += sz;
+    else if (state.checked[c.id]) checkedBytes += sz;
+  });
+  const explicitCleaned = Math.max(0, Number(g.cleaned_bytes) || 0);
+  const hasDone = doneBytes > 0 || explicitCleaned > 0 || g.before_used_bytes != null;
+  let retained, cleaned, beforeUsed, freeAfter, freeBefore;
+  if (hasDone) {
+    const base = doneBytes > 0 ? doneBytes : explicitCleaned;
+    cleaned = Math.min(total, base + checkedBytes);
+    retained = Math.max(0, Math.min(total - cleaned, currentUsed - checkedBytes));
+    beforeUsed = Math.min(total, retained + cleaned);
+    freeAfter = Math.max(0, total - retained);
+    freeBefore = Math.max(0, total - beforeUsed);
+  } else {
+    cleaned = Math.min(currentUsed, checkedBytes);
+    retained = Math.max(0, currentUsed - cleaned);
+    beforeUsed = currentUsed;
+    freeBefore = currentFree;
+    freeAfter = currentFree + cleaned;
+  }
+  return {
+    id: g.id,
+    gauge: g,
+    label: stripLeadingEmoji(g.label || g.id),
+    shortTitle: poolTitle(g),
+    mountPath: g.mount_path || "",
+    total,
+    retainedBytes: retained,
+    cleanedBytes: cleaned,
+    beforeUsedBytes: beforeUsed,
+    freeBeforeBytes: freeBefore,
+    freeAfterBytes: freeAfter,
+    beforePct: Math.min(100, pct(beforeUsed, total)),
+    afterPct: Math.min(100, pct(retained, total)),
+    warnPct: warnPctOf(g),
+    hasDone
+  };
+}
+
+function computeAllMetrics() {
+  const list = GAUGES.map(computePoolRingMetrics);
+  const agg = list.reduce((acc, m) => {
+    acc.total += m.total;
+    acc.retainedBytes += m.retainedBytes;
+    acc.cleanedBytes += m.cleanedBytes;
+    acc.beforeUsedBytes += m.beforeUsedBytes;
+    acc.freeBeforeBytes += m.freeBeforeBytes;
+    acc.freeAfterBytes += m.freeAfterBytes;
+    acc.hasDone = acc.hasDone || m.hasDone;
+    return acc;
+  }, {
+    id: "_all", gauge: null, label: "全部存储卷", shortTitle: "全部存储卷", mountPath: "",
+    total: 0, retainedBytes: 0, cleanedBytes: 0, beforeUsedBytes: 0, freeBeforeBytes: 0, freeAfterBytes: 0,
+    beforePct: 0, afterPct: 0, warnPct: 101, hasDone: false
+  });
+  agg.mountPath = list.length + " 个存储卷合计";
+  agg.beforePct = pct(agg.beforeUsedBytes, agg.total);
+  agg.afterPct = pct(agg.retainedBytes, agg.total);
+  return { list, agg };
+}
+
+function selectionSummary(filterFn) {
+  let count = 0, bytes = 0;
+  CANDS.forEach(c => {
+    if (filterFn && !filterFn(c)) return;
+    if (isChecked(c)) { count++; bytes += sizeOf(c); }
+  });
+  return { count, bytes };
+}
+"""
+
+
+TEMPLATE_SCRIPT_OVERVIEW = r"""
+/* ================= Overview: giant ring ================= */
+let activeRingPoolId = GAUGES.length ? GAUGES[0].id : "_all";
+let hoveredRingItemId = null;
+const RING_RADIUS = 136;
+const RING_CIRC = 2 * Math.PI * RING_RADIUS;
+const RING_GAP = 3;
+const ringFlags = { isFocus: false, hasFree: false };
+const ringSprings = {
+  ret: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing)),
+  cln: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing)),
+  foc: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing)),
+  bytes: new Spring(0, SPRING.soft, () => queueFrameJob(paintRing), { precision: 0.0004 })
+};
+
+function setArc(el, len, offset) {
+  if (!el) return;
+  const visible = len > RING_GAP * 2 ? len - RING_GAP : Math.max(0, len * 0.5);
+  el.setAttribute("stroke-dasharray", visible.toFixed(2) + " " + RING_CIRC.toFixed(2));
+  el.setAttribute("stroke-dashoffset", (-offset).toFixed(2));
+}
+
+function paintRing() {
+  const C = RING_CIRC;
+  const ret = clamp(ringSprings.ret.value, 0, C);
+  const cln = clamp(ringSprings.cln.value, 0, C - ret);
+  const foc = clamp(ringSprings.foc.value, 0, C - ret - cln);
+  setArc(document.getElementById("ring-arc-retained"), ret, 0);
+  setArc(document.getElementById("ring-arc-cleaned"), cln, ret);
+  setArc(document.getElementById("ring-arc-glow"), cln, ret);
+  setArc(document.getElementById("ring-arc-focus"), foc, ret + cln);
+  const pair = bytePair(Math.max(0, ringSprings.bytes.value));
+  const numEl = document.getElementById("ring-center-num");
+  const unitEl = document.getElementById("ring-center-unit");
+  if (numEl) numEl.textContent = pair.num;
+  if (unitEl) unitEl.textContent = pair.unit;
+  const wrap = document.getElementById("ring-num");
+  if (wrap) {
+    wrap.classList.toggle("is-focus", ringFlags.isFocus);
+    wrap.classList.toggle("is-free", !ringFlags.isFocus && ringFlags.hasFree);
+  }
+}
+
+/* Interruptible spring animation of the ring arcs and the centre number. */
+function animateRingTo(retArc, clnArc, focArc, displayBytes, isFocus) {
+  ringFlags.isFocus = Boolean(isFocus);
+  ringFlags.hasFree = displayBytes > 0;
+  ringSprings.ret.to(retArc, SPRING.ring);
+  ringSprings.cln.to(clnArc, SPRING.ring);
+  ringSprings.foc.to(focArc, isFocus ? SPRING.glide : SPRING.ring);
+  ringSprings.bytes.to(displayBytes, SPRING.soft);
+  queueFrameJob(paintRing);
+}
+
+/* ================= Overview: mini rings ================= */
+const MINI_R = 17;
+const MINI_C = 2 * Math.PI * MINI_R;
+const miniSprings = {};
+let miniBuilt = false;
+
+function buildMiniRings(entries) {
+  const strip = document.getElementById("mini-rings-strip");
   if (!strip) return;
-  strip.innerHTML = "";
-  (REPORT_DATA.storage_gauges || []).forEach((g, idx) => {
-    const total = Number(g.total_bytes) || 0;
-    const used = Number(g.used_bytes) || 0;
-    const curPct = total > 0 ? (used / total) * 100 : (Number(g.used_pct) || 0);
-    const warnPct = Number(g.warn_used_pct || g.warn_pct) || 85;
-    const cleanLabel = stripLeadingEmoji(g.label || g.id);
-    const indexStr = String(idx + 1).padStart(2, "0");
-
-    const card = document.createElement("div");
-    card.id = "pool-tab-" + g.id;
-    card.className = "pool-tab-card" + (g.id === activePoolId ? " active" : "");
-    card.onclick = () => selectPool(g.id);
-    card.innerHTML = `
-      <div class="pool-tab-top">
-        <span>POOL ${indexStr}</span>
-        <span class="pool-reclaim-pill tabular" id="grecpill-${escapeHtml(g.id)}"></span>
-        <span class="status-pip" id="gpip-${escapeHtml(g.id)}"></span>
-      </div>
-      <div class="pool-tab-name" title="${escapeHtml(cleanLabel)}">${escapeHtml(cleanLabel)}</div>
-      <div class="pool-tab-metrics tabular">
-        <span style="color:var(--ink-muted)">总 ${formatCompactBytes(total)}</span>
-        <span style="color:var(--ink-secondary)">已用 <strong style="color:var(--ink-primary)" id="gused-${escapeHtml(g.id)}">${formatCompactBytes(used)}</strong></span>
-      </div>
-      <div class="pool-mini-track">
-        <div class="pool-mini-fill" id="gfill-${escapeHtml(g.id)}" style="width:${Math.min(100, curPct).toFixed(1)}%"></div>
-        <div class="pool-mini-focus" id="gfocus-${escapeHtml(g.id)}" style="width:0%"></div>
-        <div class="pool-mini-reclaim" id="greclaim-${escapeHtml(g.id)}" style="width:0%"></div>
-      </div>
-    `;
-    strip.appendChild(card);
-    updatePoolMiniBarState(g.id, curPct, warnPct);
+  strip.innerHTML = entries.map((m, i) => `
+    <button type="button" class="vol glass enter" role="tab" style="--i:${i}" id="mring-card-${escapeHtml(m.id)}" data-pool="${escapeHtml(m.id)}" aria-selected="false">
+      <span class="vol-ring-wrap"><svg class="vol-ring" viewBox="0 0 44 44" aria-hidden="true"><g transform="rotate(-90 22 22)">
+        <circle class="vt" cx="22" cy="22" r="${MINI_R}"></circle>
+        <circle class="vr" id="mring-ret-${escapeHtml(m.id)}" cx="22" cy="22" r="${MINI_R}" stroke-dasharray="0 200"></circle>
+        <circle class="vc" id="mring-cln-${escapeHtml(m.id)}" cx="22" cy="22" r="${MINI_R}" stroke-dasharray="0 200"></circle>
+      </g></svg><span class="vol-pct" id="mring-pct-${escapeHtml(m.id)}">0%</span></span>
+      <span class="vol-text">
+        <span class="vol-name" title="${escapeHtml(m.label)}">${escapeHtml(m.shortTitle)}</span>
+        <span class="vol-meta" id="mring-meta-${escapeHtml(m.id)}"></span>
+      </span>
+    </button>`).join("");
+  strip.querySelectorAll(".vol").forEach(btn => {
+    btn.addEventListener("click", () => selectRingPool(btn.getAttribute("data-pool")));
   });
-}
-
-function selectPool(poolId) {
-  activePoolId = poolId;
-  document.querySelectorAll(".pool-tab-card").forEach(el => {
-    el.classList.toggle("active", el.id === "pool-tab-" + poolId);
-  });
-  updateVisualCharts();
-}
-
-function inferCategoryName(c) {
-  if (c.category) return c.category;
-  const p = String(c.path || "");
-  if (p.includes("Mobile Documents") || p.includes("CloudDocs")) return "~/Library (iCloud 与容器)";
-  if (p.includes("CoreSimulator") || p.includes("Library/Caches")) return "~/Library (模拟器与缓存)";
-  if (p.includes("/var/tmp") || p.includes("/private/var")) return "/private/var (系统临时区)";
-  if (p.includes("~/Codex") || p.includes("worktrees")) return "~/Codex (本地项目与构建)";
-  if (p.includes("/System/Volumes/Data") || p.includes("macOS Install")) return "系统卷与安装器残留";
-  if (p.includes("90_归档") || p.includes("#recycle")) return "NAS 归档与回收站";
-  if (p.includes("Resolve-Work") || p.includes("PVE-Backups")) return "NVMe 协作缓存与备份";
-  if (p.includes("docker") || p.includes("local-lvm") || p.includes("/boot/efi")) return "PVE 宿主机与容器镜像";
-  return "其他可回收项";
-}
-
-function getCardPoolMetrics(c) {
-  const pool = (REPORT_DATA.storage_gauges || []).find(g => g.id === c.gauge_id);
-  if (pool && Number(pool.total_bytes) > 0) {
-    return {
-      totalBytes: Number(pool.total_bytes),
-      origUsedBytes: Number(pool.used_bytes) || 0,
-      poolId: pool.id
+  entries.forEach(m => {
+    const retEl = document.getElementById("mring-ret-" + m.id);
+    const clnEl = document.getElementById("mring-cln-" + m.id);
+    const paint = () => {
+      const r = clamp(miniSprings[m.id].ret.value, 0, MINI_C);
+      const c = clamp(miniSprings[m.id].cln.value, 0, MINI_C - r);
+      if (retEl) retEl.setAttribute("stroke-dasharray", r.toFixed(2) + " " + MINI_C.toFixed(2));
+      if (clnEl) {
+        clnEl.setAttribute("stroke-dasharray", c.toFixed(2) + " " + MINI_C.toFixed(2));
+        clnEl.setAttribute("stroke-dashoffset", (-r).toFixed(2));
+      }
     };
-  }
-  const fallbackTotal = (REPORT_DATA.candidates || [])
-    .filter(x => (x.gauge_id || "_default") === (c.gauge_id || "_default"))
-    .reduce((acc, x) => acc + (Number(x.size_bytes) || 0), 0) || 1;
-  return { totalBytes: fallbackTotal, origUsedBytes: fallbackTotal, poolId: "_default" };
+    miniSprings[m.id] = {
+      ret: new Spring(0, SPRING.ring, () => queueFrameJob(paint)),
+      cln: new Spring(0, SPRING.ring, () => queueFrameJob(paint))
+    };
+  });
+  miniBuilt = true;
 }
 
-function updateAllCardBars(savingsByGauge) {
-  (REPORT_DATA.candidates || []).forEach(c => {
-    const sz = Number(c.size_bytes) || 0;
-    if (sz <= 0) return;
-    const isWl = !!state.whitelisted[c.id];
-    const isDone = c.status === "done";
-    const isChecked = !isWl && !isDone && !!state.checked[c.id];
-
-    const { totalBytes, origUsedBytes, poolId } = getCardPoolMetrics(c);
-    const poolSaved = Math.min(origUsedBytes, savingsByGauge[poolId] || 0);
-    const usedAfterPool = Math.max(0, origUsedBytes - poolSaved);
-
-    // Exact byte-accurate proportions relative to totalBytes (100% = totalBytes):
-    const thisItemSaved = isChecked ? Math.min(poolSaved, sz) : 0;
-    const otherPoolSaved = Math.max(0, poolSaved - thisItemSaved);
-    const previewBytes = (!isChecked && !isWl && !isDone) ? Math.min(usedAfterPool, sz) : 0;
-    const retainedBytes = Math.max(0, usedAfterPool - previewBytes);
-
-    const retainedPct = (retainedBytes / totalBytes) * 100;
-    const previewPct = (previewBytes / totalBytes) * 100;
-    const otherSavedPct = (otherPoolSaved / totalBytes) * 100;
-    const thisItemPct = (thisItemSaved / totalBytes) * 100;
-    const rawItemPct = (sz / totalBytes) * 100;
-    const poolSavedPct = (poolSaved / totalBytes) * 100;
-    const totalUsedAfterPct = (usedAfterPool / totalBytes) * 100;
-
-    const retEl = document.getElementById("cret-" + c.id);
-    const prvEl = document.getElementById("cprv-" + c.id);
-    const othEl = document.getElementById("coth-" + c.id);
-    const impEl = document.getElementById("cimp-" + c.id);
-    const midEl = document.getElementById("cmid-" + c.id);
-    const lblEl = document.getElementById("clbl-" + c.id);
-
-    if (retEl) {
-      retEl.style.width = retainedPct.toFixed(2) + "%";
+function updateMiniRings(entries, activeId) {
+  if (!miniBuilt) buildMiniRings(entries);
+  entries.forEach(m => {
+    const card = document.getElementById("mring-card-" + m.id);
+    if (card) card.setAttribute("aria-selected", String(m.id === activeId));
+    const sp = miniSprings[m.id];
+    if (sp) {
+      sp.ret.to((m.retainedBytes / m.total) * MINI_C);
+      sp.cln.to((m.cleanedBytes / m.total) * MINI_C);
     }
-    if (prvEl) {
-      prvEl.style.width = previewPct.toFixed(2) + "%";
-      prvEl.style.minWidth = previewBytes > 0 ? "3px" : "0px";
+    const pctEl = document.getElementById("mring-pct-" + m.id);
+    if (pctEl) {
+      pctEl.textContent = m.afterPct.toFixed(0) + "%";
+      pctEl.className = "vol-pct " + (m.id === "_all" ? "" : levelFor(m.afterPct, m.warnPct));
     }
-    if (othEl) othEl.style.width = otherSavedPct.toFixed(2) + "%";
-    if (impEl) {
-      impEl.style.width = thisItemPct.toFixed(2) + "%";
-      impEl.style.minWidth = (isChecked && thisItemSaved > 0) ? "4px" : "0px";
-    }
-    if (midEl) {
-      if (isChecked) {
-        midEl.innerHTML = otherPoolSaved > 0
-          ? `<i class="dot-item"></i><span style="color:var(--accent-clay)">当前项目 -${formatBytes(sz)} (${rawItemPct.toFixed(1)}%)</span><span style="color:var(--ink-muted);margin:0 3px">｜</span><i class="dot-pool"></i><span style="color:var(--tone-sage)">本池总清理 -${formatBytes(poolSaved)} (${poolSavedPct.toFixed(1)}%)</span>`
-          : `<i class="dot-item"></i><span style="color:var(--accent-clay)">当前项目清理 -${formatBytes(sz)} (${rawItemPct.toFixed(1)}%)</span>`;
+    const metaEl = document.getElementById("mring-meta-" + m.id);
+    if (metaEl) {
+      if (m.cleanedBytes > 0) {
+        metaEl.className = "vol-meta free";
+        metaEl.textContent = (m.hasDone ? "已释放 " : "可释放 ") + formatShort(m.cleanedBytes);
       } else {
-        midEl.innerHTML = poolSaved > 0
-          ? `<i class="dot-item-ghost"></i><span style="color:var(--ink-muted)">待选 -${formatBytes(sz)} (${rawItemPct.toFixed(1)}%)</span><span style="color:var(--ink-muted);margin:0 3px">｜</span><i class="dot-pool"></i><span style="color:var(--tone-sage)">本池总清理 -${formatBytes(poolSaved)} (${poolSavedPct.toFixed(1)}%)</span>`
-          : `<i class="dot-item-ghost"></i><span style="color:var(--ink-muted)">待选 -${formatBytes(sz)} (${rawItemPct.toFixed(1)}%)</span>`;
+        metaEl.className = "vol-meta";
+        metaEl.textContent = "可用 " + formatShort(m.freeAfterBytes) + "，共 " + formatShort(m.total);
       }
-    }
-    if (lblEl) {
-      lblEl.innerHTML = `已用 <strong style="color:var(--ink-primary)">${formatBytes(usedAfterPool)}</strong> (${totalUsedAfterPct.toFixed(1)}%)`;
     }
   });
 }
 
-function updateVisualCharts(lastToggledItem = null) {
-  const strip = document.getElementById("pool-selector-strip");
-  if (strip && strip.children.length === 0 && (REPORT_DATA.storage_gauges || []).length > 0) {
-    initGaugesDOM();
-  }
-
-  const savingsByGauge = {};
-  let totalSavingsBytes = 0;
-
-  (REPORT_DATA.candidates || []).forEach(c => {
-    if (c.status === "done" || state.whitelisted[c.id]) return;
-    const sz = Number(c.size_bytes) || 0;
-    const gid = c.gauge_id || "";
-    if (state.checked[c.id]) {
-      totalSavingsBytes += sz;
-      if (gid) savingsByGauge[gid] = (savingsByGauge[gid] || 0) + sz;
-    }
-  });
-
-  const dockEl = document.getElementById("selected-gib");
-  if (dockEl) dockEl.textContent = Math.max(0, totalSavingsBytes / (1024 ** 3)).toFixed(2) + " GiB";
-  pulseElement(document.getElementById("sticky-summary"), "rebound", 220);
-
-  // Active Pool Main Bar: Left = Total Capacity, Middle Progress Bar = [Used][Current Item][Other Cleaned][Free], Right = Used Capacity
-  const gauges = REPORT_DATA.storage_gauges || [];
-  const activePool = gauges.find(g => g.id === activePoolId) || gauges[0];
-
-  // Determine focused item in each pool
-  (REPORT_DATA.storage_gauges || []).forEach(g => {
-    const total = Math.max(1, Number(g.total_bytes) || 1);
-    const used = Number(g.used_bytes) || 0;
-    const saved = Math.min(used, savingsByGauge[g.id] || 0);
-    const newUsed = Math.max(0, used - saved);
-    const newPct = (newUsed / total) * 100;
-    const warnPct = Number(g.warn_used_pct || g.warn_pct) || 85;
-
-    const poolChecked = (REPORT_DATA.candidates || []).filter(
-      c => c.gauge_id === g.id && state.checked[c.id] && !state.whitelisted[c.id] && c.status !== "done" && Number(c.size_bytes) > 0
-    );
-    let poolFocus = null;
-    if (window._focusedItemId) {
-      poolFocus = poolChecked.find(c => c.id === window._focusedItemId) || null;
-    }
-    if (!poolFocus && poolChecked.length > 0) {
-      poolFocus = poolChecked.slice().sort((a, b) => (Number(b.size_bytes) || 0) - (Number(a.size_bytes) || 0))[0];
-    }
-    const fBytes = poolFocus ? Math.min(saved, Number(poolFocus.size_bytes) || 0) : 0;
-    const oBytes = Math.max(0, saved - fBytes);
-    const fPct = (fBytes / total) * 100;
-    const oPct = (oBytes / total) * 100;
-
-    updatePoolMiniBarState(g.id, newPct, warnPct);
-    const focusMiniEl = document.getElementById("gfocus-" + g.id);
-    if (focusMiniEl) {
-      focusMiniEl.style.width = fPct.toFixed(2) + "%";
-      focusMiniEl.style.minWidth = fBytes > 0 ? "2px" : "0px";
-    }
-    const reclaimEl = document.getElementById("greclaim-" + g.id);
-    if (reclaimEl) {
-      reclaimEl.style.width = oPct.toFixed(2) + "%";
-      reclaimEl.style.minWidth = oBytes > 0 ? "2px" : "0px";
-    }
-    const pillEl = document.getElementById("grecpill-" + g.id);
-    if (pillEl) {
-      pillEl.textContent = saved > 0 ? `-${formatCompactBytes(saved)}` : "";
-    }
-    const usedEl = document.getElementById("gused-" + g.id);
-    if (usedEl) {
-      usedEl.textContent = formatCompactBytes(newUsed);
-    }
-  });
-
-  if (activePool) {
-    const total = Math.max(1, Number(activePool.total_bytes) || 1);
-    const used = Number(activePool.used_bytes) || 0;
-    const free = activePool.free_bytes != null ? Number(activePool.free_bytes) : Math.max(0, total - used);
-    const saved = Math.min(used, savingsByGauge[activePool.id] || 0);
-    const retained = Math.max(0, used - saved);
-
-    const usedBeforePct = (used / total) * 100;
-    const retainedPct = (retained / total) * 100;
-    const reclaimPct = (saved / total) * 100;
-    const freePct = (free / total) * 100;
-    const freeAfterPct = ((free + saved) / total) * 100;
-
-    const poolCheckedItems = (REPORT_DATA.candidates || []).filter(
-      c => c.gauge_id === activePool.id && state.checked[c.id] && !state.whitelisted[c.id] && c.status !== "done" && Number(c.size_bytes) > 0
-    );
-    let focusItem = null;
-    if (window._focusedItemId) {
-      focusItem = poolCheckedItems.find(c => c.id === window._focusedItemId) || null;
-    }
-    if (!focusItem && lastToggledItem && lastToggledItem.gauge_id === activePool.id && state.checked[lastToggledItem.id]) {
-      focusItem = lastToggledItem;
-    }
-    if (!focusItem && poolCheckedItems.length > 0) {
-      focusItem = poolCheckedItems.slice().sort((a, b) => (Number(b.size_bytes) || 0) - (Number(a.size_bytes) || 0))[0];
-    }
-    const focusBytes = focusItem ? Math.min(saved, Number(focusItem.size_bytes) || 0) : 0;
-    const otherSavedBytes = Math.max(0, saved - focusBytes);
-    const focusPct = (focusBytes / total) * 100;
-    const restReclaimPct = Math.max(0, reclaimPct - focusPct);
-
-    const retEl = document.getElementById("seg-retained");
-    if (retEl) {
-      retEl.style.width = Math.max(0, Math.min(100, retainedPct)).toFixed(2) + "%";
-    }
-    const itemSegEl = document.getElementById("seg-reclaim-item");
-    if (itemSegEl) {
-      itemSegEl.style.width = focusPct.toFixed(2) + "%";
-      itemSegEl.style.minWidth = focusBytes > 0 ? "3px" : "0px";
-    }
-    const recEl = document.getElementById("seg-reclaim-mid");
-    if (recEl) {
-      const w = Math.max(0, Math.min(100, restReclaimPct));
-      recEl.style.width = w.toFixed(2) + "%";
-      recEl.style.padding = w > 12 ? "0 8px" : "0";
-      recEl.style.minWidth = otherSavedBytes > 0 ? "2px" : "0px";
-    }
-
-    const cleanPoolName = stripLeadingEmoji(activePool.label || activePool.id);
-    const titleEl = document.getElementById("anatomy-pool-title");
-    if (titleEl) titleEl.textContent = cleanPoolName;
-    const focusBadgeEl = document.getElementById("anatomy-focus-badge");
-    if (focusBadgeEl) {
-      if (focusItem && focusBytes > 0) {
-        focusBadgeEl.style.display = "inline-block";
-        focusBadgeEl.textContent = `当前项目 ${focusItem.id} -${formatBytes(focusBytes)} (${focusPct.toFixed(1)}%)`;
-      } else {
-        focusBadgeEl.style.display = "none";
-      }
-    }
-    const mainTotalEl = document.getElementById("main-storage-total");
-    if (mainTotalEl) mainTotalEl.textContent = `总容量 ${formatBytes(total)}`;
-    const midBadgeEl = document.getElementById("anatomy-mid-badge");
-    if (midBadgeEl) {
-      midBadgeEl.textContent = `本池总清理 -${formatBytes(saved)} (${reclaimPct.toFixed(1)}%)`;
-    }
-    const subEl = document.getElementById("anatomy-pool-sub");
-    if (subEl) {
-      subEl.textContent =
-        `清理前已用 ${formatBytes(used)} (${usedBeforePct.toFixed(1)}%) → 清理后已用 ${formatBytes(retained)} (${retainedPct.toFixed(1)}%)`;
-    }
-    const readoutEl = document.getElementById("anatomy-pool-readout");
-    if (readoutEl) {
-      readoutEl.innerHTML =
-        `已用 <strong style="color:var(--ink-primary);font-size:13px">${formatBytes(retained)}</strong> (${retainedPct.toFixed(1)}%)`;
-    }
-
-    const isWideBar = window.innerWidth >= 760;
-    if (retEl) retEl.textContent = (isWideBar && retainedPct > 22) ? `清理后已用 ${formatBytes(retained)} (${retainedPct.toFixed(1)}%)` : "";
-    if (itemSegEl) {
-      itemSegEl.textContent = (isWideBar && focusPct >= 14) ? `${focusItem ? focusItem.id : ""} -${formatCompactBytes(focusBytes)}` : ((isWideBar && focusPct >= 10.5) ? `-${formatCompactBytes(focusBytes)}` : "");
-    }
-    if (recEl) {
-      if (isWideBar && restReclaimPct > 18) {
-        recEl.textContent = focusBytes > 0
-          ? `其他已选 -${formatBytes(otherSavedBytes)} (${restReclaimPct.toFixed(1)}%)`
-          : `总清理 -${formatBytes(saved)} (${reclaimPct.toFixed(1)}%)`;
-      } else if (isWideBar && restReclaimPct > 10) {
-        recEl.textContent = focusBytes > 0 ? `其他 -${formatCompactBytes(otherSavedBytes)}` : `-${formatCompactBytes(saved)}`;
-      } else {
-        recEl.textContent = "";
-      }
-    }
-    const freeEl = document.getElementById("seg-free");
-    if (freeEl) freeEl.textContent = (isWideBar && freePct > 20) ? `原本空闲 ${formatBytes(free)} (${freePct.toFixed(1)}%)` : "";
-
-    const legRetEl = document.getElementById("leg-retained");
-    if (legRetEl) legRetEl.textContent = `${formatBytes(retained)} (${retainedPct.toFixed(1)}%)`;
-    const focusLegEl = document.getElementById("leg-focus-item");
-    if (focusLegEl) {
-      focusLegEl.textContent = focusItem
-        ? `${focusItem.id} -${formatBytes(focusBytes)} (${focusPct.toFixed(1)}%)`
-        : "0 GiB (0%)";
-    }
-    const legRecEl = document.getElementById("leg-reclaim");
-    if (legRecEl) legRecEl.textContent = `-${formatBytes(saved)} (${reclaimPct.toFixed(1)}%)`;
-    const legFreeEl = document.getElementById("leg-free");
-    if (legFreeEl) legFreeEl.textContent = `${formatBytes(free)} (${freePct.toFixed(1)}%)`;
-    const legTotalFreeEl = document.getElementById("leg-total-free-after");
-    if (legTotalFreeEl) {
-      legTotalFreeEl.textContent = `清理后总可用 ${formatBytes(free + saved)} (${freeAfterPct.toFixed(1)}%)`;
-    }
-
-    renderPoolCategoryBreakdown(activePool, focusItem);
-  }
-
-  updateAllCardBars(savingsByGauge);
-
-  // Update Spotlight Banner when user toggles any switch
-  if (lastToggledItem) {
-    const banner = document.getElementById("spotlight-banner");
-    const textEl = document.getElementById("spotlight-text");
-    const badgeEl = document.getElementById("spotlight-badge");
-    const isNowChecked = !!state.checked[lastToggledItem.id];
-    const sz = Number(lastToggledItem.size_bytes) || 0;
-    const pool = (REPORT_DATA.storage_gauges || []).find(g => g.id === lastToggledItem.gauge_id);
-    const poolSaved = pool ? (savingsByGauge[pool.id] || 0) : totalSavingsBytes;
-    const poolUsedAfter = pool ? Math.max(0, (Number(pool.used_bytes) || 0) - poolSaved) : 0;
-
-    if (sz > 0) {
-      textEl.innerHTML = isNowChecked
-        ? `已开启 <strong>${escapeHtml(lastToggledItem.id)} · ${escapeHtml(stripLeadingEmoji(lastToggledItem.title))}</strong>：当前项目清理 <strong style="color:var(--accent-clay)">-${formatBytes(sz)}</strong>，本池清理后已用降至 <strong>${formatBytes(poolUsedAfter)}</strong>`
-        : `已关闭 <strong>${escapeHtml(lastToggledItem.id)} · ${escapeHtml(stripLeadingEmoji(lastToggledItem.title))}</strong>：移出清理 <strong style="color:var(--accent-clay)">${formatBytes(sz)}</strong>，本池清理后已用回升至 <strong>${formatBytes(poolUsedAfter)}</strong>`;
-      badgeEl.textContent = isNowChecked ? `已清理 -${formatCompactBytes(sz)}` : `已恢复 +${formatCompactBytes(sz)}`;
-    } else {
-      textEl.innerHTML = `${isNowChecked ? "已开启" : "已关闭"}配置项 <strong>${escapeHtml(lastToggledItem.id)} · ${escapeHtml(stripLeadingEmoji(lastToggledItem.title))}</strong>`;
-      badgeEl.textContent = isNowChecked ? "已纳入执行" : "已移除";
-    }
-    pulseElement(banner, "bump", 240);
-  }
+function selectRingPool(poolId) {
+  activeRingPoolId = poolId;
+  hoveredRingItemId = null;
+  const card = document.getElementById("mring-card-" + poolId);
+  popScale(card, popSprings, 0.96);
+  renderRingOverview(false);
 }
 
-function renderPoolCategoryBreakdown(pool, focusItem = null) {
-  const box = document.getElementById("category-breakdown-grid");
+function highlightRingItem(itemId, active) {
+  hoveredRingItemId = active ? itemId : null;
+  renderRingOverview(true);
+}
+
+/* ================= Overview: composition bar ================= */
+let compKey = null;
+
+function compositionParts(active, metricsList) {
+  if (active.id === "_all") {
+    return metricsList.map((m, i) => ({ key: m.id, name: m.shortTitle, bytes: m.beforeUsedBytes, color: COMP_COLORS[i % COMP_COLORS.length], free: m.cleanedBytes }));
+  }
+  const g = active.gauge;
+  const parts = [];
+  const freeByCat = {};
+  CANDS.forEach(c => {
+    if (c.gauge_id !== g.id || !isChecked(c)) return;
+    const cat = c.category || "其他";
+    freeByCat[cat] = (freeByCat[cat] || 0) + sizeOf(c);
+  });
+  if (Array.isArray(g.breakdown) && g.breakdown.length) {
+    g.breakdown.forEach(b => parts.push({ name: String(b.name || b.label || "未命名"), bytes: Math.max(0, Number(b.size_bytes) || 0) }));
+  } else {
+    const byCat = {};
+    CANDS.forEach(c => {
+      if (c.gauge_id !== g.id || !sizeOf(c)) return;
+      const cat = c.category || "其他";
+      byCat[cat] = (byCat[cat] || 0) + sizeOf(c);
+    });
+    Object.keys(byCat).forEach(k => parts.push({ name: k, bytes: byCat[k] }));
+  }
+  parts.sort((a, b) => b.bytes - a.bytes);
+  const known = parts.reduce((s, p) => s + p.bytes, 0);
+  const out = parts.filter(p => p.bytes > 0).map((p, i) => ({
+    key: "c" + i, name: p.name, bytes: p.bytes, color: COMP_COLORS[i % COMP_COLORS.length], free: freeByCat[p.name] || 0
+  }));
+  const rest = active.beforeUsedBytes - known;
+  if (rest > active.total * 0.005) out.push({ key: "rest", name: "其他已用", bytes: rest, color: "var(--used)", free: 0 });
+  return out;
+}
+
+function renderComposition(active, metricsList) {
+  const box = document.getElementById("composition");
   if (!box) return;
-  box.innerHTML = "";
-  const poolItems = (REPORT_DATA.candidates || []).filter(c => c.gauge_id === pool.id && Number(c.size_bytes) > 0);
-  const baseCategories = Array.isArray(pool.breakdown) ? pool.breakdown : null;
-  const focusCatName = focusItem ? inferCategoryName(focusItem) : null;
-  const focusItemBytes = focusItem ? (Number(focusItem.size_bytes) || 0) : 0;
-
-  const catMap = {};
-  if (baseCategories) {
-    baseCategories.forEach(cat => {
-      catMap[cat.name] = { name: cat.name, total: Number(cat.size_bytes) || 0, saved: 0 };
+  const parts = compositionParts(active, metricsList);
+  if (!parts.length) { box.innerHTML = ""; compKey = null; return; }
+  const key = active.id + ":" + parts.map(p => p.key).join(",");
+  const rebuild = key !== compKey;
+  if (rebuild) {
+    compKey = key;
+    box.innerHTML = `
+      <div class="comp-head"><b>${active.id === "_all" ? "各存储卷占用" : "空间构成"}</b><span>清理前已用 ${formatShort(active.beforeUsedBytes)}</span></div>
+      <div class="sbar" id="comp-bar">${parts.map(p => `<i data-k="${p.key}" style="background:${p.color}"></i>`).join("")}</div>
+      <div class="comp-legend" id="comp-legend">${parts.map(p => `<span data-k="${p.key}"><i class="dot" style="background:${p.color}"></i>${escapeHtml(p.name)} <b></b><em></em></span>`).join("")}</div>`;
+    const bar = box.querySelector("#comp-bar");
+    const legend = box.querySelector("#comp-legend");
+    legend.querySelectorAll("span").forEach(sp => {
+      const k = sp.getAttribute("data-k");
+      sp.addEventListener("mouseenter", () => {
+        bar.classList.add("dim"); legend.classList.add("dim");
+        bar.querySelectorAll("i").forEach(i => i.classList.toggle("on", i.getAttribute("data-k") === k));
+        legend.querySelectorAll("span").forEach(s => s.classList.toggle("on", s === sp));
+      });
+      sp.addEventListener("mouseleave", () => { bar.classList.remove("dim"); legend.classList.remove("dim"); });
     });
   }
-  poolItems.forEach(c => {
-    const catName = inferCategoryName(c);
-    if (!catMap[catName]) {
-      catMap[catName] = { name: catName, total: 0, saved: 0 };
-    }
-    const sz = Number(c.size_bytes) || 0;
-    if (!baseCategories) catMap[catName].total += sz;
-    if (state.checked[c.id] && !state.whitelisted[c.id] && c.status !== "done") {
-      catMap[catName].saved += sz;
-    }
-  });
-
-  const rows = Object.values(catMap).filter(r => r.total > 0);
-
-  rows.forEach(r => {
-    const catTotal = Math.max(1, r.total);
-    const saved = Math.min(catTotal, r.saved);
-    const remain = Math.max(0, catTotal - saved);
-    const isFocusCat = focusCatName === r.name && focusItemBytes > 0 && saved > 0;
-    const catFocusBytes = isFocusCat ? Math.min(saved, focusItemBytes) : 0;
-    const catOtherSaved = Math.max(0, saved - catFocusBytes);
-
-    // Exact 100% scale relative to this directory's pre-cleanup size
-    const remainPct = (remain / catTotal) * 100;
-    const focusPct = (catFocusBytes / catTotal) * 100;
-    const otherSavedPct = (catOtherSaved / catTotal) * 100;
-    const savedPct = (saved / catTotal) * 100;
-
-    const div = document.createElement("div");
-    div.className = "cat-bar-card tabular" + (isFocusCat ? " focused-cat" : "");
-    div.innerHTML = `
-      <div class="cat-bar-head">
-        <span class="cat-bar-name" title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</span>
-        <span class="cat-bar-clean-tag" style="color:${saved > 0 ? "var(--tone-sage)" : "var(--ink-muted)"}">${saved > 0 ? `清理 -${formatBytes(saved)} (${savedPct.toFixed(1)}%)` : "未选清理 (0%)"}</span>
-      </div>
-      <div class="cat-bar-row">
-        <span class="cat-bar-total">原占 ${formatBytes(catTotal)}</span>
-        <div class="cat-bar-track">
-          <div class="cat-bar-remain" style="width:${remainPct.toFixed(1)}%"></div>
-          <div class="cat-bar-focus" style="width:${focusPct.toFixed(1)}%" title="当前项目清理 ${formatBytes(catFocusBytes)}"></div>
-          <div class="cat-bar-saved" style="width:${otherSavedPct.toFixed(1)}%" title="本目录清理 ${formatBytes(saved)}"></div>
-        </div>
-        <span class="cat-bar-val">已用 <strong style="color:var(--ink-primary)">${formatBytes(remain)}</strong> (${remainPct.toFixed(1)}%)</span>
-      </div>
-    `;
-    box.appendChild(div);
-  });
+  const apply = () => {
+    parts.forEach(p => {
+      const seg = box.querySelector(`#comp-bar i[data-k="${p.key}"]`);
+      if (seg) seg.style.width = clamp(pct(p.bytes, active.total), 0, 100).toFixed(2) + "%";
+      const lg = box.querySelector(`#comp-legend span[data-k="${p.key}"]`);
+      if (lg) {
+        lg.querySelector("b").textContent = formatShort(p.bytes);
+        lg.querySelector("em").textContent = p.free > 0 ? "可释放 " + formatShort(p.free) : "";
+      }
+    });
+  };
+  if (rebuild && !REDUCED_MOTION) requestAnimationFrame(() => requestAnimationFrame(apply));
+  else apply();
 }
 
-function highlightItem(itemId, active) {
-  document.querySelectorAll(`[data-item-id="${itemId}"]`).forEach(el => {
-    el.classList.toggle("highlighted", active);
-  });
-  const card = document.getElementById("card-" + itemId);
-  if (card) card.classList.toggle("highlighted", active);
-  if (active) {
-    window._focusedItemId = itemId;
-    updateVisualCharts();
+/* ================= Overview: render ================= */
+function updateOverviewSub(agg) {
+  const el = document.getElementById("overview-sub");
+  if (!el) return;
+  const total = CANDS.filter(c => !isWl(c)).length;
+  const sel = selectionSummary();
+  const parts = [`快照生成于 ${escapeHtml(formatTime(REPORT_DATA.generated_at))}。`];
+  parts.push(`共 <b>${total}</b> 条建议，已选 <b>${sel.count}</b> 条`);
+  parts.push(sel.bytes > 0 ? `，预计释放 <b>${formatBytes(sel.bytes)}</b>。` : "。");
+  if (agg && agg.total > 0) parts.push(`所有存储卷清理后合计可用 <b>${formatBytes(agg.freeAfterBytes)}</b>。`);
+  el.innerHTML = parts.join("");
+}
+
+function renderRingOverview(onlyUpdateArcs) {
+  const { list, agg } = computeAllMetrics();
+  updateOverviewSub(agg);
+  const hero = document.getElementById("hero");
+  const heroEmpty = document.getElementById("hero-empty");
+  if (!list.length) {
+    if (hero) hero.hidden = true;
+    if (heroEmpty) heroEmpty.hidden = false;
+    if (!onlyUpdateArcs) renderOverviewLists(null);
+    return;
   }
-}
+  const entries = list.length > 1 ? list.concat([agg]) : list;
+  const active = activeRingPoolId === "_all" ? agg : (list.find(m => m.id === activeRingPoolId) || list[0]);
+  activeRingPoolId = active.id;
+  updateMiniRings(entries, active.id);
 
-function scrollToCard(itemId) {
-  const card = document.getElementById("card-" + itemId);
-  if (card) {
-    card.scrollIntoView({ behavior: "smooth", block: "center" });
-    pulseElement(card, "pulse", 320);
+  const C = RING_CIRC;
+  const total = Math.max(1, active.total);
+  const retained = Math.min(total, active.retainedBytes);
+  const cleaned = Math.min(total - retained, active.cleanedBytes);
+  let focusBytes = 0;
+  let hovered = hoveredRingItemId ? candById[hoveredRingItemId] : null;
+  if (hovered && (active.id === "_all" || hovered.gauge_id === active.id) && (isChecked(hovered) || isDone(hovered))) {
+    focusBytes = Math.min(cleaned, sizeOf(hovered));
+  } else {
+    hovered = null;
   }
+  const other = Math.max(0, cleaned - focusBytes);
+  animateRingTo((retained / total) * C, (other / total) * C, (focusBytes / total) * C, focusBytes > 0 ? focusBytes : cleaned, focusBytes > 0);
+
+  const setText = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  setText("ring-center-kicker", hovered ? displayTitle(hovered) : (active.hasDone ? "已释放" : "预计可释放"));
+  setText("ring-center-water", cleaned > 0
+    ? `水位 ${fmtPct(active.beforePct)} → ${fmtPct(active.afterPct)}`
+    : `当前水位 ${fmtPct(active.afterPct)}`);
+  setText("ring-active-title", active.shortTitle);
+  setText("ring-active-mount", active.mountPath || active.id);
+  const mountEl = document.getElementById("ring-active-mount");
+  if (mountEl) mountEl.classList.toggle("plain", active.id === "_all");
+  setText("rkpi-retained", formatBytes(retained));
+  setText("rkpi-cleaned", cleaned > 0 ? formatBytes(cleaned) : "0 GiB");
+  setText("rkpi-free-after", formatBytes(active.freeAfterBytes));
+  setText("rkpi-total", formatBytes(total));
+
+  const badge = document.getElementById("ring-active-badge");
+  const desc = document.getElementById("ring-active-desc");
+  if (badge) {
+    if (active.id === "_all") {
+      const tight = list.filter(m => m.afterPct >= m.warnPct).length;
+      badge.className = "status-pill " + (tight ? "warn" : "ok");
+      badge.textContent = tight ? `${tight} 个卷清理后仍偏满` : "清理后都在警戒线以下";
+    } else {
+      const before = levelFor(active.beforePct, active.warnPct);
+      const after = levelFor(active.afterPct, active.warnPct);
+      badge.className = "status-pill " + after;
+      badge.textContent = after === "crit" ? "空间紧张" : (before !== "ok" && after === "ok" ? "清理后恢复正常" : (after === "warn" ? "接近警戒线" : "状态良好"));
+    }
+  }
+  if (desc) {
+    const nSel = CANDS.filter(c => (active.id === "_all" || c.gauge_id === active.id) && isChecked(c) && sizeOf(c) > 0).length;
+    if (cleaned > 0) {
+      desc.innerHTML = `${active.hasDone ? "已经" : `勾选的 <b>${nSel}</b> 项会`}在${active.id === "_all" ? "所有存储卷上" : "这块盘上"}释放 <b>${formatBytes(cleaned)}</b>，水位从 <b>${fmtPct(active.beforePct)}</b> 降到 <b>${fmtPct(active.afterPct)}</b>。`;
+    } else {
+      desc.innerHTML = `${active.id === "_all" ? "所有存储卷" : "这块盘"}还没有选中要清理的项目，当前水位 <b>${fmtPct(active.afterPct)}</b>，警戒线 ${active.id === "_all" ? "按各卷设置" : fmtPct(active.warnPct)}。`;
+    }
+  }
+  renderComposition(active, list);
+  if (onlyUpdateArcs) return;
+  renderOverviewLists(active);
 }
 
+/* ================= Overview: detail lists ================= */
+const expandedOverviewGroups = new Set();
+
+function overviewRow(c, opts) {
+  const act = ACTION_META[inferActionType(c)];
+  const g = gaugeById[c.gauge_id];
+  const subParts = [];
+  if (g) subParts.push(escapeHtml(poolTitle(g)));
+  if (c.path) subParts.push(`<code>${escapeHtml(c.path)}</code>`);
+  let right = "";
+  if (opts.kind === "space") {
+    const sz = sizeOf(c);
+    right = `<span class="amount free">${formatBytes(sz)}</span><span class="minibar"><i style="width:${Math.max(4, pct(sz, opts.max)).toFixed(1)}%"></i></span>`;
+  } else if (opts.kind === "protected") {
+    right = `<span class="amount muted">${sizeOf(c) > 0 ? "保留 " + formatBytes(sizeOf(c)) : "已锁定"}</span>`;
+  } else {
+    right = `<span class="amount muted">${escapeHtml(c.metric_badge || (isDone(c) ? "已完成" : "待执行"))}</span>`;
+  }
+  const tile = opts.kind === "protected" ? '<span class="app-icon tint-orange">' + icon("shield") + "</span>" : `<span class="app-icon tint-${act.tint}">${icon(act.icon)}</span>`;
+  return `<button type="button" class="cell" data-id="${escapeHtml(c.id)}">
+      ${tile}
+      <span class="cell-text"><span class="cell-title">${escapeHtml(displayTitle(c))}</span><span class="cell-sub">${subParts.join("，")}</span></span>
+      <span class="cell-right">${right}</span>
+    </button>`;
+}
+
+function overviewGroup(key, title, note, items, opts) {
+  const limit = 6;
+  const open = expandedOverviewGroups.has(key);
+  const shown = open ? items : items.slice(0, limit);
+  const more = items.length > limit
+    ? `<button type="button" class="cell cell-more" data-more="${key}">${open ? "收起" : `显示全部 ${items.length} 项`}</button>`
+    : "";
+  return `<section class="section">
+      <div class="section-head"><h2 class="section-title">${title}</h2><span class="section-note">${note}</span></div>
+      <div class="grouped glass">${shown.map(c => overviewRow(c, opts)).join("")}${more}</div>
+    </section>`;
+}
+
+function renderOverviewLists(active) {
+  const box = document.getElementById("ring-detailed-lists");
+  if (!box) return;
+  const inPool = c => !active || active.id === "_all" || !c.gauge_id || c.gauge_id === active.id;
+  const scope = CANDS.filter(inPool);
+  const space = scope.filter(c => !isWl(c) && (isDone(c) || state.checked[c.id]) && sizeOf(c) > 0).sort((a, b) => sizeOf(b) - sizeOf(a));
+  const opt = scope.filter(c => !isWl(c) && (isDone(c) || state.checked[c.id]) && sizeOf(c) === 0);
+  const prot = scope.filter(c => isWl(c));
+  const spaceSum = space.reduce((s, c) => s + sizeOf(c), 0);
+  const max = Math.max(1, ...space.map(sizeOf));
+  const where = active && active.id !== "_all" ? active.shortTitle : "所有存储卷";
+  let out = "";
+  if (space.length) {
+    out += overviewGroup("space", "将释放空间", `${where}，${space.length} 项，共 ${formatBytes(spaceSum)}`, space, { kind: "space", max });
+  } else {
+    out += `<section class="section"><div class="section-head"><h2 class="section-title">将释放空间</h2></div>
+      <div class="grouped glass empty"><b>${escapeHtml(where)}还没有选中会释放空间的项目</b>去清单里勾选，环形图会跟着实时变化。<button type="button" class="btn btn-primary" data-goto="all">打开全部建议</button></div></section>`;
+  }
+  if (opt.length) out += overviewGroup("opt", "优化与整理", `${opt.length} 项，不占用也不释放空间`, opt, { kind: "opt" });
+  if (prot.length) out += overviewGroup("prot", "受保护", `${prot.length} 项，执行时一律跳过`, prot, { kind: "protected" });
+  box.innerHTML = out;
+  box.querySelectorAll(".cell[data-id]").forEach(cell => {
+    const id = cell.getAttribute("data-id");
+    cell.addEventListener("mouseenter", () => highlightRingItem(id, true));
+    cell.addEventListener("mouseleave", () => highlightRingItem(id, false));
+    cell.addEventListener("focus", () => highlightRingItem(id, true));
+    cell.addEventListener("blur", () => highlightRingItem(id, false));
+    cell.addEventListener("click", () => openItem(id));
+  });
+  box.querySelectorAll("[data-more]").forEach(btn => btn.addEventListener("click", () => {
+    const k = btn.getAttribute("data-more");
+    if (expandedOverviewGroups.has(k)) expandedOverviewGroups.delete(k); else expandedOverviewGroups.add(k);
+    renderOverviewLists(active);
+  }));
+  box.querySelectorAll("[data-goto]").forEach(btn => btn.addEventListener("click", () => navigate(btn.getAttribute("data-goto"))));
+}
+
+/* ================= Baseline diff ================= */
+function pathName(p) {
+  const clean = String(p || "").replace(/\s*[（(].*$/, "").replace(/\/+$/, "");
+  return clean.split("/").filter(Boolean).pop() || String(p || "");
+}
 function renderDiff() {
   const diff = REPORT_DATA.diff;
   const sec = document.getElementById("diff-section");
   if (!sec) return;
-  if (!diff || ((!diff.gauge_deltas || !diff.gauge_deltas.length) && (!diff.top_growth_paths || !diff.top_growth_paths.length))) {
-    sec.style.display = "none";
-    return;
+  const gd = diff && Array.isArray(diff.gauge_deltas) ? diff.gauge_deltas : [];
+  const gp = diff && Array.isArray(diff.top_growth_paths) ? diff.top_growth_paths : [];
+  if (!gd.length && !gp.length) { sec.hidden = true; return; }
+  sec.hidden = false;
+  const t = document.getElementById("diff-time");
+  if (t) t.textContent = `${diff.before_generated_at ? formatTime(diff.before_generated_at) : "上次快照"} 到 ${diff.after_generated_at ? formatTime(diff.after_generated_at) : "这次快照"}`;
+  const chips = document.getElementById("diff-chips");
+  if (chips) {
+    const nNew = (diff.new_candidate_ids || []).length;
+    const nGone = (diff.resolved_candidate_ids || []).length;
+    chips.innerHTML = (nNew ? `<span class="chip lg warn">新出现 ${nNew} 条建议</span>` : "") + (nGone ? `<span class="chip lg good">已消除 ${nGone} 条</span>` : "");
   }
-  sec.style.display = "block";
-  const dtEl = document.getElementById("diff-time");
-  if (dtEl) {
-    dtEl.textContent = `${diff.before_generated_at || "上次快照"} → ${diff.after_generated_at || "当前快照"}`;
-  }
-
+  const maxG = Math.max(1, ...gd.map(x => Math.abs(Number(x.used_delta_bytes) || 0)));
   const gBox = document.getElementById("diff-gauges");
   if (gBox) {
-    gBox.innerHTML = "";
-    (diff.gauge_deltas || []).forEach(gd => {
-      const delta = Number(gd.used_delta_bytes) || 0;
-      const sign = delta > 0 ? "+" : "";
-      const color = delta <= 0 ? "var(--tone-sage)" : "var(--tone-ochre)";
-      const item = document.createElement("div");
-      item.className = "diff-item tabular";
-      item.innerHTML = `
-        <span class="diff-item-label">${escapeHtml(stripLeadingEmoji(gd.label))}</span>
-        <span class="diff-item-val" style="color:${color}">${sign}${formatBytes(delta)}</span>
-      `;
-      gBox.appendChild(item);
-    });
+    gBox.innerHTML = gd.length ? gd.map(x => {
+      const d = Number(x.used_delta_bytes) || 0;
+      const grow = d > 0;
+      return `<div class="cell hoverable">
+          <span class="app-icon tint-${grow ? "orange" : "green"}">${icon("gauge")}</span>
+          <span class="cell-text"><span class="cell-title">${escapeHtml(poolTitle(gaugeById[x.id] || { id: x.id, label: x.label || x.id }))}</span>
+            <span class="cell-sub">已用空间${grow ? "增加" : (d < 0 ? "减少" : "没有变化")}</span></span>
+          <span class="cell-right"><span class="amount ${grow ? "grow" : "free"}">${grow ? "+" : (d < 0 ? "−" : "")}${formatBytes(Math.abs(d))}</span>
+            <span class="minibar ${grow ? "grow" : ""}"><i style="width:${Math.max(4, pct(Math.abs(d), maxG)).toFixed(1)}%"></i></span></span>
+        </div>`;
+    }).join("") : `<div class="empty">没有存储卷变化数据</div>`;
   }
-
+  const maxP = Math.max(1, ...gp.map(x => Math.abs(Number(x.delta_bytes) || 0)));
   const pBox = document.getElementById("diff-growth");
   if (pBox) {
-    pBox.innerHTML = "";
-    (diff.top_growth_paths || []).slice(0, 6).forEach(row => {
-      const item = document.createElement("div");
-      item.className = "diff-item tabular";
-      const tag = row.is_new ? "新增" : "变动";
-      item.innerHTML = `
-        <span class="diff-item-label" title="${escapeHtml(row.path)}">[${tag}] ${escapeHtml(row.path)}</span>
-        <span class="diff-item-val" style="color:var(--accent-clay)">${formatBytes(row.delta_bytes)}</span>
-      `;
-      pBox.appendChild(item);
+    pBox.innerHTML = gp.length ? gp.slice(0, 6).map(x => {
+      const d = Number(x.delta_bytes) || 0;
+      return `<div class="cell hoverable" title="${escapeHtml(x.path)}">
+          <span class="app-icon tint-${x.is_new ? "pink" : "indigo"}">${icon("folder")}</span>
+          <span class="cell-text"><span class="cell-title">${escapeHtml(pathName(x.path))}</span>
+            <span class="cell-sub"><code>${escapeHtml(x.path)}</code></span></span>
+          <span class="cell-right"><span class="amount grow">+${formatBytes(Math.abs(d))}</span>
+            ${x.is_new ? '<span class="chip warn">新出现</span>' : `<span class="minibar grow"><i style="width:${Math.max(4, pct(Math.abs(d), maxP)).toFixed(1)}%"></i></span>`}</span>
+        </div>`;
+    }).join("") : `<div class="empty">没有目录增长数据</div>`;
+  }
+}
+"""
+
+
+TEMPLATE_SCRIPT_WORKBENCH = r"""
+/* ================= Navigation ================= */
+const VIEWS = ["overview", "all", "mac", "projects", "github", "nas", "whitelisted"];
+let currentView = "overview";
+let currentAction = "all";
+let currentSort = "default";
+let activePoolId = GAUGES.length ? GAUGES[0].id : "";
+let focusedItemId = null;
+let lastToggledId = null;
+
+const navPill = {
+  y: new Spring(0, SPRING.glide, v => { const el = document.getElementById("nav-pill"); if (el) el.style.transform = "translateY(" + v.toFixed(2) + "px)"; }, { tolerance: 0.2 }),
+  h: new Spring(36, SPRING.glide, v => { const el = document.getElementById("nav-pill"); if (el) el.style.height = v.toFixed(2) + "px"; }, { tolerance: 0.2 }),
+  placed: false
+};
+function placeNavPill(animate) {
+  const btn = document.querySelector(`.nav-item[data-view="${currentView}"]`);
+  if (!btn || !btn.offsetHeight) return;
+  if (animate && navPill.placed) { navPill.y.to(btn.offsetTop, SPRING.glide); navPill.h.to(btn.offsetHeight, SPRING.glide); }
+  else { navPill.y.jump(btn.offsetTop); navPill.h.jump(btn.offsetHeight); }
+  navPill.placed = true;
+}
+
+const pageSpring = new Spring(1, SPRING.soft, v => {
+  const page = document.getElementById(currentView === "overview" ? "ring-overview-page" : "workbench-page");
+  if (!page) return;
+  page.style.opacity = clamp(v, 0, 1).toFixed(3);
+  page.style.transform = v >= 0.999 ? "" : "translateY(" + ((1 - v) * 14).toFixed(2) + "px)";
+});
+
+function navigate(view, opts) {
+  if (VIEWS.indexOf(view) < 0) view = "overview";
+  const changed = view !== currentView;
+  currentView = view;
+  document.documentElement.setAttribute("data-view", view);
+  document.querySelectorAll(".nav-item").forEach(b => {
+    const on = b.getAttribute("data-view") === view;
+    b.classList.toggle("active", on);
+    if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  });
+  placeNavPill(true);
+  const isOverview = view === "overview";
+  document.getElementById("ring-overview-page").hidden = !isOverview;
+  document.getElementById("workbench-page").hidden = isOverview;
+  if (isOverview) {
+    renderRingOverview(false);
+  } else {
+    if (changed) { currentAction = "all"; pickPoolForView(); }
+    renderCandidates();
+    if (actionSeg) actionSeg.place(currentAction, false);
+  }
+  try { history.replaceState(null, "", "#" + view); } catch (e) {}
+  if (changed && !(opts && opts.keepScroll)) window.scrollTo({ top: 0 });
+  if (changed) { pageSpring.value = 0; pageSpring.to(1, SPRING.soft); }
+}
+
+/* Old entry point kept for compatibility with earlier exports and docs. */
+function switchMainView(mode) { navigate(mode === "workbench" ? "all" : "overview"); }
+
+function pickPoolForView() {
+  const byPool = {};
+  CANDS.forEach(c => {
+    if (!c.gauge_id || !gaugeById[c.gauge_id] || !matchesView(c, currentView)) return;
+    byPool[c.gauge_id] = (byPool[c.gauge_id] || 0) + (isChecked(c) ? sizeOf(c) : 0) + 1;
+  });
+  const best = Object.keys(byPool).sort((a, b) => byPool[b] - byPool[a])[0];
+  if (best) activePoolId = best;
+}
+
+/* ================= Segmented controls ================= */
+function setupSegmented(el, initial, onChange) {
+  if (!el) return null;
+  const glider = el.querySelector(".seg-glider");
+  const sx = new Spring(0, SPRING.glide, v => { glider.style.transform = "translateX(" + v.toFixed(2) + "px)"; }, { tolerance: 0.2 });
+  const sw = new Spring(0, SPRING.glide, v => { glider.style.width = Math.max(0, v).toFixed(2) + "px"; }, { tolerance: 0.2 });
+  let placed = false;
+  let current = initial;
+  function place(value, animate) {
+    current = value;
+    let target = null;
+    el.querySelectorAll("button[data-value]").forEach(b => {
+      const on = b.getAttribute("data-value") === value;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-checked", String(on));
+      if (on) target = b;
     });
+    if (!target || !target.offsetWidth) { glider.style.opacity = "0"; placed = false; return; }
+    glider.style.opacity = "1";
+    if (animate && placed) { sx.to(target.offsetLeft, SPRING.glide); sw.to(target.offsetWidth, SPRING.glide); }
+    else { sx.jump(target.offsetLeft); sw.jump(target.offsetWidth); }
+    placed = true;
   }
-}
-
-function inferActionType(c) {
-  if (c.action_type) return c.action_type;
-  const text = `${c.id || ""} ${c.title || ""} ${c.category || ""}`.toLowerCase();
-  if (text.includes("更新") || text.includes("升级") || text.includes("outdated") || text.includes("upgrade") || text.includes("rustup")) {
-    return "update";
-  }
-  if (text.includes("优化") || text.includes("压缩") || text.includes("pack") || text.includes("fstrim") || text.includes("规则") || text.includes("drift") || text.includes("修复") || text.includes("ci_failure")) {
-    return "optimize";
-  }
-  if (text.includes("整理") || text.includes("归档") || text.includes("合入") || text.includes("推送") || text.includes("纳管") || text.includes("规范") || text.includes("软链") || text.includes("governance") || text.includes("unpushed") || text.includes("unlinked")) {
-    return "organize";
-  }
-  return "cleanup";
-}
-
-function actionTypeMeta(c) {
-  const t = inferActionType(c);
-  if (t === "update") return { key: "update", label: "版本更新", cls: "action-update", rank: 1 };
-  if (t === "optimize") return { key: "optimize", label: "性能优化", cls: "action-optimize", rank: 2 };
-  if (t === "organize") return { key: "organize", label: "结构整理", cls: "action-organize", rank: 3 };
-  return { key: "cleanup", label: "空间清理", cls: "action-cleanup", rank: 4 };
-}
-
-function isOptOrUpdate(c) {
-  const t = inferActionType(c);
-  return t === "update" || t === "optimize" || t === "organize";
-}
-
-function updateTabCounts() {
-  const domainCounts = { all: 0, mac: 0, projects: 0, github: 0, nas: 0, whitelisted: 0 };
-  const actionCounts = { all: 0, cleanup: 0, organize: 0, optimize: 0, update: 0 };
-
-  (REPORT_DATA.candidates || []).forEach(c => {
-    const isWl = !!state.whitelisted[c.id];
-    const act = inferActionType(c);
-
-    // 1. Domain counts (respecting currentAction filter for non-whitelisted tabs)
-    if (isWl) {
-      domainCounts.whitelisted++;
-    } else if (currentAction === "all" || act === currentAction) {
-      domainCounts.all++;
-      if (domainCounts[c.domain] != null) domainCounts[c.domain]++;
-    }
-
-    // 2. Secondary action counts (respecting currentDomain filter)
-    const matchesDomain = currentDomain === "whitelisted"
-      ? isWl
-      : (!isWl && (currentDomain === "all" || c.domain === currentDomain));
-    if (matchesDomain) {
-      actionCounts.all++;
-      if (actionCounts[act] != null) actionCounts[act]++;
-    }
+  el.addEventListener("click", e => {
+    const b = e.target.closest("button[data-value]");
+    if (!b) return;
+    place(b.getAttribute("data-value"), true);
+    onChange(b.getAttribute("data-value"));
   });
+  place(initial, false);
+  return { place, refresh: () => place(current, false) };
+}
+let actionSeg = null;
+let themeSeg = null;
 
-  Object.keys(domainCounts).forEach(k => {
-    const el = document.getElementById("cnt-" + k);
-    if (el) el.textContent = String(domainCounts[k]);
-  });
-  Object.keys(actionCounts).forEach(k => {
-    const el = document.getElementById("acnt-" + k);
-    if (el) el.textContent = String(actionCounts[k]);
-  });
+/* ================= Theme ================= */
+function applyTheme(theme) {
+  if (theme === "light" || theme === "dark") document.documentElement.setAttribute("data-theme", theme);
+  else document.documentElement.removeAttribute("data-theme");
+}
+function setTheme(theme) {
+  const t = theme === "light" || theme === "dark" ? theme : "auto";
+  safeStorageSet(THEME_KEY, t);
+  applyTheme(t);
+  if (themeSeg) themeSeg.place(t, true);
+}
+function initTheme() {
+  const saved = safeStorageGet(THEME_KEY);
+  applyTheme(saved);
+  return saved === "light" || saved === "dark" ? saved : "auto";
 }
 
-function updateSelectionTotals(lastToggledItem = null) {
-  let checkedCount = 0;
-  (REPORT_DATA.candidates || []).forEach(c => {
-    if (!state.whitelisted[c.id] && c.status !== "done" && state.checked[c.id]) {
-      checkedCount++;
-    }
-  });
-  const countEl = document.getElementById("selected-count");
-  if (countEl) countEl.textContent = String(checkedCount);
-  updateTabCounts();
-  updateVisualCharts(lastToggledItem);
-  try { renderRingOverview(); } catch (e) {}
+/* ================= Workbench list ================= */
+const rowSprings = new Map();
+const expandedRows = new Set();
+
+function sortItems(items) {
+  const bySize = (a, b) => sizeOf(b) - sizeOf(a);
+  if (currentSort === "size") items.sort(bySize);
+  else if (currentSort === "pool") items.sort((a, b) => String(a.gauge_id || "~").localeCompare(String(b.gauge_id || "~")) || bySize(a, b));
+  else if (currentSort === "opt") items.sort((a, b) => ACTION_META[inferActionType(a)].rank - ACTION_META[inferActionType(b)].rank || bySize(a, b));
+  return items;
 }
 
-function setSortMode(mode, btnEl) {
-  currentSort = mode;
-  document.querySelectorAll(".sort-control button").forEach(btn => {
-    btn.classList.toggle("active", btn.getAttribute("data-sort") === mode);
-  });
-  renderCandidates();
+function visibleItems() {
+  return CANDS.filter(c => matchesView(c, currentView) && (currentAction === "all" || inferActionType(c) === currentAction));
+}
+
+function impactText(c) {
+  const g = gaugeById[c.gauge_id];
+  const sz = sizeOf(c);
+  if (!g || !sz) return sz ? `大小 ${formatBytes(sz)}` : "不改变磁盘占用";
+  const m = computePoolRingMetrics(g);
+  const share = pct(sz, m.total);
+  if (isChecked(c)) return `占 ${poolTitle(g)} ${fmtPct(share)}，已算进清理后水位 ${fmtPct(m.afterPct)}`;
+  return `占 ${poolTitle(g)} ${fmtPct(share)}，勾选后水位 ${fmtPct(m.afterPct)} → ${fmtPct(Math.max(0, m.afterPct - share))}`;
+}
+
+function rowHtml(c) {
+  const act = ACTION_META[inferActionType(c)];
+  const tier = TIER_META[tierOf(c)];
+  const wl = isWl(c), done = isDone(c), checked = isChecked(c);
+  const sz = sizeOf(c);
+  const g = gaugeById[c.gauge_id];
+  const id = escapeHtml(c.id);
+  const title = escapeHtml(displayTitle(c));
+  const note = state.notes[c.id] != null ? state.notes[c.id] : (c.whitelist_note || "");
+  const sizeHtml = sz > 0
+    ? `<span class="row-size">${formatBytes(sz)}</span>`
+    : `<span class="row-size badge">${escapeHtml(c.metric_badge || "")}</span>`;
+  const statusChip = done ? '<span class="chip good">已执行</span>' : (wl ? '<span class="chip warn">受保护</span>' : "");
+  return `<div class="row${checked ? " is-checked" : ""}${wl ? " is-protected" : ""}${done ? " is-done" : ""}" id="card-${id}" data-id="${id}">
+    <button type="button" class="check" role="checkbox" aria-checked="${checked || done}" aria-label="选择：${title}" data-act="toggle"${wl || done ? " disabled" : ""}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 12.5l3.8 3.8 7.2-8.3"/></svg>
+    </button>
+    <button type="button" class="row-main" aria-expanded="false" aria-controls="detail-${id}" data-act="expand">
+      <span class="app-icon tint-${wl ? "orange" : act.tint}">${icon(wl ? "shield" : act.icon)}</span>
+      <span class="row-text">
+        <span class="row-title" title="${title}">${title}</span>
+        <span class="row-sub"><span class="chip ${tier.cls}">${tier.label} ${tier.desc}</span>${statusChip}${g ? `<span class="chip">${escapeHtml(poolTitle(g))}</span>` : ""}<span class="cat">${escapeHtml(c.category || act.label)}</span></span>
+      </span>
+      ${sizeHtml}
+      <span class="chev">${icon("chevron")}</span>
+    </button>
+    <div class="row-detail" id="detail-${id}" hidden><div class="row-detail-inner">
+      ${c.evidence ? `<p class="evidence">${escapeHtml(c.evidence)}</p>` : ""}
+      ${c.path ? `<div class="path-line"><code>${escapeHtml(c.path)}</code></div>` : ""}
+      <label class="note-field">微调备注
+        <input type="text" data-act="note" value="${escapeHtml(note)}" placeholder="比如：只保留最近 2 个版本，或者先移到 NAS 再删">
+      </label>
+      <div class="detail-actions">
+        <span id="cimpact-${id}">${escapeHtml(impactText(c))}</span>
+        <button type="button" class="btn btn-small${wl ? "" : " btn-warn"}" data-act="wl">${wl ? "移出白名单" : "加入白名单"}</button>
+      </div>
+    </div></div>
+  </div>`;
 }
 
 function renderCandidates() {
   const list = document.getElementById("candidate-list");
   if (!list) return;
-  list.innerHTML = "";
-  let visibleIndex = 0;
-
-  const items = (REPORT_DATA.candidates || []).slice();
-  if (currentSort === "opt") {
-    items.sort((a, b) => {
-      const ra = actionTypeMeta(a).rank;
-      const rb = actionTypeMeta(b).rank;
-      if (ra !== rb) return ra - rb;
-      return (Number(b.size_bytes) || 0) - (Number(a.size_bytes) || 0);
-    });
-  } else if (currentSort === "size") {
-    items.sort((a, b) => (Number(b.size_bytes) || 0) - (Number(a.size_bytes) || 0));
-  } else if (currentSort === "pool") {
-    items.sort((a, b) => {
-      const ga = String(a.gauge_id || "");
-      const gb = String(b.gauge_id || "");
-      if (ga !== gb) return ga.localeCompare(gb);
-      return (Number(b.size_bytes) || 0) - (Number(a.size_bytes) || 0);
-    });
+  const items = sortItems(visibleItems());
+  const selBtn = document.getElementById("select-visible-btn");
+  if (selBtn) selBtn.hidden = currentView === "whitelisted";
+  const titleEl = document.getElementById("list-title");
+  if (titleEl) titleEl.textContent = DOMAIN_META[currentView] ? DOMAIN_META[currentView].label : "全部建议";
+  if (!items.length) {
+    list.innerHTML = `<div class="grouped glass empty"><b>${currentView === "whitelisted" ? "白名单是空的" : "这里没有待处理的建议"}</b>${currentView === "whitelisted" ? "在任意建议的详情里点「加入白名单」，它就会出现在这里，执行时一律跳过。" : "换一个分类看看，或者回到概览。"}</div>`;
+  } else {
+    const groups = currentView === "whitelisted" ? [["W", items]] : ["A", "B", "C"].map(t => [t, items.filter(c => tierOf(c) === t)]).filter(x => x[1].length);
+    list.innerHTML = groups.map(([t, arr]) => {
+      const head = t === "W" ? "受保护的项目" : `${TIER_META[t].label}：${TIER_META[t].desc}`;
+      return `<section class="list-group" data-tier="${t}">
+        <header class="group-head"><h3><span class="chip ${t === "W" ? "warn" : TIER_META[t].cls}">${t === "W" ? "白名单" : t}</span>${head}</h3><span id="ghead-${t}"></span></header>
+        <div class="group-body glass">${arr.map(rowHtml).join("")}</div>
+      </section>`;
+    }).join("");
+    expandedRows.forEach(id => { if (document.getElementById("detail-" + id)) setExpanded(id, true, true); });
   }
-
-  items.forEach(c => {
-    const isWl = !!state.whitelisted[c.id];
-    const isDone = c.status === "done";
-    const isChecked = !isWl && !isDone && !!state.checked[c.id];
-
-    if (currentDomain === "whitelisted") {
-      if (!isWl) return;
-    } else {
-      if (isWl) return;
-      if (currentDomain !== "all" && c.domain !== currentDomain) return;
-    }
-
-    const actMeta = actionTypeMeta(c);
-    if (currentAction !== "all" && actMeta.key !== currentAction) return;
-
-    const tier = c.tier || "B";
-    const tierLabel = tier === "A" ? "A 级 · 零风险可重建" : (tier === "B" ? "B 级 · 推荐整理" : "C 级 · 需确认时机");
-    const noteVal = state.notes[c.id] || c.whitelist_note || "";
-    const sz = Number(c.size_bytes) || 0;
-    const rightBadge = sz > 0 ? formatBytes(sz) : (c.metric_badge || formatBytes(0));
-    const pShort = shortPoolName(c.gauge_id);
-
-    // Left = Total Capacity, Middle Progress Bar = [Retained][Preview][This Item Cleaned][Other Checked][Free], Right = Used Capacity
-    const { totalBytes, origUsedBytes } = getCardPoolMetrics(c);
-    const curReclaimPct = isChecked ? (sz / totalBytes) * 100 : 0;
-    const curPreviewPct = (!isChecked && !isWl && !isDone) ? (sz / totalBytes) * 100 : 0;
-    const curRetainedPct = Math.max(0, ((origUsedBytes - sz) / totalBytes) * 100);
-
-    const card = document.createElement("div");
-    card.id = "card-" + c.id;
-    card.className = "candidate-card" + (isChecked ? " checked" : "") + (isDone ? " done" : "") + (isWl ? " whitelisted" : "");
-    card.style.animationDelay = `${Math.min(visibleIndex * 20, 160)}ms`;
-    card.onmouseenter = () => highlightItem(c.id, true);
-    card.onmouseleave = () => highlightItem(c.id, false);
-    visibleIndex++;
-
-    const impactBarHtml = sz > 0 ? `
-      <div class="card-impact-meter tabular">
-        <div class="card-impact-head">
-          <span class="card-impact-total">总容量 ${formatBytes(totalBytes)}</span>
-          <span class="card-impact-mid-tag" id="cmid-${escapeHtml(c.id)}">${isChecked ? `当前项目 -${formatBytes(sz)}` : `待选 -${formatBytes(sz)}`}</span>
-          <span class="card-impact-label" id="clbl-${escapeHtml(c.id)}">
-            已用 <strong style="color:var(--ink-primary)">${formatBytes(origUsedBytes)}</strong>
-          </span>
-        </div>
-        <div class="card-impact-track">
-          <div class="card-impact-retained" id="cret-${escapeHtml(c.id)}" style="width:${curRetainedPct.toFixed(2)}%"></div>
-          <div class="card-impact-preview" id="cprv-${escapeHtml(c.id)}" style="width:${curPreviewPct.toFixed(2)}%"></div>
-          <div class="card-impact-reclaim" id="cimp-${escapeHtml(c.id)}" style="width:${curReclaimPct.toFixed(2)}%"></div>
-          <div class="card-impact-other" id="coth-${escapeHtml(c.id)}" style="width:0%"></div>
-        </div>
-      </div>
-    ` : "";
-
-    card.innerHTML = `
-      <label class="check-wrap" title="勾选或取消">
-        <input type="checkbox" id="chk-${escapeHtml(c.id)}"
-          ${isChecked ? "checked" : ""} ${isDone || isWl ? "disabled" : ""}
-          onchange="toggleItem('${escapeHtml(c.id)}', this.checked)">
-        <span class="check-box">
-          <svg class="check-svg" viewBox="0 0 16 16"><polyline points="3.5 8.5 6.8 11.8 12.8 4.5"></polyline></svg>
-        </span>
-      </label>
-      <div class="candidate-body">
-        <div class="candidate-head">
-          <span class="item-id">${escapeHtml(c.id)}</span>
-          <span class="action-tag ${actMeta.cls}">${actMeta.label}</span>
-          ${pShort ? `<span class="pool-badge">${escapeHtml(pShort)}</span>` : ""}
-          <span class="tier-tag tier-${escapeHtml(tier)}">${tierLabel}</span>
-          ${isDone ? '<span class="tier-tag tier-A">已执行</span>' : ""}
-          ${isWl ? '<span class="tier-tag tier-C">已豁免</span>' : ""}
-          <span class="candidate-size tabular">${escapeHtml(rightBadge)}</span>
-        </div>
-        <div class="candidate-title" onclick="clickCardTitle('${escapeHtml(c.id)}')">${escapeHtml(stripLeadingEmoji(c.title))}</div>
-        ${impactBarHtml}
-        <div class="candidate-meta-row">
-          ${c.path ? `<div class="candidate-path">${escapeHtml(c.path)}</div>` : ""}
-          <div class="candidate-evidence">${escapeHtml(c.evidence || "")}</div>
-        </div>
-        <div class="candidate-controls">
-          <input type="text" class="note-input" placeholder="添加执行微调说明（如：保留最近 2 个版本 / 移至归档目录）"
-            value="${escapeHtml(noteVal)}"
-            oninput="updateNote('${escapeHtml(c.id)}', this.value)">
-          <button class="btn-whitelist" onclick="toggleWhitelist('${escapeHtml(c.id)}')">
-            ${isWl ? "移出白名单" : "加入白名单"}
-          </button>
-        </div>
-      </div>
-    `;
-    list.appendChild(card);
-  });
-
-  const capEl = document.getElementById("visible-count-caption");
-  if (capEl) capEl.textContent = `当前显示 ${visibleIndex} 项`;
   updateSelectionTotals();
 }
 
-function clickCardTitle(id) {
-  const chk = document.getElementById("chk-" + id);
-  if (!chk || chk.disabled) return;
-  chk.checked = !chk.checked;
-  toggleItem(id, chk.checked);
+function setExpanded(id, open, instant) {
+  const detail = document.getElementById("detail-" + id);
+  const card = document.getElementById("card-" + id);
+  if (!detail || !card) return;
+  const btn = card.querySelector(".row-main");
+  if (btn) btn.setAttribute("aria-expanded", String(open));
+  if (open) expandedRows.add(id); else expandedRows.delete(id);
+  let s = rowSprings.get(id);
+  if (!s || !document.body.contains(s.el)) {
+    s = new Spring(0, SPRING.soft, v => { detail.style.height = Math.max(0, v).toFixed(2) + "px"; }, { tolerance: 0.5 });
+    s.el = detail;
+    rowSprings.set(id, s);
+  }
+  if (open) {
+    const startH = detail.hidden ? 0 : detail.offsetHeight;
+    detail.hidden = false;
+    detail.style.height = "auto";
+    const target = detail.scrollHeight;
+    detail.style.height = startH + "px";
+    s.value = startH;
+    s.onRest = () => { if (expandedRows.has(id)) detail.style.height = "auto"; };
+    if (instant) s.jump(target); else s.to(target, SPRING.soft);
+  } else {
+    s.value = detail.offsetHeight;
+    s.onRest = () => { if (!expandedRows.has(id)) { detail.hidden = true; detail.style.height = ""; } };
+    if (instant) s.jump(0); else s.to(0, SPRING.soft);
+  }
+}
+
+function updateRow(c, pop) {
+  const card = document.getElementById("card-" + c.id);
+  if (!card) return;
+  const checked = isChecked(c);
+  card.classList.toggle("is-checked", checked);
+  const chk = card.querySelector(".check");
+  if (chk) {
+    chk.setAttribute("aria-checked", String(checked || isDone(c)));
+    if (pop) popScale(chk.querySelector("svg"), popSprings, checked ? 0.72 : 0.86);
+  }
+  const imp = document.getElementById("cimpact-" + c.id);
+  if (imp) imp.textContent = impactText(c);
 }
 
 function toggleItem(id, checked) {
-  state.checked[id] = !!checked;
+  const c = candById[id];
+  if (!c || isWl(c) || isDone(c)) return;
+  state.checked[id] = checked == null ? !state.checked[id] : Boolean(checked);
   saveState();
-  const cIdx = (REPORT_DATA.candidates || []).findIndex(x => x.id === id);
-  const c = cIdx >= 0 ? REPORT_DATA.candidates[cIdx] : null;
-  const card = document.getElementById("card-" + id);
-  if (card) {
-    card.classList.toggle("checked", !!checked);
-    pulseElement(card, "pulse", 200);
-  }
-  if (c && c.gauge_id && c.gauge_id !== activePoolId) {
-    activePoolId = c.gauge_id;
-    document.querySelectorAll(".pool-tab-card").forEach(el => {
-      el.classList.toggle("active", el.id === "pool-tab-" + activePoolId);
-    });
-  }
-  updateSelectionTotals(c);
+  lastToggledId = id;
+  if (state.checked[id] && c.gauge_id && gaugeById[c.gauge_id]) activePoolId = c.gauge_id;
+  updateRow(c, true);
+  updateSelectionTotals(true);
 }
 
 function updateNote(id, val) {
@@ -3243,95 +1857,253 @@ function updateNote(id, val) {
 }
 
 function toggleWhitelist(id) {
+  const c = candById[id];
+  if (!c) return;
   state.whitelisted[id] = !state.whitelisted[id];
   if (state.whitelisted[id]) state.checked[id] = false;
   saveState();
-  renderCandidates();
-}
-
-function updateTabGlider() {
-  const container = document.getElementById("domain-tabs");
-  const glider = document.getElementById("tab-glider");
-  if (!container || !glider) return;
-  const activeBtn = container.querySelector("button.active");
-  if (!activeBtn || activeBtn.offsetWidth === 0) {
-    glider.style.opacity = "0";
-    container.classList.remove("has-glider");
-    return;
+  showToast(state.whitelisted[id] ? "已加入白名单，导出时会一并写明" : "已移出白名单");
+  updateSelectionTotals(true);
+  const card = document.getElementById("card-" + id);
+  const leaving = card && !matchesView(c, currentView);
+  if (leaving && !REDUCED_MOTION) {
+    const h = card.offsetHeight;
+    card.style.overflow = "hidden";
+    const s = new Spring(h, SPRING.soft, v => { card.style.height = Math.max(0, v) + "px"; card.style.opacity = clamp(v / h, 0, 1).toFixed(3); }, { tolerance: 0.5 });
+    s.onRest = () => { expandedRows.delete(id); renderCandidates(); };
+    s.to(0, SPRING.soft);
+  } else {
+    renderCandidates();
   }
-  container.classList.add("has-glider");
-  glider.style.opacity = "1";
-  glider.style.width = `${activeBtn.offsetWidth}px`;
-  glider.style.transform = `translate3d(${activeBtn.offsetLeft}px, 0, 0)`;
-}
-
-function setDomain(domain, btnEl) {
-  currentDomain = domain;
-  document.querySelectorAll("#domain-tabs button").forEach(btn => {
-    const isAct = btn.getAttribute("data-domain") === domain;
-    btn.classList.toggle("active", isAct);
-  });
-  renderCandidates();
-  requestAnimationFrame(updateTabGlider);
-}
-
-function setActionFilter(action, btnEl) {
-  currentAction = action;
-  document.querySelectorAll("#action-tabs button").forEach(btn => {
-    const isAct = btn.getAttribute("data-action") === action;
-    btn.classList.toggle("active", isAct);
-  });
-  renderCandidates();
 }
 
 function selectVisibleCategory() {
-  (REPORT_DATA.candidates || []).forEach(c => {
-    const isWl = !!state.whitelisted[c.id];
-    if (c.status === "done" || isWl) return;
-    if (currentDomain !== "all" && currentDomain !== "whitelisted" && c.domain !== currentDomain) return;
-    const act = inferActionType(c);
-    if (currentAction !== "all" && act !== currentAction) return;
-    state.checked[c.id] = true;
-  });
+  let n = 0;
+  visibleItems().forEach(c => { if (!isWl(c) && !isDone(c) && !state.checked[c.id]) { state.checked[c.id] = true; n++; } });
   saveState();
   renderCandidates();
+  showToast(n ? `本页又选中了 ${n} 项` : "本页已经全选了");
 }
-
 function selectByTier(tiers) {
   const set = new Set(tiers);
-  (REPORT_DATA.candidates || []).forEach(c => {
-    if (c.status === "done" || state.whitelisted[c.id]) return;
-    state.checked[c.id] = set.has(c.tier || "B");
-  });
+  CANDS.forEach(c => { if (!isDone(c) && !isWl(c)) state.checked[c.id] = set.has(tierOf(c)); });
   saveState();
-  renderCandidates();
+  refreshAfterBulk("已按风险等级重新勾选");
 }
-
 function selectOptimizations() {
-  (REPORT_DATA.candidates || []).forEach(c => {
-    if (c.status === "done" || state.whitelisted[c.id]) return;
-    if (isOptOrUpdate(c)) state.checked[c.id] = true;
-  });
+  CANDS.forEach(c => { if (!isDone(c) && !isWl(c) && isOptOrUpdate(c)) state.checked[c.id] = true; });
   saveState();
-  renderCandidates();
+  refreshAfterBulk("已加选优化、整理和更新");
 }
-
 function clearSelections() {
   state.checked = {};
   saveState();
-  renderCandidates();
+  refreshAfterBulk("已清空选择");
 }
-
 function resetSavedState() {
   safeStorageRemove(STORAGE_KEY);
   state = loadState();
-  renderCandidates();
+  expandedRows.clear();
+  refreshAfterBulk("已恢复到这份报告的初始勾选");
+}
+function refreshAfterBulk(message) {
+  if (currentView === "overview") updateSelectionTotals(true); else renderCandidates();
+  popScale(document.getElementById("dock-stat"), popSprings, 0.9);
+  if (message) showToast(message);
 }
 
+/* ================= Impact bar (workbench) ================= */
+const impactSprings = {};
+["seg-retained", "seg-reclaim-item", "seg-reclaim-mid"].forEach(id => {
+  impactSprings[id] = new Spring(0, SPRING.ring, v => {
+    const el = document.getElementById(id);
+    if (el) el.style.width = clamp(v, 0, 100).toFixed(3) + "%";
+  }, { tolerance: 0.02 });
+});
+
+function updateImpact() {
+  const card = document.getElementById("impact-card");
+  if (!card) return;
+  const g = gaugeById[activePoolId];
+  if (!g || currentView === "whitelisted") { card.hidden = true; return; }
+  card.hidden = false;
+  const sel = document.getElementById("impact-pool");
+  if (sel && sel.value !== g.id) sel.value = g.id;
+  const m = computePoolRingMetrics(g);
+  const total = m.total;
+  const saved = m.cleanedBytes;
+  let focus = focusedItemId ? candById[focusedItemId] : null;
+  if (!focus || focus.gauge_id !== g.id || isWl(focus) || !sizeOf(focus)) focus = null;
+  if (!focus && lastToggledId) {
+    const lt = candById[lastToggledId];
+    if (lt && lt.gauge_id === g.id && isChecked(lt) && sizeOf(lt)) focus = lt;
+  }
+  const preview = Boolean(focus && !isChecked(focus) && !isDone(focus));
+  const focusBytes = focus ? Math.min(preview ? m.retainedBytes : saved, sizeOf(focus)) : 0;
+  const retained = Math.max(0, m.retainedBytes - (preview ? focusBytes : 0));
+  const otherSaved = Math.max(0, saved - (preview ? 0 : focusBytes));
+  impactSprings["seg-retained"].to(pct(retained, total));
+  impactSprings["seg-reclaim-item"].to(pct(focusBytes, total));
+  impactSprings["seg-reclaim-mid"].to(pct(otherSaved, total));
+  const focusEl = document.getElementById("seg-reclaim-item");
+  if (focusEl) focusEl.classList.toggle("preview", preview);
+  const t = document.getElementById("impact-title");
+  if (t) t.textContent = poolTitle(g);
+  const sub = document.getElementById("impact-sub");
+  if (sub) {
+    sub.textContent = saved > 0
+      ? `清理后水位 ${fmtPct(m.beforePct)} → ${fmtPct(m.afterPct)}，可用空间变成 ${formatBytes(m.freeAfterBytes)}`
+      : `当前水位 ${fmtPct(m.afterPct)}，可用 ${formatBytes(m.freeAfterBytes)}`;
+  }
+  const lg = document.getElementById("impact-legend");
+  if (lg) {
+    const focusLabel = focus ? (preview ? "这一项（未勾选）" : "这一项") : "";
+    lg.innerHTML = `<span><i class="dot ring-used"></i>清理后已用 <b>${formatBytes(retained)}</b></span>` +
+      (focus ? `<span><i class="dot ring-focus"></i>${focusLabel} <b>${formatBytes(focusBytes)}</b></span>` : "") +
+      `<span><i class="dot ring-clean"></i>${focus && !preview ? "其他已选" : "将释放"} <b>${formatBytes(otherSaved)}</b></span>` +
+      `<span><i class="dot ring-free"></i>原本可用 <b>${formatBytes(Math.max(0, total - m.beforeUsedBytes))}</b></span>`;
+  }
+}
+
+/* ================= Totals, counters, dock ================= */
+const dockBytes = new Spring(0, SPRING.soft, v => {
+  const el = document.getElementById("selected-gib");
+  if (el) el.textContent = formatBytes(Math.max(0, v));
+}, { precision: 0.0004 });
+
+function updateCounts() {
+  const counts = { all: 0, mac: 0, projects: 0, github: 0, nas: 0, whitelisted: 0 };
+  const acts = { all: 0, cleanup: 0, organize: 0, optimize: 0, update: 0 };
+  CANDS.forEach(c => {
+    if (isWl(c)) counts.whitelisted++;
+    else { counts.all++; if (counts[c.domain] != null) counts[c.domain]++; }
+    if (currentView !== "overview" && matchesView(c, currentView)) { acts.all++; acts[inferActionType(c)]++; }
+  });
+  Object.keys(counts).forEach(k => { const el = document.getElementById("cnt-" + k); if (el) el.textContent = counts[k] ? String(counts[k]) : ""; });
+  Object.keys(acts).forEach(k => { const el = document.getElementById("acnt-" + k); if (el) el.textContent = String(acts[k]); });
+}
+
+function updateListHeader() {
+  if (currentView === "overview") return;
+  const scope = CANDS.filter(c => matchesView(c, currentView));
+  const sel = selectionSummary(c => matchesView(c, currentView));
+  const sub = document.getElementById("list-sub");
+  if (sub) {
+    sub.innerHTML = currentView === "whitelisted"
+      ? `共 <b>${scope.length}</b> 项受保护。执行时会被 preflight 强制跳过，新加入的会写进导出指令。`
+      : `共 <b>${scope.length}</b> 条建议，已选 <b>${sel.count}</b> 条${sel.bytes > 0 ? `，可释放 <b>${formatBytes(sel.bytes)}</b>` : ""}。点开一行可以看依据、写备注或加入白名单。`;
+  }
+  ["A", "B", "C"].forEach(t => {
+    const el = document.getElementById("ghead-" + t);
+    if (!el) return;
+    const s = selectionSummary(c => matchesView(c, currentView) && tierOf(c) === t && (currentAction === "all" || inferActionType(c) === currentAction));
+    el.textContent = `已选 ${s.count} 项${s.bytes ? "，" + formatBytes(s.bytes) : ""}`;
+  });
+}
+
+function updateSelectionTotals(bump) {
+  const sel = selectionSummary();
+  const countEl = document.getElementById("selected-count");
+  if (countEl) countEl.textContent = String(sel.count);
+  dockBytes.to(sel.bytes, SPRING.soft);
+  if (bump) popScale(document.getElementById("dock-stat"), popSprings, 0.94);
+  updateCounts();
+  updateListHeader();
+  updateImpact();
+  if (actionSeg && currentView !== "overview") actionSeg.refresh();
+  try { renderRingOverview(currentView !== "overview"); } catch (e) {}
+}
+
+function openItem(id) {
+  const c = candById[id];
+  if (!c) return;
+  const view = isWl(c) ? "whitelisted" : (DOMAIN_META[c.domain] ? c.domain : "all");
+  currentAction = "all";
+  navigate(view);
+  if (c.gauge_id && gaugeById[c.gauge_id]) { activePoolId = c.gauge_id; updateImpact(); }
+  requestAnimationFrame(() => {
+    setExpanded(id, true, false);
+    const card = document.getElementById("card-" + id);
+    if (card) {
+      card.scrollIntoView({ behavior: REDUCED_MOTION ? "auto" : "smooth", block: "center" });
+      card.classList.remove("flash"); void card.offsetWidth; card.classList.add("flash");
+    }
+  });
+}
+
+/* ================= Toast ================= */
+let toastTimer = 0;
+function showToast(text) {
+  const el = document.getElementById("toast");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 1900);
+}
+
+/* ================= Quick-select menu (anchored to its button) ================= */
+let menuOpen = false;
+let resetArmed = 0;
+const menuSpring = new Spring(0, SPRING.sheet, v => {
+  const menu = document.getElementById("quick-menu");
+  if (!menu) return;
+  const p = Math.max(0, v);
+  menu.style.opacity = clamp(p * 1.6, 0, 1).toFixed(3);
+  menu.style.transform = "translateY(" + ((1 - p) * 10).toFixed(2) + "px) scale(" + (0.86 + 0.14 * p).toFixed(4) + ")";
+});
+menuSpring.onRest = v => { if (v <= 0.001) document.getElementById("quick-menu").hidden = true; };
+
+function toggleQuickMenu(force) {
+  const open = force == null ? !menuOpen : force;
+  const menu = document.getElementById("quick-menu");
+  const btn = document.getElementById("quick-btn");
+  if (!menu || !btn) return;
+  menuOpen = open;
+  btn.setAttribute("aria-expanded", String(open));
+  if (open) {
+    menu.hidden = false;
+    const r = btn.getBoundingClientRect();
+    const w = menu.offsetWidth;
+    const left = clamp(r.left + r.width / 2 - w / 2, 10, window.innerWidth - w - 10);
+    menu.style.left = left + "px";
+    menu.style.bottom = (window.innerHeight - r.top + 10) + "px";
+    menu.style.transformOrigin = (r.left + r.width / 2 - left) + "px 100%";
+    menuSpring.to(1, SPRING.sheet);
+    const first = menu.querySelector("button");
+    if (first) first.focus({ preventScroll: true });
+  } else {
+    disarmReset();
+    menuSpring.to(0, SPRING.soft);
+  }
+}
+function disarmReset() {
+  resetArmed = 0;
+  const item = document.getElementById("reset-item");
+  if (item) { item.classList.remove("is-armed"); item.innerHTML = "恢复初始勾选<small>同时清掉备注和白名单改动</small>"; }
+}
+function handleQuick(action) {
+  if (action === "reset") {
+    if (!resetArmed) {
+      resetArmed = Date.now();
+      const item = document.getElementById("reset-item");
+      item.classList.add("is-armed");
+      item.innerHTML = "再点一次确认恢复<small>备注和白名单改动会被清掉，无法撤销</small>";
+      return;
+    }
+    resetSavedState();
+  } else if (action === "tierA") selectByTier(["A"]);
+  else if (action === "tierAB") selectByTier(["A", "B"]);
+  else if (action === "opt") selectOptimizations();
+  else if (action === "clear") clearSelections();
+  toggleQuickMenu(false);
+}
+
+/* ================= Execution prompt sheet (grows from the export button) ================= */
 function buildExecutionPrompt() {
   const selected = [];
   const newlyWhitelisted = [];
-  (REPORT_DATA.candidates || []).forEach(c => {
+  CANDS.forEach(c => {
     const note = (state.notes[c.id] || "").trim();
     if (state.whitelisted[c.id] && !c.whitelisted) {
       newlyWhitelisted.push({ id: c.id, title: stripLeadingEmoji(c.title), path: c.path || "", note });
@@ -3339,7 +2111,6 @@ function buildExecutionPrompt() {
       selected.push({ id: c.id, title: stripLeadingEmoji(c.title), path: c.path || "", note });
     }
   });
-
   const lines = [
     "请按我在全栈巡检看板上的勾选执行清理与优化（动手前请先用 `full_stack_tool.py preflight` 复查并发活跃状态）：",
     ""
@@ -3362,690 +2133,161 @@ function buildExecutionPrompt() {
       lines.push(`- \`${item.id}\`: ${item.path || item.title}${notePart}`);
     });
   }
-  return lines.join(__JOIN_NEWLINE__);
+  return lines.join("\n");
+}
+
+const sheetGeo = { dx: 0, dy: 0 };
+const sheetSpring = new Spring(0, SPRING.sheet, v => {
+  const back = document.getElementById("prompt-modal");
+  const sheet = document.getElementById("prompt-sheet");
+  if (!back || !sheet) return;
+  const p = Math.max(0, v);
+  back.style.opacity = clamp(p, 0, 1).toFixed(3);
+  sheet.style.opacity = clamp(p * 1.8, 0, 1).toFixed(3);
+  sheet.style.transform = `translate(${(sheetGeo.dx * (1 - p)).toFixed(2)}px, ${(sheetGeo.dy * (1 - p)).toFixed(2)}px) scale(${(0.35 + 0.65 * p).toFixed(4)})`;
+});
+sheetSpring.onRest = v => { if (v <= 0.001) document.getElementById("prompt-modal").hidden = true; };
+
+function setSheetStatus(text, tone) {
+  const el = document.getElementById("sheet-status");
+  if (!el) return;
+  el.textContent = text;
+  el.className = tone || "";
+}
+
+function writeClipboard(text, textarea) {
+  const fallback = () => {
+    try {
+      if (textarea) { textarea.focus(); textarea.select(); }
+      return document.execCommand && document.execCommand("copy");
+    } catch (e) { return false; }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).then(() => true, () => fallback());
+  }
+  return Promise.resolve(fallback());
 }
 
 function copyExecutionPrompt() {
   const text = buildExecutionPrompt();
-  const modal = document.getElementById("prompt-modal");
+  const back = document.getElementById("prompt-modal");
   const box = document.getElementById("prompt-textarea");
+  const btn = document.getElementById("export-btn");
   box.value = text;
-  modal.classList.add("open");
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).catch(() => {});
+  back.hidden = false;
+  if (btn) {
+    const r = btn.getBoundingClientRect();
+    sheetGeo.dx = r.left + r.width / 2 - window.innerWidth / 2;
+    sheetGeo.dy = r.top + r.height / 2 - window.innerHeight / 2;
   }
+  sheetSpring.to(1, SPRING.sheet);
+  setSheetStatus("粘贴回对话框，Agent 会先跑 preflight 复查再动手。");
+  writeClipboard(text, box).then(ok => {
+    setSheetStatus(ok ? "已复制到剪贴板。粘贴回对话框，Agent 会先跑 preflight 复查再动手。" : "浏览器没允许自动复制，点「复制指令」再试，或者手动全选复制。", ok ? "ok" : "warn");
+  });
+  toggleQuickMenu(false);
 }
 
 function copyModalText() {
   const box = document.getElementById("prompt-textarea");
   const btn = document.getElementById("copy-confirm-btn");
-  box.select();
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(box.value).catch(() => {});
-  } else {
-    document.execCommand("copy");
-  }
-  if (btn) {
-    const old = btn.textContent;
-    btn.textContent = "已复制到剪贴板";
-    setTimeout(() => { btn.textContent = old; }, 1400);
-  }
+  writeClipboard(box.value, box).then(ok => {
+    setSheetStatus(ok ? "已复制到剪贴板。" : "还是没能复制，请在文本框里全选后手动复制。", ok ? "ok" : "warn");
+    if (btn && ok) {
+      btn.textContent = "已复制";
+      popScale(btn, popSprings, 0.9);
+      setTimeout(() => { btn.textContent = "复制指令"; }, 1400);
+    }
+  });
 }
 
 function closeModal() {
-  document.getElementById("prompt-modal").classList.remove("open");
+  sheetSpring.to(0, SPRING.soft);
+  const btn = document.getElementById("export-btn");
+  if (btn) btn.focus({ preventScroll: true });
 }
 
-let activeRingPoolId = ((REPORT_DATA.storage_gauges || [])[0] || {}).id || "_all";
-let hoveredRingItemId = null;
+/* ================= Wiring & boot ================= */
+function wireEvents() {
+  document.querySelectorAll(".nav-item").forEach(b => b.addEventListener("click", () => navigate(b.getAttribute("data-view"))));
 
-// Interruptible Spring Animator State for Giant Donut Ring (r = 116, C = 728.8495)
-const RING_RADIUS = 116;
-const RING_CIRC = 2 * Math.PI * RING_RADIUS;
-const ringAnim = {
-  initialized: false,
-  rafId: 0,
-  lastTs: 0,
-  cur: { retArc: 0, clnArc: 0, focArc: 0, bytes: 0 },
-  vel: { retArc: 0, clnArc: 0, focArc: 0, bytes: 0 },
-  tgt: { retArc: 0, clnArc: 0, focArc: 0, bytes: 0, isFocus: false }
-};
-
-function formatMiniBytes(bytes) {
-  const b = Math.max(0, Math.abs(Number(bytes) || 0));
-  if (b >= 1024 ** 4) return (b / (1024 ** 4)).toFixed(1) + " TiB";
-  if (b >= 1024 ** 3) {
-    const g = b / (1024 ** 3);
-    return (g >= 10 ? g.toFixed(0) : g.toFixed(1)) + " GiB";
-  }
-  if (b >= 1024 ** 2) return (b / (1024 ** 2)).toFixed(0) + " MiB";
-  return "0 GiB";
-}
-
-function formatNumberUnitPair(bytes, signed = true) {
-  const b = Math.max(0, Math.abs(Number(bytes) || 0));
-  const prefix = signed && b > 0 ? "-" : "";
-  if (b >= 1024 ** 4) return { num: prefix + (b / (1024 ** 4)).toFixed(2), unit: "TiB" };
-  if (b >= 1024 ** 3) return { num: prefix + (b / (1024 ** 3)).toFixed(2), unit: "GiB" };
-  if (b >= 1024 ** 2) return { num: prefix + (b / (1024 ** 2)).toFixed(1), unit: "MiB" };
-  if (b > 0) return { num: prefix + (b / 1024).toFixed(0), unit: "KiB" };
-  return { num: "0.00", unit: "GiB" };
-}
-
-function applyRingFrame() {
-  const C = RING_CIRC;
-  const retArc = Math.max(0, Math.min(C, ringAnim.cur.retArc));
-  const clnArc = Math.max(0, Math.min(C - retArc, ringAnim.cur.clnArc));
-  const focArc = Math.max(0, Math.min(C - retArc - clnArc, ringAnim.cur.focArc));
-
-  // Subtle 2px visual separation between retained used and cleaned highlight
-  const hasCleanedOrFocus = (clnArc + focArc) > 1.5;
-  const drawRetArc = (retArc > 4 && hasCleanedOrFocus) ? Math.max(0, retArc - 2) : retArc;
-
-  const arcRetEl = document.getElementById("ring-arc-retained");
-  const arcClnEl = document.getElementById("ring-arc-cleaned");
-  const arcFocEl = document.getElementById("ring-arc-focus");
-
-  if (arcRetEl) {
-    arcRetEl.setAttribute("stroke-dasharray", `${drawRetArc.toFixed(2)} ${C.toFixed(2)}`);
-    arcRetEl.setAttribute("stroke-dashoffset", "0");
-  }
-  if (arcClnEl) {
-    arcClnEl.setAttribute("stroke-dasharray", `${clnArc.toFixed(2)} ${C.toFixed(2)}`);
-    arcClnEl.setAttribute("stroke-dashoffset", `-${retArc.toFixed(2)}`);
-  }
-  if (arcFocEl) {
-    arcFocEl.setAttribute("stroke-dasharray", `${focArc.toFixed(2)} ${C.toFixed(2)}`);
-    arcFocEl.setAttribute("stroke-dashoffset", `-${(retArc + clnArc).toFixed(2)}`);
-  }
-
-  const numEl = document.getElementById("ring-center-num");
-  const unitEl = document.getElementById("ring-center-unit");
-  if (numEl && unitEl) {
-    const pair = formatNumberUnitPair(ringAnim.cur.bytes, true);
-    numEl.textContent = pair.num;
-    unitEl.textContent = pair.unit;
-    const toneColor = ringAnim.tgt.isFocus ? "var(--accent-clay)" : "var(--tone-sage)";
-    numEl.style.color = toneColor;
-    unitEl.style.color = toneColor;
-  }
-}
-
-function stepRingSpring(ts) {
-  if (!ringAnim.lastTs) ringAnim.lastTs = ts;
-  const dt = Math.min(0.032, Math.max(0.001, (ts - ringAnim.lastTs) / 1000));
-  ringAnim.lastTs = ts;
-
-  // Underdamped spring (omega = 24, zeta = 0.74) for Apple / CleanMyMac non-linear motion with light rebound
-  const omega = 24;
-  const zeta = 0.74;
-  const keys = ["retArc", "clnArc", "focArc", "bytes"];
-  let stillMoving = false;
-
-  keys.forEach(k => {
-    const x = ringAnim.cur[k] - ringAnim.tgt[k];
-    const v = ringAnim.vel[k];
-    const accel = -(omega * omega) * x - (2 * zeta * omega) * v;
-    const nextV = v + accel * dt;
-    const nextX = ringAnim.cur[k] + nextV * dt;
-    ringAnim.vel[k] = nextV;
-    ringAnim.cur[k] = nextX;
-
-    const tol = k === "bytes" ? Math.max(512 * 1024, Math.abs(ringAnim.tgt.bytes) * 0.001) : 0.12;
-    if (Math.abs(nextX - ringAnim.tgt[k]) > tol || Math.abs(nextV) > tol * 2.5) {
-      stillMoving = true;
-    } else {
-      ringAnim.cur[k] = ringAnim.tgt[k];
-      ringAnim.vel[k] = 0;
-    }
+  const list = document.getElementById("candidate-list");
+  list.addEventListener("click", e => {
+    const actEl = e.target.closest("[data-act]");
+    const row = e.target.closest(".row");
+    if (!actEl || !row) return;
+    const id = row.getAttribute("data-id");
+    const act = actEl.getAttribute("data-act");
+    if (act === "toggle") toggleItem(id);
+    else if (act === "expand") setExpanded(id, !expandedRows.has(id), false);
+    else if (act === "wl") toggleWhitelist(id);
   });
-
-  applyRingFrame();
-  if (stillMoving) {
-    ringAnim.rafId = window.requestAnimationFrame(stepRingSpring);
-  } else {
-    ringAnim.rafId = 0;
-    ringAnim.lastTs = 0;
-  }
-}
-
-function animateRingTo(retArc, clnArc, focArc, displayBytes, isFocus) {
-  ringAnim.tgt = { retArc, clnArc, focArc, bytes: displayBytes, isFocus };
-  if (!ringAnim.initialized || REDUCED_MOTION || !window.requestAnimationFrame) {
-    ringAnim.initialized = true;
-    ringAnim.cur = { retArc, clnArc, focArc, bytes: displayBytes };
-    ringAnim.vel = { retArc: 0, clnArc: 0, focArc: 0, bytes: 0 };
-    applyRingFrame();
-    return;
-  }
-  if (!ringAnim.rafId) {
-    ringAnim.lastTs = 0;
-    ringAnim.rafId = window.requestAnimationFrame(stepRingSpring);
-  }
-}
-
-function switchMainView(mode) {
-  const ringPage = document.getElementById("ring-overview-page");
-  const wbPage = document.getElementById("workbench-page");
-  const btnRing = document.getElementById("view-btn-ring");
-  const btnWb = document.getElementById("view-btn-workbench");
-  const wbCluster = document.getElementById("workbench-action-cluster");
-  const topRingSum = document.getElementById("top-ring-summary");
-  const isRing = mode !== "workbench";
-  if (ringPage) ringPage.style.display = isRing ? "block" : "none";
-  if (wbPage) wbPage.style.display = isRing ? "none" : "block";
-  if (btnRing) btnRing.classList.toggle("active", isRing);
-  if (btnWb) btnWb.classList.toggle("active", !isRing);
-  if (wbCluster) wbCluster.style.display = isRing ? "none" : "inline-flex";
-  if (topRingSum) topRingSum.style.display = isRing ? "inline-flex" : "none";
-  if (!isRing) requestAnimationFrame(updateTabGlider);
-}
-
-function concisePoolTitle(g) {
-  const id = String(g.id || "");
-  if (id === "_all") return "全盘存储总览";
-  if (id === "mac-data") return "Mac 本机磁盘";
-  if (id === "nas-data") return "NAS 主存储池";
-  if (id === "sora2t") return "Sora2T 固态盘";
-  if (id === "sora4t") return "Sora4T 机械盘";
-  if (id === "nas-pve-backups") return "NAS NVMe 池";
-  if (id === "pve-lvm") return "PVE Thin 池";
-  if (id === "pve-root") return "PVE 宿主机";
-  if (id === "pt-docker-root") return "PT-Docker";
-  const raw = stripLeadingEmoji(g.label || id);
-  return raw.replace(/\\s*\\(.*?\\)\\s*/g, "").trim();
-}
-
-function computePoolRingMetrics(g) {
-  const total = Math.max(1, Number(g.total_bytes) || 1);
-  const currentUsed = Number(g.used_bytes) || 0;
-  const currentFree = g.free_bytes != null ? Number(g.free_bytes) : Math.max(0, total - currentUsed);
-
-  const poolCands = (REPORT_DATA.candidates || []).filter(c => c.gauge_id === g.id && !state.whitelisted[c.id] && !c.whitelisted);
-  let doneBytes = 0;
-  let checkedBytes = 0;
-  poolCands.forEach(c => {
-    const sz = Number(c.size_bytes) || 0;
-    if (sz <= 0) return;
-    if (c.status === "done") doneBytes += sz;
-    else if (state.checked[c.id]) checkedBytes += sz;
+  list.addEventListener("input", e => {
+    const input = e.target.closest('input[data-act="note"]');
+    const row = e.target.closest(".row");
+    if (input && row) updateNote(row.getAttribute("data-id"), input.value);
   });
-
-  const explicitCleaned = Number(g.cleaned_bytes) || 0;
-  const hasDone = doneBytes > 0 || explicitCleaned > 0 || g.before_used_bytes != null;
-
-  let retainedBytes = currentUsed;
-  let cleanedBytes = 0;
-  let beforeUsedBytes = currentUsed;
-  let freeAfterBytes = currentFree;
-  let freeBeforeBytes = currentFree;
-
-  if (hasDone) {
-    const baseCleaned = doneBytes > 0 ? doneBytes : explicitCleaned;
-    cleanedBytes = Math.min(total, baseCleaned + checkedBytes);
-    retainedBytes = Math.max(0, Math.min(total - cleanedBytes, currentUsed - checkedBytes));
-    beforeUsedBytes = Math.min(total, retainedBytes + cleanedBytes);
-    freeAfterBytes = Math.max(0, total - retainedBytes);
-    freeBeforeBytes = Math.max(0, total - beforeUsedBytes);
-  } else {
-    cleanedBytes = Math.min(currentUsed, checkedBytes);
-    retainedBytes = Math.max(0, currentUsed - cleanedBytes);
-    beforeUsedBytes = currentUsed;
-    freeBeforeBytes = currentFree;
-    freeAfterBytes = currentFree + cleanedBytes;
-  }
-
-  const beforePct = g.before_used_pct != null && checkedBytes === 0
-    ? Number(g.before_used_pct)
-    : Math.min(100, (beforeUsedBytes / total) * 100);
-  const afterPct = Math.min(100, (retainedBytes / total) * 100);
-
-  return {
-    id: g.id,
-    label: stripLeadingEmoji(g.label || g.id),
-    shortTitle: concisePoolTitle(g),
-    mountPath: g.mount_path || "",
-    total,
-    retainedBytes,
-    cleanedBytes,
-    beforeUsedBytes,
-    freeBeforeBytes,
-    freeAfterBytes,
-    beforePct,
-    afterPct,
-    hasDone
-  };
-}
-
-function selectRingPool(poolId) {
-  activeRingPoolId = poolId;
-  hoveredRingItemId = null;
-  renderRingOverview(false);
-}
-
-function highlightRingItem(itemId, active) {
-  hoveredRingItemId = active ? itemId : null;
-  renderRingOverview(true);
-}
-
-let _miniRingsRenderedCount = 0;
-
-function renderRingOverview(onlyUpdateArcs = false) {
-  const gauges = REPORT_DATA.storage_gauges || [];
-  if (!gauges.length) return;
-
-  const metricsList = gauges.map(computePoolRingMetrics);
-  const allAgg = metricsList.reduce((acc, m) => {
-    acc.total += m.total;
-    acc.retainedBytes += m.retainedBytes;
-    acc.cleanedBytes += m.cleanedBytes;
-    acc.beforeUsedBytes += m.beforeUsedBytes;
-    acc.freeBeforeBytes += m.freeBeforeBytes;
-    acc.freeAfterBytes += m.freeAfterBytes;
-    acc.hasDone = acc.hasDone || m.hasDone;
-    return acc;
-  }, {
-    id: "_all",
-    label: "全盘存储总览 (Mac + NAS + Sora2T + Sora4T + PVE)",
-    shortTitle: "全盘存储总览",
-    mountPath: "All Mounted Volumes",
-    total: 0,
-    retainedBytes: 0,
-    cleanedBytes: 0,
-    beforeUsedBytes: 0,
-    freeBeforeBytes: 0,
-    freeAfterBytes: 0,
-    beforePct: 0,
-    afterPct: 0,
-    hasDone: false
+  list.addEventListener("mouseover", e => {
+    const row = e.target.closest(".row");
+    const id = row ? row.getAttribute("data-id") : null;
+    if (id && id !== focusedItemId) { focusedItemId = id; updateImpact(); }
   });
-  if (allAgg.total > 0) {
-    allAgg.beforePct = (allAgg.beforeUsedBytes / allAgg.total) * 100;
-    allAgg.afterPct = (allAgg.retainedBytes / allAgg.total) * 100;
-  }
+  list.addEventListener("mouseleave", () => { if (focusedItemId) { focusedItemId = null; updateImpact(); } });
 
-  // Update Top Command Bar & Header global summary pills
-  const allCands = (REPORT_DATA.candidates || []).slice();
-  const totalSpaceItems = allCands.filter(c => !state.whitelisted[c.id] && !c.whitelisted && (c.status === "done" || state.checked[c.id]) && (Number(c.size_bytes) || 0) > 0).length;
-  const totalOptItems = allCands.filter(c => !state.whitelisted[c.id] && !c.whitelisted && (c.status === "done" || state.checked[c.id]) && (Number(c.size_bytes) || 0) === 0).length;
-  const totalProtItems = allCands.filter(c => state.whitelisted[c.id] || c.whitelisted).length;
+  const poolSel = document.getElementById("impact-pool");
+  poolSel.innerHTML = GAUGES.map(g => `<option value="${escapeHtml(g.id)}">${escapeHtml(poolTitle(g))}</option>`).join("");
+  poolSel.addEventListener("change", () => { activePoolId = poolSel.value; lastToggledId = null; updateImpact(); });
+  document.getElementById("sort-select").addEventListener("change", e => { currentSort = e.target.value; renderCandidates(); });
+  document.getElementById("select-visible-btn").addEventListener("click", selectVisibleCategory);
 
-  const topSumEl = document.getElementById("top-ring-summary");
-  if (topSumEl) {
-    topSumEl.textContent = `✨ 全栈累计释放 -${formatCompactBytes(allAgg.cleanedBytes)} · ${totalSpaceItems + totalOptItems} 项优化已生效`;
-  }
-  const headerPillsEl = document.getElementById("header-kpi-pills");
-  if (headerPillsEl && !onlyUpdateArcs) {
-    headerPillsEl.innerHTML = `
-      <span class="header-kpi-pill"><i class="legend-dot" style="background:var(--tone-sage)"></i>空间清理 <strong>${totalSpaceItems} 项 (-${formatCompactBytes(allAgg.cleanedBytes)})</strong></span>
-      <span class="header-kpi-pill"><i class="legend-dot" style="background:var(--accent-clay)"></i>系统与管线优化 <strong>${totalOptItems} 项</strong></span>
-      <span class="header-kpi-pill"><i class="legend-dot" style="background:var(--tone-ochre)"></i>白名单与整树保护 <strong>${totalProtItems} 项</strong></span>
-    `;
-  }
-
-  const matrixOrder = [...metricsList, allAgg];
-  const activeMetrics = activeRingPoolId === "_all"
-    ? allAgg
-    : (metricsList.find(m => m.id === activeRingPoolId) || metricsList[0]);
-
-  // 1. Render or update 3x3 Storage Pool Matrix without destroying DOM on pool switch
-  const miniStrip = document.getElementById("mini-rings-strip");
-  if (miniStrip && !onlyUpdateArcs) {
-    const hintEl = document.getElementById("mini-matrix-hint");
-    if (hintEl) hintEl.textContent = `共 ${matrixOrder.length} 个存储视图 · 当前选中：${activeMetrics.shortTitle}`;
-
-    if (_miniRingsRenderedCount !== matrixOrder.length || miniStrip.children.length !== matrixOrder.length) {
-      miniStrip.innerHTML = "";
-      matrixOrder.forEach(m => {
-        const card = document.createElement("div");
-        card.id = "mring-card-" + m.id;
-        card.className = "mini-ring-card tabular" + (m.id === activeMetrics.id ? " active" : "");
-        card.onclick = () => selectRingPool(m.id);
-        card.innerHTML = `
-          <div class="mini-ring-wrap">
-            <svg class="mini-ring-svg" viewBox="0 0 40 40">
-              <circle cx="20" cy="20" r="15.5" fill="none" stroke="var(--bar-free)" stroke-width="4.5"></circle>
-              <circle id="mring-ret-${escapeHtml(m.id)}" cx="20" cy="20" r="15.5" fill="none" stroke="var(--bar-retained)" stroke-width="4.5"
-                stroke-dasharray="0 97.39" stroke-dashoffset="0"></circle>
-              <circle id="mring-cln-${escapeHtml(m.id)}" cx="20" cy="20" r="15.5" fill="none" stroke="var(--tone-sage)" stroke-width="4.5"
-                stroke-dasharray="0 97.39" stroke-dashoffset="0"></circle>
-            </svg>
-            <span class="mini-ring-pct" id="mring-pct-${escapeHtml(m.id)}">0%</span>
-          </div>
-          <div class="mini-ring-info">
-            <div class="mini-ring-row1">
-              <span class="mini-ring-name" title="${escapeHtml(m.label)}">${escapeHtml(m.shortTitle)}</span>
-              <span class="mini-ring-saved" id="mring-saved-${escapeHtml(m.id)}"></span>
-            </div>
-            <div class="mini-ring-meta" id="mring-meta-${escapeHtml(m.id)}"></div>
-          </div>
-        `;
-        miniStrip.appendChild(card);
-      });
-      _miniRingsRenderedCount = matrixOrder.length;
-    }
-
-    const cMini = 2 * Math.PI * 15.5;
-    matrixOrder.forEach(m => {
-      const card = document.getElementById("mring-card-" + m.id);
-      if (card) card.classList.toggle("active", m.id === activeMetrics.id);
-      const retLen = Math.max(0, Math.min(cMini, (m.retainedBytes / m.total) * cMini));
-      const clnLen = Math.max(0, Math.min(cMini - retLen, (m.cleanedBytes / m.total) * cMini));
-      const retCircle = document.getElementById("mring-ret-" + m.id);
-      const clnCircle = document.getElementById("mring-cln-" + m.id);
-      const pctSpan = document.getElementById("mring-pct-" + m.id);
-      const savedSpan = document.getElementById("mring-saved-" + m.id);
-      const metaSpan = document.getElementById("mring-meta-" + m.id);
-
-      if (retCircle) {
-        retCircle.setAttribute("stroke-dasharray", `${retLen.toFixed(2)} ${cMini.toFixed(2)}`);
-        retCircle.setAttribute("stroke-dashoffset", "0");
-      }
-      if (clnCircle) {
-        clnCircle.setAttribute("stroke-dasharray", `${clnLen.toFixed(2)} ${cMini.toFixed(2)}`);
-        clnCircle.setAttribute("stroke-dashoffset", `-${retLen.toFixed(2)}`);
-      }
-      if (pctSpan) pctSpan.textContent = `${m.afterPct.toFixed(0)}%`;
-      if (savedSpan) {
-        if (m.cleanedBytes > 0) {
-          savedSpan.className = "mini-ring-saved";
-          savedSpan.textContent = `-${formatMiniBytes(m.cleanedBytes)}`;
-        } else {
-          savedSpan.className = "mini-ring-saved neutral";
-          savedSpan.textContent = `正常`;
-        }
-      }
-      if (metaSpan) {
-        metaSpan.textContent = m.cleanedBytes > 0
-          ? `水位 ${m.beforePct.toFixed(0)}%→${m.afterPct.toFixed(0)}% · 总 ${formatMiniBytes(m.total)}`
-          : `可用 ${formatMiniBytes(m.freeAfterBytes)} / 总 ${formatMiniBytes(m.total)}`;
-      }
-    });
-  }
-
-  // 2. Compute & Animate Giant Donut Ring arcs (r = 116, C = 728.8495)
-  const C = RING_CIRC;
-  const total = Math.max(1, activeMetrics.total);
-  const retained = Math.min(total, activeMetrics.retainedBytes);
-  const cleaned = Math.min(total - retained, activeMetrics.cleanedBytes);
-
-  let focusBytes = 0;
-  let hoveredItemObj = null;
-  if (hoveredRingItemId) {
-    const hovered = allCands.find(c => c.id === hoveredRingItemId);
-    if (hovered && (activeMetrics.id === "_all" || hovered.gauge_id === activeMetrics.id)) {
-      focusBytes = Math.min(cleaned, Number(hovered.size_bytes) || 0);
-      hoveredItemObj = hovered;
-    }
-  }
-  const otherCleaned = Math.max(0, cleaned - focusBytes);
-
-  const retArc = (retained / total) * C;
-  const clnArc = (otherCleaned / total) * C;
-  const focArc = (focusBytes / total) * C;
-  const targetCenterBytes = focusBytes > 0 ? focusBytes : cleaned;
-
-  animateRingTo(retArc, clnArc, focArc, targetCenterBytes, focusBytes > 0);
-
-  const kickerEl = document.getElementById("ring-center-kicker");
-  if (kickerEl) {
-    if (focusBytes > 0 && hoveredItemObj) {
-      kickerEl.textContent = `当前悬停项 (${ ((focusBytes / total) * 100).toFixed(1) }%)`;
-    } else {
-      kickerEl.textContent = activeMetrics.hasDone ? "本次已清掉空间" : "预计可清掉空间";
-    }
-  }
-  const waterEl = document.getElementById("ring-center-water");
-  if (waterEl) {
-    waterEl.textContent = activeMetrics.cleanedBytes > 0
-      ? `水位 ${activeMetrics.beforePct.toFixed(1)}% → ${activeMetrics.afterPct.toFixed(1)}%`
-      : `当前水位 ${activeMetrics.afterPct.toFixed(1)}%`;
-  }
-  const subEl = document.getElementById("ring-center-sub");
-  if (subEl) {
-    subEl.textContent = `可用 ${formatCompactBytes(activeMetrics.freeAfterBytes)} / 总 ${formatCompactBytes(total)}`;
-  }
-
-  // Left-column 3-segment legend values
-  const rlegRet = document.getElementById("rleg-retained");
-  if (rlegRet) rlegRet.textContent = formatCompactBytes(retained);
-  const rlegCln = document.getElementById("rleg-cleaned");
-  if (rlegCln) rlegCln.textContent = cleaned > 0 ? `-${formatCompactBytes(cleaned)}` : "0 GiB";
-  const rlegFree = document.getElementById("rleg-free");
-  if (rlegFree) rlegFree.textContent = formatCompactBytes(activeMetrics.freeAfterBytes);
-
-  // Right-column header & 4 KPI cards
-  const titleEl = document.getElementById("ring-active-title");
-  if (titleEl) titleEl.textContent = activeMetrics.shortTitle;
-  const mountEl = document.getElementById("ring-active-mount");
-  if (mountEl) mountEl.textContent = activeMetrics.mountPath || activeMetrics.id;
-  const badgeEl = document.getElementById("ring-active-badge");
-  if (badgeEl) {
-    const savedPct = ((cleaned / total) * 100).toFixed(1);
-    badgeEl.textContent = cleaned > 0
-      ? `本次净释放 -${formatCompactBytes(cleaned)} (${savedPct}% 容量)`
-      : `运行正常 · 无需清理`;
-  }
-
-  const rkpiTotal = document.getElementById("rkpi-total");
-  if (rkpiTotal) rkpiTotal.textContent = formatCompactBytes(total);
-  const rkpiBeforeUsed = document.getElementById("rkpi-before-used");
-  if (rkpiBeforeUsed) rkpiBeforeUsed.textContent = `清理前已用 ${formatCompactBytes(activeMetrics.beforeUsedBytes)}`;
-
-  const rkpiCleaned = document.getElementById("rkpi-cleaned");
-  if (rkpiCleaned) rkpiCleaned.textContent = cleaned > 0 ? `-${formatCompactBytes(cleaned)}` : "0 GiB";
-  const rkpiCleanedPct = document.getElementById("rkpi-cleaned-pct");
-  if (rkpiCleanedPct) rkpiCleanedPct.textContent = `占全盘总容量 ${((cleaned / total) * 100).toFixed(1)}%`;
-
-  const rkpiRetained = document.getElementById("rkpi-retained");
-  if (rkpiRetained) rkpiRetained.textContent = formatCompactBytes(retained);
-  const rkpiRetainedPct = document.getElementById("rkpi-retained-pct");
-  if (rkpiRetainedPct) rkpiRetainedPct.textContent = `水位 ${activeMetrics.beforePct.toFixed(1)}% → ${activeMetrics.afterPct.toFixed(1)}%`;
-
-  const rkpiFreeAfter = document.getElementById("rkpi-free-after");
-  if (rkpiFreeAfter) rkpiFreeAfter.textContent = formatCompactBytes(activeMetrics.freeAfterBytes);
-  const rkpiFreeBefore = document.getElementById("rkpi-free-before");
-  if (rkpiFreeBefore) rkpiFreeBefore.textContent = `清理前可用 ${formatCompactBytes(activeMetrics.freeBeforeBytes)}`;
-
-  if (onlyUpdateArcs) return;
-
-  // 3. Render Detailed Breakdown Lists directly below the Giant Ring (Strict 3-Column Alignment)
-  const detailBox = document.getElementById("ring-detailed-lists");
-  if (!detailBox) return;
-  detailBox.innerHTML = "";
-
-  const filteredCands = activeMetrics.id === "_all"
-    ? allCands
-    : allCands.filter(c => !c.gauge_id || c.gauge_id === activeMetrics.id);
-
-  const spaceCleanedItems = filteredCands
-    .filter(c => !state.whitelisted[c.id] && !c.whitelisted && (c.status === "done" || state.checked[c.id]) && (Number(c.size_bytes) || 0) > 0)
-    .sort((a, b) => (Number(b.size_bytes) || 0) - (Number(a.size_bytes) || 0));
-
-  const sysOptItems = filteredCands
-    .filter(c => !state.whitelisted[c.id] && !c.whitelisted && (c.status === "done" || state.checked[c.id]) && (Number(c.size_bytes) || 0) === 0);
-
-  const protectedItems = (activeMetrics.id === "_all"
-    ? allCands
-    : allCands.filter(c => !c.gauge_id || c.gauge_id === activeMetrics.id)
-  ).filter(c => state.whitelisted[c.id] || c.whitelisted);
-
-  const maxCleanedItemBytes = Math.max(1, ...spaceCleanedItems.map(c => Number(c.size_bytes) || 0));
-  const spaceSum = spaceCleanedItems.reduce((s, c) => s + (Number(c.size_bytes) || 0), 0);
-
-  // Section A: Space Cleanup Detailed Rows
-  const secSpace = document.createElement("section");
-  secSpace.className = "detail-group-block";
-  secSpace.innerHTML = `
-    <div class="detail-group-head">
-      <h3 class="detail-group-title">
-        <span style="color:var(--tone-sage)">●</span>
-        本次空间清理明细（${escapeHtml(activeMetrics.shortTitle)} · 共 ${spaceCleanedItems.length} 项 · 累计释放 <span class="mono" style="color:var(--tone-sage)">-${formatCompactBytes(spaceSum)}</span>）
-      </h3>
-      <span class="section-caption">按清理释放容量从大到小排列 · 悬停任意行可在上方圆环中以电光青高亮该项占比</span>
-    </div>
-    <div class="detail-rows" id="detail-space-rows"></div>
-  `;
-  detailBox.appendChild(secSpace);
-  const spaceRowsEl = secSpace.querySelector("#detail-space-rows");
-  if (spaceCleanedItems.length === 0) {
-    spaceRowsEl.innerHTML = `
-      <div class="detail-row">
-        <div class="drow-idx">—</div>
-        <div class="drow-main">
-          <div class="drow-title-line"><span class="drow-title-text">当前存储卷无需清理（空间水位健康）</span></div>
-          <div class="drow-sub-line">可点击右上方存储卷矩阵切换查看「全盘存储总览」「Mac 本机磁盘」「Sora4T 机械盘」「Sora2T 固态盘」或「NAS 主存储池」的清理明细。</div>
-        </div>
-        <div class="drow-right"><span class="drow-share">0 项待清理</span></div>
-      </div>
-    `;
-  } else {
-    spaceCleanedItems.forEach((c, idx) => {
-      const sz = Number(c.size_bytes) || 0;
-      const barPct = Math.max(4, (sz / maxCleanedItemBytes) * 100);
-      const poolPct = ((sz / total) * 100).toFixed(1);
-      const cleanSharePct = ((sz / Math.max(1, spaceSum)) * 100).toFixed(1);
-      const pName = shortPoolName(c.gauge_id) || c.domain || "系统";
-      const statusBadge = c.status === "done" ? "已清理释放" : "已勾选待清理";
-      const row = document.createElement("div");
-      row.className = "detail-row tabular";
-      row.onmouseenter = () => highlightRingItem(c.id, true);
-      row.onmouseleave = () => highlightRingItem(c.id, false);
-      row.innerHTML = `
-        <div class="drow-idx">${String(idx + 1).padStart(2, "0")}</div>
-        <div class="drow-main">
-          <div class="drow-title-line">
-            <span class="drow-title-text">${escapeHtml(stripLeadingEmoji(c.title))}</span>
-          </div>
-          <div class="drow-meta-strip">
-            <span class="pool-badge">${escapeHtml(pName)}</span>
-            <span class="tier-tag tier-A">${statusBadge}</span>
-            ${c.path ? `<code class="drow-path" title="${escapeHtml(c.path)}">${escapeHtml(c.path)}</code>` : ""}
-          </div>
-          <div class="drow-sub-line">${escapeHtml(c.evidence || "")}</div>
-        </div>
-        <div class="drow-right">
-          <div class="drow-amount is-space">-${formatBytes(sz)}</div>
-          <div class="drow-share">占盘 ${poolPct}% · 占清理 ${cleanSharePct}%</div>
-          <div class="drow-bar-track">
-            <div class="drow-bar-fill" style="width:${barPct.toFixed(1)}%"></div>
-          </div>
-        </div>
-      `;
-      spaceRowsEl.appendChild(row);
-    });
-  }
-
-  // Section B: System & Backup Optimization Rows
-  if (sysOptItems.length > 0) {
-    const secOpt = document.createElement("section");
-    secOpt.className = "detail-group-block";
-    secOpt.innerHTML = `
-      <div class="detail-group-head">
-        <h3 class="detail-group-title">
-          <span style="color:var(--accent-clay)">●</span>
-          系统、备份管线与远端治理优化（共 ${sysOptItems.length} 项）
-        </h3>
-        <span class="section-caption">修复底层重传病灶、活跃工作树隔离保护与远端分支整理</span>
-      </div>
-      <div class="detail-rows" id="detail-opt-rows"></div>
-    `;
-    detailBox.appendChild(secOpt);
-    const optRowsEl = secOpt.querySelector("#detail-opt-rows");
-    sysOptItems.forEach((c, idx) => {
-      const actMeta = actionTypeMeta(c);
-      const row = document.createElement("div");
-      row.className = "detail-row tabular";
-      row.innerHTML = `
-        <div class="drow-idx">${String(idx + 1).padStart(2, "0")}</div>
-        <div class="drow-main">
-          <div class="drow-title-line">
-            <span class="drow-title-text">${escapeHtml(stripLeadingEmoji(c.title))}</span>
-          </div>
-          <div class="drow-meta-strip">
-            <span class="action-tag ${actMeta.cls}">${actMeta.label}</span>
-            <span class="tier-tag tier-A">${c.status === "done" ? "已完成优化" : "待执行"}</span>
-            ${c.path ? `<code class="drow-path" title="${escapeHtml(c.path)}">${escapeHtml(c.path)}</code>` : ""}
-          </div>
-          <div class="drow-sub-line">${escapeHtml(c.evidence || "")}</div>
-        </div>
-        <div class="drow-right">
-          <div class="drow-amount" style="font-size:13px">${escapeHtml(c.metric_badge || "架构与配置修复")}</div>
-          <div class="drow-share">零空间风险 · 已生效</div>
-        </div>
-      `;
-      optRowsEl.appendChild(row);
-    });
-  }
-
-  // Section C: Protected & Whitelisted Items
-  if (protectedItems.length > 0) {
-    const secProt = document.createElement("section");
-    secProt.className = "detail-group-block";
-    secProt.innerHTML = `
-      <div class="detail-group-head">
-        <h3 class="detail-group-title">
-          <span style="color:var(--tone-ochre)">🛡️</span>
-          自动整树豁免与长期白名单保护（共 ${protectedItems.length} 项）
-        </h3>
-        <span class="section-caption">活跃 AI 工作树整树连带保护 + 用户指定跨盘双份备份目录永久豁免</span>
-      </div>
-      <div class="detail-rows" id="detail-prot-rows"></div>
-    `;
-    detailBox.appendChild(secProt);
-    const protRowsEl = secProt.querySelector("#detail-prot-rows");
-    protectedItems.forEach((c, idx) => {
-      const sz = Number(c.size_bytes) || 0;
-      const pName = shortPoolName(c.gauge_id) || c.domain || "系统";
-      const note = state.notes[c.id] || c.whitelist_note || "受白名单或活跃工作树整树保护";
-      const row = document.createElement("div");
-      row.className = "detail-row tabular";
-      row.innerHTML = `
-        <div class="drow-idx">🛡️</div>
-        <div class="drow-main">
-          <div class="drow-title-line">
-            <span class="drow-title-text">${escapeHtml(stripLeadingEmoji(c.title))}</span>
-          </div>
-          <div class="drow-meta-strip">
-            <span class="pool-badge">${escapeHtml(pName)}</span>
-            <span class="tier-tag tier-C">已豁免保护</span>
-            ${c.path ? `<code class="drow-path" title="${escapeHtml(c.path)}">${escapeHtml(c.path)}</code>` : ""}
-          </div>
-          <div class="drow-sub-line"><strong>保护原因：</strong>${escapeHtml(note)} · ${escapeHtml(c.evidence || "")}</div>
-        </div>
-        <div class="drow-right">
-          <div class="drow-amount" style="color:var(--ink-primary);font-size:13.5px">${sz > 0 ? `保留 ${formatBytes(sz)}` : "已锁定保护"}</div>
-          <div class="drow-share">100% 完好跳过</div>
-        </div>
-      `;
-      protRowsEl.appendChild(row);
-    });
-  }
+  document.getElementById("export-btn").addEventListener("click", copyExecutionPrompt);
+  document.getElementById("copy-confirm-btn").addEventListener("click", copyModalText);
+  document.getElementById("sheet-close").addEventListener("click", closeModal);
+  document.getElementById("prompt-modal").addEventListener("click", e => { if (e.target === e.currentTarget) closeModal(); });
+  document.getElementById("quick-btn").addEventListener("click", e => { e.stopPropagation(); toggleQuickMenu(); });
+  document.getElementById("quick-menu").addEventListener("click", e => {
+    e.stopPropagation();
+    const b = e.target.closest("[data-quick]");
+    if (b) handleQuick(b.getAttribute("data-quick"));
+  });
+  document.addEventListener("click", () => { if (menuOpen) toggleQuickMenu(false); });
+  document.addEventListener("keydown", e => {
+    if (e.key !== "Escape") return;
+    if (!document.getElementById("prompt-modal").hidden) closeModal();
+    else if (menuOpen) toggleQuickMenu(false);
+  });
+  window.addEventListener("resize", () => {
+    placeNavPill(false);
+    if (actionSeg) actionSeg.refresh();
+    if (themeSeg) themeSeg.refresh();
+  });
 }
 
 function bootstrapDashboard() {
-  try { initTheme(); } catch (e) {}
-  try { initGaugesDOM(); } catch (e) {}
+  const theme = initTheme();
+  hydrateIcons(document);
+  const timeEl = document.getElementById("brand-time");
+  if (timeEl) timeEl.textContent = "快照 " + formatTime(timeEl.getAttribute("data-raw"));
+  wireEvents();
+  themeSeg = setupSegmented(document.getElementById("theme-seg"), theme, setTheme);
+  actionSeg = setupSegmented(document.getElementById("action-seg"), currentAction, value => { currentAction = value; renderCandidates(); });
   try { renderDiff(); } catch (e) {}
-  try { renderCandidates(); } catch (e) {}
-  try { renderRingOverview(); } catch (e) {}
-  try { requestAnimationFrame(updateTabGlider); } catch (e) {}
+  let start = "overview";
+  try { const h = (location.hash || "").replace("#", ""); if (VIEWS.indexOf(h) >= 0) start = h; } catch (e) {}
+  currentView = "";
+  navigate(start, { keepScroll: true });
+  updateSelectionTotals(false);
+  requestAnimationFrame(() => placeNavPill(false));
 }
 
 bootstrapDashboard();
-window.addEventListener("resize", () => {
-  try { requestAnimationFrame(updateTabGlider); } catch (e) {}
-});
-window.addEventListener("DOMContentLoaded", () => {
-  const list = document.getElementById("candidate-list");
-  if (list && list.children.length === 0 && (REPORT_DATA.candidates || []).length > 0) {
-    bootstrapDashboard();
-  }
-});
 </script>
 </body>
 </html>
 """
+
+
+HTML_TEMPLATE = TEMPLATE_HEAD + TEMPLATE_BODY + TEMPLATE_SCRIPT_CORE + TEMPLATE_SCRIPT_OVERVIEW + TEMPLATE_SCRIPT_WORKBENCH
 
 
 def render_dashboard_html(
@@ -4064,15 +2306,23 @@ def render_dashboard_html(
         "candidates": snapshot.get("candidates", []),
         "diff": diff if diff is not None else snapshot.get("diff"),
     }
-    report_json = json.dumps(payload, ensure_ascii=False)
-    report_json = report_json.replace("</", "<\\/")
+    report_json = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
+
+    bounce_curve, bounce_ms = spring_easing(**SPRING_PRESETS["bounce"])
+    soft_curve, soft_ms = spring_easing(**SPRING_PRESETS["soft"])
 
     out = HTML_TEMPLATE
+    out = out.replace("__DARK_TOKENS__", DARK_TOKENS)
+    out = out.replace("__EASE_BOUNCE_MS__", str(bounce_ms))
+    out = out.replace("__EASE_SOFT_MS__", str(soft_ms))
+    out = out.replace("__EASE_BOUNCE__", bounce_curve)
+    out = out.replace("__EASE_SOFT__", soft_curve)
+    out = out.replace("__SPRING_PRESETS__", json.dumps(SPRING_PRESETS))
     out = out.replace("__TITLE__", html.escape(title))
     out = out.replace("__HEADING__", html.escape(title))
-    out = out.replace("__GENERATED_AT__", html.escape(generated_at or "刚刚"))
+    out = out.replace("__GENERATED_AT__", html.escape(generated_at))
+    # Report data goes in last so placeholder-like text inside user data is never rewritten.
     out = out.replace("__REPORT_JSON__", report_json)
-    out = out.replace("__JOIN_NEWLINE__", '"\\n"')
     return out
 
 

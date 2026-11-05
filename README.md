@@ -25,20 +25,19 @@
 ## ✨ Interactive HTML Waterline Dashboard
 
 <div align="center">
-  <img src="assets/dashboard-preview.svg" alt="Interactive HTML Waterline Dashboard Preview" width="100%" />
+  <img src="assets/dashboard-preview.png" alt="Interactive HTML Waterline Dashboard Preview" width="100%" />
 </div>
 
-Every audit generates a self-contained single-file `inspection-dashboard.html` crafted in an **Anthropic-inspired editorial Warm Obsidian / Warm Paper aesthetic** that opens in any standalone browser or sandboxed IDE preview pane:
+Every audit generates a self-contained single-file `inspection-dashboard.html` designed like a native macOS app. It opens in any standalone browser or sandboxed IDE preview pane:
 
-- 📊 **3-Level Dual-Color Proportional Storage Visualizer** — Uses a unified `Left = Total Capacity | Middle Progress Bar = [Post-Cleanup Used][Current Focused Item (Terracotta Clay #D97757)][Other Pool Cleanup (Sage Green #52A37A)][Originally Free] | Right = Post-Cleanup Used (%)` scale across all three layers:
-  1. **5-Pool Selector Strip & Main Storage Anatomy Bar** — Switch across local APFS volumes, NAS storage pools, and Proxmox VE disks with real-time byte-accurate percentages.
-  2. **Directory / Category Breakdown Mini-Charts** — Visualizes how much each directory group (`~/Library`, `~/Codex`, `/private/var`, NAS archives, PVE guests) shrinks relative to its pre-cleanup footprint.
-  3. **Inline Per-Card Proportional Impact Meter** — Every candidate card embeds its own proportional bar and dual-color badge (`当前项目 -X GiB | 本池总清理 -Y GiB`), linked via hover and checkbox toggles with spring-physics transitions.
-- 🌗 **Warm Obsidian Dark & Warm Paper Light Themes** — Defaults to low-glare Warm Obsidian dark mode (`#141413`) with one-click switching to Warm Paper light mode (`#FAF9F5`), plus multi-mode sorting (`Default`, `By Reclaimed Size`, `By Storage Pool`).
-- 📈 **Baseline Snapshot Diff Banner** — Automatically compares against your previous audit snapshot (`diff`) to spotlight which volumes grew and the top newly bloated directories.
-- ✏️ **Sandboxed-Safe `localStorage` State & Per-Item Custom Notes** — Checkboxes and inline adjustment notes (e.g., *"keep latest 2 versions"*, *"move to archive folder"*) persist across refreshes and degrade gracefully inside restricted `iframe[sandbox="allow-scripts"]` previews.
-- 🛡️ **Persistent Exemption Whitelist** — One-click `加入白名单` collapses intentionally kept directories into a Whitelisted tab and exports them to your Git-ignored `config/topology.local.json`.
-- 📋 **One-Click Execution Prompt Export** — Packages your checked item IDs, per-item custom notes, and newly whitelisted paths into a structured Markdown instruction ready to paste back into your AI agent.
+- 🍎 **macOS-style layout** — A translucent vibrancy sidebar with System Settings style icon tiles, large titles, inset grouped lists, and a floating glass action dock. Follows the system light/dark appearance automatically, with a manual Auto / Light / Dark switch.
+- 🎯 **Storage ring overview (inspired by CleanMyMac and macOS Storage settings)** — A large ring shows retained used space, the space your selection will free, and the hovered item's slice; a strip of per-volume mini rings switches between disks or the all-volumes total, and a segmented "space composition" bar shows what fills the disk.
+- 🪀 **Spring physics with a light rebound** — Every interactive change (ring arcs, numbers, segmented-control thumbs, sidebar selection, row expansion, the export sheet) runs on interruptible springs defined by Apple's damping ratio + response parameters. CSS transitions use spring curves pre-computed into `linear()` easing. Reduced motion, reduced transparency and increased contrast preferences are honoured.
+- 🎛️ **Approval workbench** — Per-domain lists grouped by risk tier (A / B / C), filters by action type (cleanup / organize / optimize / update), a live storage impact bar for the affected volume, and quick-select presets in the dock.
+- 📈 **Baseline snapshot diff** — Compares against your previous audit snapshot (`diff`) to spotlight which volumes grew and the top newly bloated directories.
+- ✏️ **Sandboxed-safe `localStorage` state & per-item notes** — Checkboxes and inline adjustment notes (e.g., *"keep latest 2 versions"*) persist across refreshes and degrade gracefully inside restricted `iframe[sandbox="allow-scripts"]` previews.
+- 🛡️ **Persistent exemption whitelist** — `加入白名单` moves an item to the Whitelist page and exports it for your Git-ignored `config/topology.local.json`.
+- 📋 **One-click execution prompt export** — Packages your checked item IDs, per-item notes, and newly whitelisted paths into a structured Markdown instruction ready to paste back into your AI agent.
 
 ---
 

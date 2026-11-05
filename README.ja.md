@@ -18,7 +18,7 @@
 **`full-stack-maintenance`** は、**macOS 本体とバックアップパイプライン**、**ローカルの複数リポジトリ・Worktree**、**GitHub リモートリポジトリ**、**NAS / Proxmox VE / Docker ホームラボ**の 4 領域を並列・読み取り専用で点検するマルチエージェント統合メンテナンススキルです。前回スナップショットとの差分比較（`diff`）、**リアルタイム容量シミュレーター付き単一 HTML ダッシュボード**の生成、および実行直前の**並行セッション安全チェック（`preflight`）**を提供します。
 
 <div align="center">
-  <img src="assets/dashboard-preview.svg" alt="Interactive HTML Waterline Dashboard Preview" width="100%" />
+  <img src="assets/dashboard-preview.png" alt="Interactive HTML Waterline Dashboard Preview" width="100%" />
 </div>
 
 ---
