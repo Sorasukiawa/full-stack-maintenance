@@ -233,6 +233,30 @@ class FullStackMaintenanceTests(unittest.TestCase):
         self.assertIn("ring-arc-cleaned", html_content)
         self.assertIn("mini-rings-strip", html_content)
         self.assertIn("animateRingTo", html_content)
+        self.assertIn("workbench-page", html_content)
+        self.assertNotRegex(html_content, r"__[A-Z_]+__")
+        self.assertIn("transition-timing-function: linear(0, 1)", html_content)
+
+    def test_dashboard_escapes_report_data_and_spring_curve(self) -> None:
+        snapshot = {
+            "generated_at": "2026-10-28T00:00:00+00:00",
+            "storage_gauges": [],
+            "candidates": [
+                {"id": "evil", "title": "</script><script>alert(1)</script> __TITLE__", "size_bytes": 0}
+            ],
+        }
+        html_text = render_dashboard.render_dashboard_html(snapshot, title="<b>巡检</b>")
+        self.assertEqual(html_text.count("</script>"), 1)
+        self.assertIn("&lt;b&gt;巡检&lt;/b&gt;", html_text)
+        self.assertIn("__TITLE__", html_text)  # placeholder text inside user data stays untouched
+
+        curve, duration_ms = render_dashboard.spring_easing(damping=0.72, response=0.42)
+        values = [float(v) for v in curve[len("linear("):-1].split(",")]
+        self.assertEqual(values[0], 0.0)
+        self.assertEqual(values[-1], 1.0)
+        self.assertGreater(max(values), 1.01)  # light rebound
+        self.assertLess(max(values), 1.08)
+        self.assertGreater(duration_ms, 300)
 
     def test_preflight_concurrency_and_whitelist_guards(self) -> None:
         safe_dir = self.root / "safe_old_cache"

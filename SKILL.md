@@ -6,7 +6,7 @@ compatibility: Requires Python 3.10+ (standard library only) and git. gh is opti
 argument-hint: "[inspect only | dashboard | execute <ids> | mac | projects | github | nas]"
 allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py scan-local *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py diff *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py preflight *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py *), Bash(git status *), Bash(git worktree list *), Bash(gh repo list *), Bash(gh run list *), Bash(df -h *), Bash(du -sh *)
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # 全栈多域巡检与交互式看板维护
@@ -69,8 +69,9 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py" \
 ```
 
 生成的 HTML 看板具备以下交互能力（详见 [看板与脚本契约](references/dashboard-and-cli.md)）：
-- **顶部红线水位实时模拟器**：勾选/取消下方卡片时，顶部各存储池进度条与预计可用空间实时动态增减。
-- **距上次巡检变化横幅**：直接展示各盘水位涨跌与增长最快的 Top 目录。
+- **存储环形总览**：首屏大圆环显示所选存储卷清理后已用、勾选将释放的空间和悬停项占比，上方存储卷小圆环可切换单盘或全部存储卷；勾选或取消时圆环、水位条和数字以带轻回弹的弹簧动效实时变化。
+- **按领域分页的勾选工作台**：侧栏切换 Mac、本地项目、GitHub、NAS 与白名单，按风险等级分组、按动作类型筛选，顶部水位条实时显示对所在存储卷的影响。
+- **距上次巡检基线变化**：直接展示各盘水位涨跌与增长最快的 Top 目录。
 - **浏览器本地记忆（`localStorage`）与单项微调备注框**：刷新页面不丢勾选；每项旁均可填写微调说明（如「只留最近 2 个版本」「移到 NAS 别直接删」）。
 - **一键复制执行指令**：将用户勾选的 ID、填写的单项微调备注、以及新加入白名单的条目一键打包成结构化 Markdown 指令回传给代理。
 
@@ -91,7 +92,7 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py" \
    - 用户在卡片备注框里写了微调要求的（如「留最新 3 个版本」），严格按备注缩小操作范围。
 2. **分级处置：全局纯缓存直删 vs. 闲置项目产物移入「外置盘隔离区（Quarantine）」**：
    - **全局纯缓存**（如 Homebrew 下载缓存、pip/npm 全局缓存、Xcode `Unavailable` 模拟器）：通过 `preflight` 后可直接清理，第一时间释放 Mac 空间。
-   - **闲置项目目录、旧 Worktree、测试载荷与 `artifacts`**：**严禁直接 `rm -rf`，也不放入本机废纸篓占本机空间**；优先通过 `quarantine` 子命令移入外置盘隔离区（如 `/Volumes/Sora2T/.Cleanup_Quarantine/<批次>/`，未挂载外置盘时退回 `~/.Cleanup_Quarantine/<批次>/`），并自动生成 `manifest.json` 与一键还原脚本 `restore.sh`：
+   - **闲置项目目录、旧 Worktree、测试载荷与 `artifacts`**：**严禁直接 `rm -rf`，也不放入本机废纸篓占本机空间**；优先通过 `quarantine` 子命令移入外置盘隔离区（如 `/Volumes/<外置盘>/.Cleanup_Quarantine/<批次>/`，未挂载外置盘时退回 `~/.Cleanup_Quarantine/<批次>/`），并自动生成 `manifest.json` 与一键还原脚本 `restore.sh`：
      ```bash
      python3 "${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py" quarantine \
        --config "${CLAUDE_SKILL_DIR}/config/topology.local.json" \
