@@ -6,7 +6,7 @@ compatibility: Requires Python 3.10+ (standard library only) and git. gh is opti
 argument-hint: "[inspect only | dashboard | execute <ids> | mac | projects | github | nas]"
 allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py scan-local *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py diff *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py preflight *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py *), Bash(git status *), Bash(git worktree list *), Bash(gh repo list *), Bash(gh run list *), Bash(df -h *), Bash(du -sh *)
 metadata:
-  version: "1.2.4"
+  version: "1.2.5"
 ---
 
 # 全栈多域巡检与交互式看板维护

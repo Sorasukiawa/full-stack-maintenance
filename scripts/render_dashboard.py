@@ -249,9 +249,9 @@ input, select, textarea { font: inherit; color: inherit; }
 .nav-item:hover:not(.active) { background: var(--fill-2); }
 .nav-item:active { transform: scale(0.97); transition-duration: 70ms; }
 .nav-count { margin-left: auto; font-size: 12.5px; color: var(--label-2); font-variant-numeric: tabular-nums; }
-.nav-label { font-size: 12px; font-weight: 600; color: var(--label-3); padding: 14px 10px 4px; }
-.sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 0 6px; }
-.sidebar-foot .foot-label { font-size: 12px; color: var(--label-3); font-weight: 600; padding: 0 4px; }
+.nav-label { font-size: 12px; font-weight: 600; color: var(--label-3); padding: 14px 8px 4px; }
+.sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 0; }
+.sidebar-foot .foot-label { font-size: 12px; color: var(--label-3); font-weight: 600; padding: 0 8px; }
 
 .main { min-width: 0; padding: 0 44px 150px; }
 .page { max-width: 1120px; margin: 0 auto; }
@@ -390,14 +390,18 @@ input, select, textarea { font: inherit; color: inherit; }
 .sbar > i { display: block; height: 100%; flex: none; width: 0; min-width: 0; border-radius: 999px; transition: width var(--dur-bounce) var(--ease-bounce), opacity 0.2s; }
 .sbar.lg { height: 20px; gap: 4px; }
 .sbar.dim > i:not(.on) { opacity: 0.28; }
-.comp-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, 22px); gap: 6px 20px; margin-top: 12px; font-size: 12.5px; color: var(--label-2); }
-.comp-legend > span { display: flex; align-items: center; gap: 7px; height: 22px; min-width: 0; cursor: default; transition: opacity 0.2s; }
+.comp-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 22px; gap: 6px 20px; margin-top: 12px; font-size: 12.5px; color: var(--label-2); }
+#comp-legend { grid-template-rows: repeat(3, 22px); }
+#impact-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; min-height: 22px; }
+.comp-legend > span { display: flex; align-items: center; gap: 7px; height: 22px; min-width: 0; cursor: default; transition: opacity 0.2s, transform var(--dur-soft) var(--ease-soft); }
+.comp-legend > span.on { transform: translateX(2px); }
 .comp-legend > span.is-empty { visibility: hidden; pointer-events: none; }
 .comp-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .comp-legend b, .comp-legend em { flex: none; white-space: nowrap; }
 .comp-legend b { color: var(--label); font-weight: 600; font-variant-numeric: tabular-nums; }
 .comp-legend em { font-style: normal; color: var(--green-text); font-weight: 600; }
-.comp-legend.dim > span:not(.on) { opacity: 0.4; }
+.comp-legend em:empty { display: none; }
+.comp-legend.dim > span:not(.on) { opacity: 0.38; }
 
 /* ---------- Sections & grouped lists ---------- */
 .section { margin-top: 38px; }
@@ -405,26 +409,27 @@ input, select, textarea { font: inherit; color: inherit; }
 .section-title { margin: 0; font-family: var(--font-display); font-size: 21px; font-weight: 800; letter-spacing: -0.014em; -webkit-text-stroke: 0.018em currentColor; }
 .section-note { font-size: 13px; color: var(--label-2); }
 .grouped { border-radius: 16px; overflow: hidden; }
-.cell { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 11px 16px; text-align: left; width: 100%; transition: background 0.15s; }
+.cell { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 11px 16px; text-align: left; width: 100%; transition: background 0.15s, transform 90ms var(--ease-out); }
 .cell + .cell::before { content: ""; position: absolute; top: 0; left: 56px; right: 0; height: 0.5px; background: var(--separator); }
 button.cell:hover, .cell.hoverable:hover { background: var(--fill-2); }
-button.cell:active { background: var(--fill); }
+button.cell:active { background: var(--fill); transform: scale(0.996); }
 .cell-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.cell-title { font-size: 14.5px; font-weight: 520; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cell-sub { font-size: 12.5px; color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell-title { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 14.5px; font-weight: 520; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cell-sub { font-size: 12.5px; line-height: 1.4; color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cell-sub code, .mono { font-family: var(--font-mono); font-size: 11.5px; }
-.cell-right { text-align: right; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
-.amount { font-size: 14.5px; font-weight: 620; white-space: nowrap; }
+.cell-right { text-align: right; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 5px; }
+.amount { font-size: 14.5px; font-weight: 620; line-height: 1.35; white-space: nowrap; }
 .amount.free { color: var(--green-text); }
 .amount.grow { color: var(--orange-text); }
 .amount.muted { color: var(--label-2); font-weight: 520; font-size: 13px; }
 .minibar { width: 92px; height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
-.minibar > i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--green), var(--teal)); }
+.minibar > i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--green), var(--teal)); transition: width var(--dur-bounce) var(--ease-bounce); }
 .minibar.grow > i { background: linear-gradient(90deg, var(--orange), var(--pink)); }
 .cell-more { justify-content: center; grid-template-columns: 1fr; color: var(--blue); font-size: 13.5px; font-weight: 560; text-align: center; }
 .empty { padding: 26px 20px; text-align: center; color: var(--label-2); font-size: 14px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .empty b { color: var(--label); font-size: 15px; }
-.diff-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.diff-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
 .diff-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 4px 12px; }
 .chip { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 8px; border-radius: 6px; font-size: 11.5px; font-weight: 620; white-space: nowrap; background: var(--fill-2); color: var(--label-2); }
 .chip.lg { height: 26px; padding: 0 11px; border-radius: 999px; font-size: 12.5px; }
@@ -434,7 +439,7 @@ button.cell:active { background: var(--fill); }
 
 /* ---------- Workbench ---------- */
 .impact { padding: 20px 22px; border-radius: 22px; margin-bottom: 14px; }
-.impact-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
+.impact-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 14px; }
 .impact-title { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -0.012em; }
 .impact-sub { margin: 2px 0 0; font-size: 13px; color: var(--label-2); font-variant-numeric: tabular-nums; }
 .sbar-used { background: var(--used); }
@@ -450,40 +455,44 @@ button.cell:active { background: var(--fill); }
 }
 .toolbar-right { display: flex; align-items: center; gap: 8px; }
 .list-group { margin-bottom: 26px; }
-.group-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 0 6px 8px; }
+.group-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 0 4px 8px; }
 .group-head h3 { margin: 0; font-size: 13.5px; font-weight: 620; color: var(--label-2); display: flex; align-items: center; gap: 8px; }
 .group-head span { font-size: 12.5px; color: var(--label-3); font-variant-numeric: tabular-nums; }
 .group-body { border-radius: 16px; overflow: hidden; }
 .row { position: relative; display: grid; grid-template-columns: 50px minmax(0, 1fr); transition: background 0.18s; }
-.row + .row::before { content: ""; position: absolute; top: 0; left: 50px; right: 0; height: 0.5px; background: var(--separator); }
+.row + .row::before { content: ""; position: absolute; top: 0; left: 90px; right: 0; height: 0.5px; background: var(--separator); }
 .row:hover { background: var(--fill-2); }
 .row.flash { animation: flash 1.2s var(--ease-out); }
 @keyframes flash { 0%, 30% { background: color-mix(in srgb, var(--blue) 16%, transparent); } 100% { background: transparent; } }
-.check { width: 50px; display: grid; place-items: start center; padding-top: 15px; align-self: stretch; }
+.check { width: 50px; display: grid; place-items: center; align-self: stretch; }
+.check:hover:not(:disabled) svg { box-shadow: inset 0 0 0 1.5px var(--blue); }
+.check:active:not(:disabled) svg { transform: scale(0.9); }
 .check svg {
   width: 22px; height: 22px; padding: 3px; border-radius: 50%; overflow: visible;
   fill: none; stroke: #fff; stroke-width: 2.8; stroke-linecap: round; stroke-linejoin: round;
-  box-shadow: inset 0 0 0 1.5px var(--check-border); transition: background 0.18s, box-shadow 0.18s; will-change: transform;
+  box-shadow: inset 0 0 0 1.5px var(--check-border); transition: background 0.18s, box-shadow 0.18s, transform 90ms var(--ease-out); will-change: transform;
 }
-.check svg path { stroke-dasharray: 22; stroke-dashoffset: 22; transition: stroke-dashoffset 0.3s var(--ease-out) 0.03s; }
+.check svg path { stroke-dasharray: 22; stroke-dashoffset: 22; transition: stroke-dashoffset 0.28s var(--ease-out) 0.02s; }
 .check[aria-checked="true"] svg { background: var(--green); box-shadow: inset 0 0 0 1.5px var(--green); }
+.check[aria-checked="true"]:hover:not(:disabled) svg { filter: brightness(1.05); box-shadow: inset 0 0 0 1.5px var(--green); }
 .check[aria-checked="true"] svg path { stroke-dashoffset: 0; }
 .check:disabled { cursor: default; }
 .row.is-done .check svg { background: var(--label-3); box-shadow: none; }
 .row.is-done .check svg path { stroke-dashoffset: 0; }
 .row.is-protected .check svg { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--orange) 60%, transparent); }
-.row-main { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 11px 14px 11px 0; text-align: left; width: 100%; min-width: 0; }
+.row-main { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 11px 16px 11px 0; text-align: left; width: 100%; min-width: 0; }
 .row-text { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .row-title { font-size: 14.5px; font-weight: 520; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row-sub { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; font-size: 12px; color: var(--label-2); }
 .row-sub .cat { overflow: hidden; text-overflow: ellipsis; }
-.row-size { font-size: 14px; font-weight: 620; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.row-size.badge { max-width: 170px; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; font-weight: 520; color: var(--label-2); }
-.chev { color: var(--label-3); display: grid; transition: transform var(--dur-bounce) var(--ease-bounce); }
+.row-size { font-size: 14.5px; font-weight: 620; line-height: 1.35; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.row-size.badge { max-width: 170px; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 520; color: var(--label-2); }
+.chev { color: var(--label-3); display: grid; place-items: center; width: 16px; height: 16px; transition: transform var(--dur-bounce) var(--ease-bounce), color 0.18s; }
+.row-main:hover .chev { color: var(--label-2); }
 .chev .ico { width: 14px; height: 14px; stroke-width: 2.2; }
-.row-main[aria-expanded="true"] .chev { transform: rotate(90deg); }
-.row-detail { grid-column: 2; overflow: hidden; }
-.row-detail-inner { padding: 0 16px 16px 40px; }
+.row-main[aria-expanded="true"] .chev { transform: rotate(90deg); color: var(--label); }
+.row-detail { grid-column: 2; overflow: hidden; will-change: height; }
+.row-detail-inner { padding: 2px 16px 16px 40px; transform-origin: top center; will-change: opacity, transform; }
 .evidence { margin: 0 0 10px; max-width: 82ch; font-size: 13.5px; line-height: 1.6; color: var(--label-2); }
 .path-line code { display: inline-block; max-width: 100%; padding: 3px 8px; border-radius: 6px; background: var(--fill-2); font: 12px/1.5 var(--font-mono); color: var(--label-2); word-break: break-all; }
 .note-field { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; font-size: 12px; font-weight: 600; color: var(--label-2); }
@@ -724,7 +733,7 @@ TEMPLATE_BODY = r"""<body>
             </select>
             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
           </label>
-          <button type="button" class="btn btn-plain" id="select-visible-btn">全选本页</button>
+          <button type="button" class="btn" id="select-visible-btn">全选本页</button>
         </div>
       </div>
 
@@ -1201,14 +1210,21 @@ function drawRing(canvas, segments, geom) {
     const c2 = seg.colors[1] || c1;
     let stroke = c1;
     if (c2 !== c1 && ctx.createConicGradient) {
-      const grad = ctx.createConicGradient(a0 - capAng, c, c);
+      const pad = Math.min(0.28, capAng * 1.6 + 0.08);
+      const grad = ctx.createConicGradient(a0 - pad, c, c);
+      const s0 = clamp((pad - capAng * 0.85) / TAU, 0, 0.25);
+      const s1 = clamp((pad + frac * TAU + capAng * 0.95) / TAU, s0 + 0.02, 0.995);
       grad.addColorStop(0, c1);
-      grad.addColorStop(clamp((frac * TAU + capAng) / TAU, 0.02, 1), c2);
+      if (s0 > 0.002) grad.addColorStop(s0, c1);
+      grad.addColorStop(s1, c2);
+      grad.addColorStop(1, c2);
       stroke = grad;
     }
     // A segment that starts on top of another gets a soft shadow under its rounded head.
     if (offset > 0.0008) {
+      const fade = clamp(frac * 18, 0, 1);
       ctx.save();
+      ctx.globalAlpha = fade;
       ctx.shadowColor = ringPaintTheme.dark ? "rgba(0, 0, 0, 0.55)" : "rgba(0, 0, 0, 0.22)";
       ctx.shadowBlur = w * 0.32;
       ctx.fillStyle = c1;
@@ -1506,14 +1522,23 @@ function renderRingOverview(onlyUpdateArcs) {
   const retained = Math.min(total, active.retainedBytes);
   const cleaned = Math.min(total - retained, active.cleanedBytes);
   let focusBytes = 0;
+  let focusFromRetained = false;
   let hovered = hoveredRingItemId ? candById[hoveredRingItemId] : null;
-  if (hovered && (active.id === "_all" || hovered.gauge_id === active.id) && (isChecked(hovered) || isDone(hovered))) {
-    focusBytes = Math.min(cleaned, sizeOf(hovered));
+  if (hovered && (active.id === "_all" || hovered.gauge_id === active.id) && sizeOf(hovered) > 0) {
+    if (isChecked(hovered) || isDone(hovered)) {
+      focusBytes = Math.min(cleaned, sizeOf(hovered));
+    } else if (isWl(hovered)) {
+      focusBytes = Math.min(retained, sizeOf(hovered));
+      focusFromRetained = focusBytes > 0;
+    } else {
+      hovered = null;
+    }
   } else {
     hovered = null;
   }
-  const other = Math.max(0, cleaned - focusBytes);
-  animateRingTo(retained / total, other / total, focusBytes / total, focusBytes > 0 ? focusBytes : cleaned, focusBytes > 0);
+  const retArc = focusFromRetained ? Math.max(0, retained - focusBytes) : retained;
+  const other = focusFromRetained ? cleaned : Math.max(0, cleaned - focusBytes);
+  animateRingTo(retArc / total, other / total, focusBytes / total, focusBytes > 0 ? focusBytes : cleaned, focusBytes > 0);
 
   const setText = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
   const setHtml = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
@@ -1652,6 +1677,8 @@ function renderOverviewLists(active) {
     const k = btn.getAttribute("data-more");
     if (expandedOverviewGroups.has(k)) expandedOverviewGroups.delete(k); else expandedOverviewGroups.add(k);
     renderOverviewLists(active);
+    const nextBtn = box.querySelector(`[data-more="${k}"]`);
+    if (nextBtn) popScale(nextBtn, popSprings, 0.96);
   }));
   box.querySelectorAll("[data-goto]").forEach(btn => btn.addEventListener("click", () => navigate(btn.getAttribute("data-goto"))));
 }
@@ -1685,7 +1712,7 @@ function renderDiff() {
       const grow = d > 0;
       return `<div class="cell hoverable">
           <span class="app-icon tint-${grow ? "orange" : "green"}">${icon("gauge")}</span>
-          <span class="cell-text"><span class="cell-title">${escapeHtml(poolTitle(gaugeById[x.id] || { id: x.id, label: x.label || x.id }))}</span>
+          <span class="cell-text"><span class="cell-title"><span class="cell-title-text">${escapeHtml(poolTitle(gaugeById[x.id] || { id: x.id, label: x.label || x.id }))}</span></span>
             <span class="cell-sub">已用空间${grow ? "增加" : (d < 0 ? "减少" : "没有变化")}</span></span>
           <span class="cell-right"><span class="amount ${grow ? "grow" : "free"}">${grow ? "+" : (d < 0 ? "−" : "")}${formatBytes(Math.abs(d))}</span>
             <span class="minibar ${grow ? "grow" : ""}"><i style="width:${Math.max(4, pct(Math.abs(d), maxG)).toFixed(1)}%"></i></span></span>
@@ -1699,10 +1726,10 @@ function renderDiff() {
       const d = Number(x.delta_bytes) || 0;
       return `<div class="cell hoverable" title="${escapeHtml(x.path)}">
           <span class="app-icon tint-${x.is_new ? "pink" : "indigo"}">${icon("folder")}</span>
-          <span class="cell-text"><span class="cell-title">${escapeHtml(pathName(x.path))}</span>
+          <span class="cell-text"><span class="cell-title"><span class="cell-title-text">${escapeHtml(pathName(x.path))}</span>${x.is_new ? '<span class="chip warn">新出现</span>' : ""}</span>
             <span class="cell-sub"><code>${escapeHtml(x.path)}</code></span></span>
           <span class="cell-right"><span class="amount grow">+${formatBytes(Math.abs(d))}</span>
-            ${x.is_new ? '<span class="chip warn">新出现</span>' : `<span class="minibar grow"><i style="width:${Math.max(4, pct(Math.abs(d), maxP)).toFixed(1)}%"></i></span>`}</span>
+            <span class="minibar grow"><i style="width:${Math.max(4, pct(Math.abs(d), maxP)).toFixed(1)}%"></i></span></span>
         </div>`;
     }).join("") : `<div class="empty">没有目录增长数据</div>`;
   }
@@ -1770,10 +1797,16 @@ function navigate(view, opts) {
 function switchMainView(mode) { navigate(mode === "workbench" ? "all" : "overview"); }
 
 function pickPoolForView() {
+  const firstVisible = CANDS.find(c => matchesView(c, currentView) && c.gauge_id && gaugeById[c.gauge_id] && tierOf(c) === "A")
+    || CANDS.find(c => matchesView(c, currentView) && c.gauge_id && gaugeById[c.gauge_id]);
+  if (firstVisible && currentView !== "all") {
+    activePoolId = firstVisible.gauge_id;
+    return;
+  }
   const byPool = {};
   CANDS.forEach(c => {
     if (!c.gauge_id || !gaugeById[c.gauge_id] || !matchesView(c, currentView)) return;
-    byPool[c.gauge_id] = (byPool[c.gauge_id] || 0) + (isChecked(c) ? sizeOf(c) : 0) + 1;
+    byPool[c.gauge_id] = (byPool[c.gauge_id] || 0) + (tierOf(c) === "A" ? 1e15 : 0) + (isChecked(c) ? sizeOf(c) : 0) + 1;
   });
   const best = Object.keys(byPool).sort((a, b) => byPool[b] - byPool[a])[0];
   if (best) activePoolId = best;
@@ -1805,11 +1838,13 @@ function setupSegmented(el, initial, onChange) {
   el.addEventListener("click", e => {
     const b = e.target.closest("button[data-value]");
     if (!b) return;
-    place(b.getAttribute("data-value"), true);
-    onChange(b.getAttribute("data-value"));
+    const val = b.getAttribute("data-value");
+    const changed = val !== current;
+    place(val, true);
+    if (changed) onChange(val);
   });
   place(initial, false);
-  return { place, refresh: () => place(current, false) };
+  return { place, refresh: animate => place(current, Boolean(animate && placed)) };
 }
 let actionSeg = null;
 let themeSeg = null;
@@ -1835,6 +1870,19 @@ function initTheme() {
 /* ================= Workbench list ================= */
 const rowSprings = new Map();
 const expandedRows = new Set();
+const listSpring = new Spring(1, SPRING.soft, v => {
+  const list = document.getElementById("candidate-list");
+  if (!list) return;
+  list.style.opacity = v >= 0.999 ? "" : clamp(v, 0, 1).toFixed(3);
+  list.style.transform = v >= 0.999 ? "" : "translateY(" + ((1 - v) * 8).toFixed(2) + "px)";
+});
+
+function animateListTransition() {
+  if (REDUCED_MOTION) return;
+  listSpring.value = 0.25;
+  listSpring.velocity = 0;
+  listSpring.to(1, SPRING.soft);
+}
 
 function sortItems(items) {
   const bySize = (a, b) => sizeOf(b) - sizeOf(a);
@@ -1926,28 +1974,47 @@ function setExpanded(id, open, instant) {
   const detail = document.getElementById("detail-" + id);
   const card = document.getElementById("card-" + id);
   if (!detail || !card) return;
+  const inner = detail.querySelector(".row-detail-inner");
   const btn = card.querySelector(".row-main");
   if (btn) btn.setAttribute("aria-expanded", String(open));
   if (open) expandedRows.add(id); else expandedRows.delete(id);
   let s = rowSprings.get(id);
   if (!s || !document.body.contains(s.el)) {
-    s = new Spring(0, SPRING.soft, v => { detail.style.height = Math.max(0, v).toFixed(2) + "px"; }, { tolerance: 0.5 });
+    if (s) springLoop.active.delete(s);
+    s = new Spring(0, SPRING.soft, v => {
+      const h = Math.max(0, v);
+      detail.style.height = h.toFixed(2) + "px";
+      if (inner && s.span > 0) {
+        const p = clamp(h / s.span, 0, 1);
+        inner.style.opacity = p >= 0.995 ? "" : p.toFixed(3);
+        inner.style.transform = p >= 0.995 ? "" : "translateY(" + ((1 - p) * -4).toFixed(2) + "px)";
+      }
+    }, { tolerance: 0.5 });
     s.el = detail;
+    s.span = 1;
     rowSprings.set(id, s);
   }
+  const ClearInner = () => { if (inner) { inner.style.opacity = ""; inner.style.transform = ""; } };
   if (open) {
-    const startH = detail.hidden ? 0 : detail.offsetHeight;
+    const inFlight = springLoop.active.has(s) && !detail.hidden;
+    const startH = detail.hidden ? 0 : (inFlight ? s.value : detail.offsetHeight);
     detail.hidden = false;
     detail.style.height = "auto";
-    const target = detail.scrollHeight;
-    detail.style.height = startH + "px";
-    s.value = startH;
-    s.onRest = () => { if (expandedRows.has(id)) detail.style.height = "auto"; };
-    if (instant) s.jump(target); else s.to(target, SPRING.soft);
+    const target = Math.max(1, detail.scrollHeight);
+    s.span = target;
+    detail.style.height = startH.toFixed(2) + "px";
+    if (!inFlight) s.value = startH;
+    s.onRest = () => { if (expandedRows.has(id)) { detail.style.height = "auto"; ClearInner(); } };
+    if (instant) { s.jump(target); detail.style.height = "auto"; ClearInner(); }
+    else s.to(target, SPRING.soft);
   } else {
-    s.value = detail.offsetHeight;
-    s.onRest = () => { if (!expandedRows.has(id)) { detail.hidden = true; detail.style.height = ""; } };
-    if (instant) s.jump(0); else s.to(0, SPRING.soft);
+    const inFlight = springLoop.active.has(s) && !detail.hidden;
+    const startH = inFlight ? s.value : detail.offsetHeight;
+    s.span = Math.max(1, s.span || startH || 1);
+    if (!inFlight) s.value = startH;
+    s.onRest = () => { if (!expandedRows.has(id)) { detail.hidden = true; detail.style.height = ""; ClearInner(); } };
+    if (instant) { s.jump(0); detail.hidden = true; detail.style.height = ""; ClearInner(); }
+    else s.to(0, SPRING.soft);
   }
 }
 
@@ -2137,7 +2204,7 @@ function updateSelectionTotals(bump) {
   updateCounts();
   updateListHeader();
   updateImpact();
-  if (actionSeg && currentView !== "overview") actionSeg.refresh();
+  if (actionSeg && currentView !== "overview") actionSeg.refresh(true);
   try { renderRingOverview(currentView !== "overview"); } catch (e) {}
 }
 
@@ -2360,14 +2427,19 @@ function wireEvents() {
   list.addEventListener("mouseover", e => {
     const row = e.target.closest(".row");
     const id = row ? row.getAttribute("data-id") : null;
-    if (id && id !== focusedItemId) { focusedItemId = id; updateImpact(); }
+    if (id && id !== focusedItemId) {
+      focusedItemId = id;
+      const c = candById[id];
+      if (c && c.gauge_id && gaugeById[c.gauge_id]) activePoolId = c.gauge_id;
+      updateImpact();
+    }
   });
   list.addEventListener("mouseleave", () => { if (focusedItemId) { focusedItemId = null; updateImpact(); } });
 
   const poolSel = document.getElementById("impact-pool");
   poolSel.innerHTML = GAUGES.map(g => `<option value="${escapeHtml(g.id)}">${escapeHtml(poolTitle(g))}</option>`).join("");
   poolSel.addEventListener("change", () => { activePoolId = poolSel.value; lastToggledId = null; updateImpact(); });
-  document.getElementById("sort-select").addEventListener("change", e => { currentSort = e.target.value; renderCandidates(); });
+  document.getElementById("sort-select").addEventListener("change", e => { currentSort = e.target.value; renderCandidates(); animateListTransition(); });
   document.getElementById("select-visible-btn").addEventListener("click", selectVisibleCategory);
 
   document.getElementById("export-btn").addEventListener("click", copyExecutionPrompt);
@@ -2391,8 +2463,8 @@ function wireEvents() {
   if (window.ResizeObserver) new ResizeObserver(() => paintRing()).observe(document.getElementById("ring-canvas"));
   window.addEventListener("resize", () => {
     placeNavPill(false);
-    if (actionSeg) actionSeg.refresh();
-    if (themeSeg) themeSeg.refresh();
+    if (actionSeg) actionSeg.refresh(false);
+    if (themeSeg) themeSeg.refresh(false);
   });
 }
 
@@ -2404,7 +2476,7 @@ function bootstrapDashboard() {
   if (timeEl) timeEl.textContent = "快照 " + formatTime(timeEl.getAttribute("data-raw"));
   wireEvents();
   themeSeg = setupSegmented(document.getElementById("theme-seg"), theme, setTheme);
-  actionSeg = setupSegmented(document.getElementById("action-seg"), currentAction, value => { currentAction = value; renderCandidates(); });
+  actionSeg = setupSegmented(document.getElementById("action-seg"), currentAction, value => { currentAction = value; renderCandidates(); animateListTransition(); });
   try { renderDiff(); } catch (e) {}
   let start = "overview";
   try { const h = (location.hash || "").replace("#", ""); if (VIEWS.indexOf(h) >= 0) start = h; } catch (e) {}
