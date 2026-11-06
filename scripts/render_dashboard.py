@@ -356,7 +356,7 @@ input, select, textarea { font: inherit; color: inherit; }
   will-change: transform, opacity;
 }
 .nt-slot > .nt-old { pointer-events: none; user-select: none; }
-.nt-slot.nt-exit { overflow: hidden; }
+.nt-slot.nt-exit, .nt-slot.nt-enter { overflow: visible; }
 
 /* ---------- Volume strip (mini rings) ---------- */
 .volume-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(172px, 1fr)); gap: 10px; margin-bottom: 22px; }
@@ -927,15 +927,16 @@ function popScale(el, springStore, from) {
 }
 const popSprings = new WeakMap();
 
-/* Apple SwiftUI .contentTransition(.numericText()) per-digit spring transition.
- * Driven by the shared requestAnimationFrame springLoop so every digit accelerates smoothly
- * from rest, rolls 0.82em vertically with directional motion blur, and cascades left-to-right. */
+/* Apple SwiftUI .contentTransition(.numericText()) per-digit transition.
+ * Verified against 60fps reference recordings (both increasing and decreasing):
+ * Baseline-pinned (50% 86%) + cap-pinned (50% 18%) trajectories so digits never drop below the baseline
+ * or collide with surrounding labels, paired with directional Gaussian blur dissolve/focus. */
 const numericState = new WeakMap();
-const NUMERIC_SLOT_DUR = 0.38;
-const NUMERIC_STAGGER = 0.058;
+const NUMERIC_SLOT_DUR = 0.30;
+const NUMERIC_STAGGER = 0.024;
 function numericEase(u) {
   const x = clamp(u, 0, 1);
-  return 0.5 - 0.5 * Math.cos(Math.PI * Math.pow(x, 0.86));
+  return 0.5 - 0.5 * Math.cos(Math.PI * Math.pow(x, 0.84));
 }
 function splitNumericParts(str) {
   const m = String(str).match(/^([+\-−]?\d+(?:\.\d+)?)(.*)$/);
@@ -956,116 +957,51 @@ function parseNumericHint(str, hint) {
 }
 function applyNumericSlotFrame(slot, dir, blurPeak) {
   const p = clamp(slot.v, 0, 1);
-  const travel = 0.82;
-  const bell = Math.sin(p * Math.PI);
+  const wCh = slot.wCh || 0.6;
   if (slot.isExit) {
-    slot.slotEl.style.maxWidth = ((1 - p) * 0.62).toFixed(3) + "em";
+    slot.slotEl.style.width = ((1 - p) * wCh).toFixed(3) + "em";
+  } else if (slot.isEnter) {
+    slot.slotEl.style.width = (p * wCh).toFixed(3) + "em";
   }
+  // Decreasing (dir < 0): old shrinks uniformly onto bottom baseline (50% 86%) & dissolves into blur;
+  //   new condenses from top cap-line (50% 16%, y = -0.22em -> 0) down onto the baseline.
+  // Increasing (dir > 0): old shrinks uniformly toward top cap-line (50% 16%, y = 0 -> -0.22em) & dissolves;
+  //   new grows uniformly up from bottom baseline (50% 86%).
+  const up = dir > 0;
   if (slot.oldEl) {
-    const y0 = slot.y0 || 0;
-    const yOld = (y0 - dir * p * travel).toFixed(3);
-    const scOld = (1 - 0.24 * p).toFixed(3);
-    const opOld = clamp(Math.pow(1 - p, 0.92), 0, 1).toFixed(3);
+    const q = clamp(p / 0.64, 0, 1);
+    const scOld = (1 - 0.52 * q).toFixed(3);
+    const yOld = up ? (-0.22 * q).toFixed(3) : (0.04 * q).toFixed(3);
+    const opOld = q >= 1 ? "0" : clamp(Math.pow(1 - q, 0.90), 0, 1).toFixed(3);
+    slot.oldEl.style.transformOrigin = up ? "50% 16%" : "50% 86%";
     slot.oldEl.style.transform = `translate3d(0,${yOld}em,0) scale(${scOld})`;
     slot.oldEl.style.opacity = opOld;
     if (blurPeak > 0) {
-      const bOld = Math.max(bell * 0.85, p * 0.9) * blurPeak;
-      slot.oldEl.style.filter = bOld > 0.2 ? `blur(${bOld.toFixed(2)}px)` : "none";
+      const bOld = Math.pow(q, 0.95) * blurPeak;
+      slot.oldEl.style.filter = bOld > 0.18 && q < 1 ? `blur(${bOld.toFixed(2)}px)` : "none";
     }
   }
   if (slot.newEl) {
-    const yNew = (dir * (1 - p) * travel).toFixed(3);
-    const scNew = (0.76 + 0.24 * p).toFixed(3);
-    const opNew = clamp(Math.pow(p, 0.78), 0, 1).toFixed(3);
+    const r = clamp((p - 0.16) / 0.84, 0, 1);
+    const rEase = 1 - Math.pow(1 - r, 1.65);
+    const scNew = (0.48 + 0.52 * rEase).toFixed(3);
+    const yNew = up ? (0.04 * (1 - rEase)).toFixed(3) : (-0.22 * (1 - rEase)).toFixed(3);
+    const opNew = r <= 0 ? "0" : clamp(Math.pow(clamp(r / 0.46, 0, 1), 0.78), 0, 1).toFixed(3);
+    slot.newEl.style.transformOrigin = up ? "50% 86%" : "50% 16%";
     slot.newEl.style.transform = `translate3d(0,${yNew}em,0) scale(${scNew})`;
     slot.newEl.style.opacity = opNew;
     if (blurPeak > 0) {
-      const bNew = Math.max(bell * 0.9, (1 - p) * 0.85) * blurPeak;
-      slot.newEl.style.filter = bNew > 0.2 && p < 0.96 ? `blur(${bNew.toFixed(2)}px)` : "none";
+      const bNew = Math.pow(1 - r, 1.25) * blurPeak;
+      slot.newEl.style.filter = bNew > 0.18 && r < 0.98 ? `blur(${bNew.toFixed(2)}px)` : "none";
     }
   }
 }
-function setNumericText(el, nextText, numericHint) {
-  if (!el) return;
-  const next = String(nextText == null ? "" : nextText);
-  let info = numericState.get(el);
-  const nextVal = parseNumericHint(next, numericHint);
-  if (!info) {
-    el.textContent = next;
-    info = {
-      el,
-      text: next,
-      fromText: next,
-      val: nextVal,
-      fromVal: nextVal,
-      dir: 1,
-      elapsed: 0,
-      blurPeak: el.id === "ring-center-num" ? 3.2 : (el.id === "selected-gib" || (el.id && el.id.startsWith("rkpi-")) ? 1.5 : 0),
-      slots: [],
-      step(dt) {
-        this.elapsed += dt;
-        let activeCount = 0;
-        for (let i = 0; i < this.slots.length; i++) {
-          const s = this.slots[i];
-          if (s.done) continue;
-          if (this.elapsed <= s.delay) {
-            activeCount++;
-            continue;
-          }
-          const u = (this.elapsed - s.delay) / s.dur;
-          if (u >= 1) {
-            s.u = 1;
-            s.v = 1;
-            s.done = true;
-          } else {
-            s.u = u;
-            s.v = s.v0 + (1 - s.v0) * numericEase(u);
-            activeCount++;
-          }
-          applyNumericSlotFrame(s, this.dir, this.blurPeak);
-        }
-        if (activeCount === 0) {
-          this.el.textContent = this.text;
-          this.slots = [];
-          return false;
-        }
-        return true;
-      }
-    };
-    numericState.set(el, info);
-    return;
-  }
-  if (info.text === next) {
-    info.val = nextVal;
-    return;
-  }
-  const inFlight = springLoop.active.has(info);
-  const prev = (inFlight && info.elapsed < 0.065 && info.fromText) ? info.fromText : info.text;
-  const baseVal = (inFlight && info.elapsed < 0.065 && info.fromVal != null) ? info.fromVal : info.val;
-  if (prev === next) {
-    info.text = next;
-    info.val = nextVal;
-    if (!inFlight) el.textContent = next;
-    return;
-  }
-  const prevDir = info.dir || 1;
-  const dir = nextVal > baseVal ? 1 : (nextVal < baseVal ? -1 : (next > prev ? 1 : -1));
-  const prevSlotByKey = {};
-  if (inFlight && info.slots.length) {
-    info.slots.forEach(s => { if (s.key) prevSlotByKey[s.key] = s; });
-  }
-  info.fromText = prev;
-  info.fromVal = baseVal;
-  info.text = next;
-  info.val = nextVal;
+function runSingleNumericStep(info, next, dir) {
+  const el = info.el;
+  const prev = info.shownText || info.text || next;
+  info.shownText = next;
   info.dir = dir;
   info.elapsed = 0;
-  if (REDUCED_MOTION || !window.requestAnimationFrame) {
-    springLoop.active.delete(info);
-    info.slots = [];
-    el.textContent = next;
-    return;
-  }
   const pA = splitNumericParts(prev);
   const pB = splitNumericParts(next);
   if (!pA || !pB) {
@@ -1073,6 +1009,10 @@ function setNumericText(el, nextText, numericHint) {
     info.slots = [];
     el.textContent = next;
     return;
+  }
+  const prevSlotByKey = {};
+  if (springLoop.active.has(info) && info.slots.length) {
+    info.slots.forEach(s => { if (s.key) prevSlotByKey[s.key] = s; });
   }
   const maxInt = Math.max(pA.intPart.length, pB.intPart.length);
   const iA = pA.intPart.padStart(maxInt, " ");
@@ -1087,23 +1027,21 @@ function setNumericText(el, nextText, numericHint) {
   const slots = [];
   let stagger = 0;
   const addAnimSlot = (key, ca, cb, isExit) => {
+    const isEnter = !ca && Boolean(cb);
     const slotEl = document.createElement("span");
-    slotEl.className = "nt-slot is-anim" + (isExit ? " nt-exit" : "");
+    slotEl.className = "nt-slot is-anim" + (isExit ? " nt-exit" : (isEnter ? " nt-enter" : ""));
     let oldEl = null, newEl = null;
     const reused = prevSlotByKey[key];
     const keepFlight = reused && !reused.done && reused.cb === cb && reused.ca;
     let effCa = ca;
-    let y0 = 0;
     let v0 = 0;
     if (keepFlight) {
       effCa = reused.ca;
       v0 = reused.v;
-    } else if (reused && !reused.done && reused.v < 0.38 && reused.ca) {
+    } else if (reused && !reused.done && reused.v < 0.32 && reused.ca) {
       effCa = reused.ca;
-      y0 = -prevDir * reused.v * 0.82;
     } else if (reused && !reused.done && reused.cb) {
       effCa = reused.cb;
-      y0 = prevDir * (1 - reused.v) * 0.82;
     }
     if (effCa) {
       oldEl = document.createElement("span");
@@ -1119,6 +1057,8 @@ function setNumericText(el, nextText, numericHint) {
       slotEl.appendChild(newEl);
     }
     wrap.appendChild(slotEl);
+    const refCh = cb || effCa || "0";
+    const wCh = refCh === "." ? 0.28 : 0.60;
     const s = {
       key,
       ca: effCa,
@@ -1127,12 +1067,13 @@ function setNumericText(el, nextText, numericHint) {
       oldEl,
       newEl,
       isExit: Boolean(isExit),
-      delay: keepFlight ? 0 : Math.min(0.22, stagger * NUMERIC_STAGGER),
-      dur: keepFlight ? Math.max(0.14, NUMERIC_SLOT_DUR * (1 - v0 * 0.6)) : NUMERIC_SLOT_DUR,
+      isEnter: Boolean(isEnter && !effCa),
+      wCh,
+      delay: keepFlight ? 0 : Math.min(0.14, stagger * NUMERIC_STAGGER),
+      dur: keepFlight ? Math.max(0.12, NUMERIC_SLOT_DUR * (1 - v0 * 0.55)) : NUMERIC_SLOT_DUR,
       u: 0,
       v0,
       v: v0,
-      y0,
       done: false
     };
     stagger++;
@@ -1177,6 +1118,74 @@ function setNumericText(el, nextText, numericHint) {
   info.slots = slots;
   springLoop.active.add(info);
   if (!springLoop.raf) springLoop.raf = requestAnimationFrame(springTick);
+}
+function setNumericText(el, nextText, numericHint) {
+  if (!el) return;
+  const next = String(nextText == null ? "" : nextText);
+  let info = numericState.get(el);
+  const nextVal = parseNumericHint(next, numericHint);
+  if (!info) {
+    el.textContent = next;
+    info = {
+      el,
+      text: next,
+      shownText: next,
+      val: nextVal,
+      dir: 1,
+      elapsed: 0,
+      blurPeak: el.id === "ring-center-num" ? 9.5 : (el.id === "selected-gib" || (el.id && el.id.startsWith("rkpi-")) ? 3.8 : 2.2),
+      slots: [],
+      step(dt) {
+        this.elapsed += dt;
+        let activeCount = 0;
+        for (let i = 0; i < this.slots.length; i++) {
+          const s = this.slots[i];
+          if (s.done) continue;
+          if (this.elapsed <= s.delay) {
+            activeCount++;
+            continue;
+          }
+          const u = (this.elapsed - s.delay) / s.dur;
+          if (u >= 1) {
+            s.u = 1;
+            s.v = 1;
+            s.done = true;
+          } else {
+            s.u = u;
+            s.v = s.v0 + (1 - s.v0) * numericEase(u);
+            activeCount++;
+          }
+          applyNumericSlotFrame(s, this.dir, this.blurPeak);
+        }
+        if (activeCount === 0) {
+          this.el.textContent = this.text;
+          this.shownText = this.text;
+          this.slots = [];
+          return false;
+        }
+        return true;
+      }
+    };
+    numericState.set(el, info);
+    return;
+  }
+  if (info.text === next) {
+    info.val = nextVal;
+    return;
+  }
+  const baseText = info.shownText || info.text;
+  const baseVal = info.val;
+  info.text = next;
+  info.val = nextVal;
+  if (REDUCED_MOTION || !window.requestAnimationFrame) {
+    springLoop.active.delete(info);
+    info.slots = [];
+    info.shownText = next;
+    el.textContent = next;
+    return;
+  }
+  const dir = nextVal > baseVal ? 1 : (nextVal < baseVal ? -1 : (next > baseText ? 1 : -1));
+  runSingleNumericStep(info, next, dir);
 }
 
 /* ================= Storage & state ================= */
