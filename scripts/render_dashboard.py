@@ -586,6 +586,51 @@ button.cell:active { background: var(--fill); transform: scale(0.996); }
 .menu button:hover small, .menu button:focus-visible small { color: rgba(255, 255, 255, 0.82); }
 .menu hr { border: 0; height: 0.5px; margin: 5px 9px; background: var(--separator); }
 .menu .is-armed { color: var(--orange-text); }
+.quick-menu { min-width: 320px; padding: 8px; border-radius: 18px; }
+.qm-section-label { font-size: 11.5px; font-weight: 620; color: var(--label-3); padding: 3px 10px 6px; letter-spacing: 0.01em; }
+.quick-menu button.qm-row {
+  display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: center; gap: 11px;
+  width: 100%; padding: 8px 10px; border-radius: 11px; text-align: left;
+  transition: background 0.15s, transform 90ms var(--ease-out);
+}
+.quick-menu button.qm-row:hover, .quick-menu button.qm-row:focus-visible {
+  background: var(--fill); color: var(--label); outline: none;
+}
+.quick-menu button.qm-row:hover small, .quick-menu button.qm-row:focus-visible small { color: var(--label-2); }
+.quick-menu button.qm-row:active { transform: scale(0.985); }
+.quick-menu button.qm-row:disabled { opacity: 0.45; pointer-events: none; }
+.qm-check {
+  width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  box-shadow: inset 0 0 0 1.5px var(--check-border); background: transparent;
+  transition: background 0.18s, box-shadow 0.18s, transform 0.22s var(--ease-bounce);
+}
+.qm-check svg {
+  width: 16px; height: 16px; fill: none; stroke: #fff; stroke-width: 2.7;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.qm-check .qm-tick { opacity: 0; stroke-dasharray: 22; stroke-dashoffset: 22; transition: stroke-dashoffset 0.24s var(--ease-out), opacity 0.15s; }
+.qm-check .qm-dash { opacity: 0; transform: scaleX(0.4); transform-origin: center; transition: transform 0.2s var(--ease-bounce), opacity 0.15s; }
+.qm-row[aria-checked="true"] .qm-check { background: var(--green); box-shadow: inset 0 0 0 1.5px var(--green); }
+.qm-row[aria-checked="true"] .qm-check .qm-tick { opacity: 1; stroke-dashoffset: 0; }
+.qm-row[aria-checked="mixed"] .qm-check { background: var(--blue); box-shadow: inset 0 0 0 1.5px var(--blue); }
+.qm-row[aria-checked="mixed"] .qm-check .qm-dash { opacity: 1; transform: scaleX(1); }
+.qm-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; width: 100%; }
+.qm-title { display: flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 580; color: var(--label); width: 100%; }
+.qm-meta { margin-left: auto; font-size: 12px; font-weight: 540; color: var(--label-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.qm-row[aria-checked="true"] .qm-meta { color: var(--green-text); font-weight: 600; }
+.qm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 2px; }
+.quick-menu button.qm-act {
+  display: inline-flex; flex-direction: row; align-items: center; justify-content: center; gap: 5px;
+  height: 32px; padding: 0 10px; border-radius: 9px; background: var(--fill);
+  font-size: 12.5px; font-weight: 580; color: var(--label); text-align: center;
+  transition: background 0.15s, color 0.15s, transform 90ms var(--ease-out);
+}
+.quick-menu button.qm-act:hover { background: var(--blue); color: #fff; }
+.quick-menu button.qm-act:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.quick-menu button.qm-act:active { transform: scale(0.96); }
+.quick-menu button.qm-act.is-all-on { color: var(--green-text); background: color-mix(in srgb, var(--green) 14%, var(--fill)); }
+.quick-menu button.qm-act.is-all-on:hover { background: var(--green); color: #fff; }
+.quick-menu button.qm-act:disabled { opacity: 0.42; pointer-events: none; }
 .sheet-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px; background: var(--scrim); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .sheet {
   width: min(660px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column; gap: 14px;
@@ -822,12 +867,42 @@ TEMPLATE_BODY = r"""<body>
   <button type="button" class="btn btn-primary btn-large" id="export-btn">生成执行指令</button>
 </div>
 
-<div class="menu" id="quick-menu" role="menu" aria-label="快速选择" hidden>
-  <button type="button" role="menuitem" data-quick="tierA">只选 A 级<small>可安全重建，删了能自动恢复</small></button>
-  <button type="button" role="menuitem" data-quick="tierAB">选 A 级和 B 级<small>加上建议整理的项目</small></button>
-  <button type="button" role="menuitem" data-quick="opt">加选优化、整理和更新<small>不释放空间的维护项</small></button>
+<div class="menu quick-menu" id="quick-menu" role="menu" aria-label="快速选择" hidden>
+  <div class="qm-section-label">分类勾选（可独立开关）</div>
+  <button type="button" class="qm-row" role="menuitemcheckbox" aria-checked="false" data-quick="tierA">
+    <span class="qm-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path class="qm-tick" d="M6.5 12.5l3.8 3.8 7.2-8.3"/><path class="qm-dash" d="M7 12h10"/></svg></span>
+    <span class="qm-body">
+      <span class="qm-title"><span class="chip tier-a">A 级</span><span>可安全重建</span><span class="qm-meta" id="qm-meta-tierA"></span></span>
+      <small>缓存与构建产物，删了能自动恢复</small>
+    </span>
+  </button>
+  <button type="button" class="qm-row" role="menuitemcheckbox" aria-checked="false" data-quick="tierB">
+    <span class="qm-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path class="qm-tick" d="M6.5 12.5l3.8 3.8 7.2-8.3"/><path class="qm-dash" d="M7 12h10"/></svg></span>
+    <span class="qm-body">
+      <span class="qm-title"><span class="chip tier-b">B 级</span><span>建议整理</span><span class="qm-meta" id="qm-meta-tierB"></span></span>
+      <small>休眠模拟器、过期归档与重复安装包</small>
+    </span>
+  </button>
+  <button type="button" class="qm-row" role="menuitemcheckbox" aria-checked="false" data-quick="tierC">
+    <span class="qm-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path class="qm-tick" d="M6.5 12.5l3.8 3.8 7.2-8.3"/><path class="qm-dash" d="M7 12h10"/></svg></span>
+    <span class="qm-body">
+      <span class="qm-title"><span class="chip tier-c">C 级</span><span>需要你拍板</span><span class="qm-meta" id="qm-meta-tierC"></span></span>
+      <small>历史整盘备份、SDK 与需确认数据</small>
+    </span>
+  </button>
+  <button type="button" class="qm-row" role="menuitemcheckbox" aria-checked="false" data-quick="opt">
+    <span class="qm-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path class="qm-tick" d="M6.5 12.5l3.8 3.8 7.2-8.3"/><path class="qm-dash" d="M7 12h10"/></svg></span>
+    <span class="qm-body">
+      <span class="qm-title"><span class="chip">维护</span><span>优化、整理和更新</span><span class="qm-meta" id="qm-meta-opt"></span></span>
+      <small>不改变磁盘占用的维护与修复项</small>
+    </span>
+  </button>
   <hr>
-  <button type="button" role="menuitem" data-quick="clear">清空选择</button>
+  <div class="qm-actions">
+    <button type="button" class="qm-act" role="menuitem" data-quick="all" id="qm-select-all">全选全部</button>
+    <button type="button" class="qm-act" role="menuitem" data-quick="clear" id="qm-clear-all">清空选择</button>
+  </div>
+  <hr>
   <button type="button" role="menuitem" data-quick="reset" id="reset-item">恢复初始勾选<small>同时清掉备注和白名单改动</small></button>
 </div>
 
@@ -2465,32 +2540,102 @@ function selectVisibleCategory() {
   renderCandidates();
   showToast(n ? `本页又选中了 ${n} 项` : "本页已经全选了");
 }
-function selectByTier(tiers) {
-  const set = new Set(tiers);
-  CANDS.forEach(c => { if (!isDone(c) && !isWl(c)) state.checked[c.id] = set.has(tierOf(c)); });
-  saveState();
-  refreshAfterBulk("已按风险等级重新勾选");
+function inQuickGroup(c, key) {
+  if (isDone(c) || isWl(c)) return false;
+  const isMaint = sizeOf(c) === 0;
+  if (key === "opt") return isMaint;
+  if (isMaint) return false;
+  if (key === "tierA") return tierOf(c) === "A";
+  if (key === "tierB") return tierOf(c) === "B";
+  if (key === "tierC") return tierOf(c) === "C";
+  return false;
 }
-function selectOptimizations() {
-  CANDS.forEach(c => { if (!isDone(c) && !isWl(c) && isOptOrUpdate(c)) state.checked[c.id] = true; });
+function syncQuickMenu() {
+  const menu = document.getElementById("quick-menu");
+  if (!menu) return;
+  const groups = ["tierA", "tierB", "tierC", "opt"];
+  let totalAll = 0;
+  let checkedAll = 0;
+  groups.forEach(key => {
+    const items = CANDS.filter(c => inQuickGroup(c, key));
+    const total = items.length;
+    const checkedItems = items.filter(c => state.checked[c.id]);
+    const checked = checkedItems.length;
+    const totalBytes = items.reduce((s, c) => s + sizeOf(c), 0);
+    totalAll += total;
+    checkedAll += checked;
+    const row = menu.querySelector(`.qm-row[data-quick="${key}"]`);
+    if (row) {
+      row.disabled = total === 0;
+      const stateStr = total > 0 && checked === total ? "true" : (checked > 0 ? "mixed" : "false");
+      row.setAttribute("aria-checked", stateStr);
+    }
+    const meta = document.getElementById("qm-meta-" + key);
+    if (meta) {
+      if (total === 0) {
+        meta.textContent = "0 项";
+      } else if (key === "opt") {
+        meta.textContent = `${checked}/${total} 项`;
+      } else {
+        meta.textContent = `${checked}/${total} · ${formatShort(totalBytes)}`;
+      }
+    }
+  });
+  const btnAll = document.getElementById("qm-select-all");
+  const btnClear = document.getElementById("qm-clear-all");
+  if (btnAll) {
+    const allOn = totalAll > 0 && checkedAll === totalAll;
+    btnAll.classList.toggle("is-all-on", allOn);
+    btnAll.textContent = allOn ? "已全选全部 ✓" : `全选全部 (${totalAll})`;
+    btnAll.disabled = totalAll === 0;
+  }
+  if (btnClear) {
+    btnClear.disabled = checkedAll === 0;
+  }
+}
+function toggleQuickGroup(key) {
+  const items = CANDS.filter(c => inQuickGroup(c, key));
+  if (!items.length) return;
+  const allChecked = items.every(c => state.checked[c.id]);
+  const nextState = !allChecked;
+  items.forEach(c => { state.checked[c.id] = nextState; });
   saveState();
-  refreshAfterBulk("已加选优化、整理和更新");
+  const labels = { tierA: "A 级", tierB: "B 级", tierC: "C 级", opt: "优化、整理和更新" };
+  refreshAfterBulk(`${nextState ? "已勾选" : "已取消"}全部 ${labels[key] || key}（${items.length} 项）`);
+  syncQuickMenu();
+  const chk = document.querySelector(`#quick-menu .qm-row[data-quick="${key}"] .qm-check`);
+  if (chk) popScale(chk, popSprings, 0.78);
+}
+function selectAllCandidates() {
+  let count = 0;
+  CANDS.forEach(c => {
+    if (!isDone(c) && !isWl(c)) {
+      state.checked[c.id] = true;
+      count++;
+    }
+  });
+  saveState();
+  refreshAfterBulk(`已全选全部 ${count} 项建议`);
+  syncQuickMenu();
 }
 function clearSelections() {
   state.checked = {};
   saveState();
   refreshAfterBulk("已清空选择");
+  syncQuickMenu();
 }
 function resetSavedState() {
   safeStorageRemove(STORAGE_KEY);
   state = loadState();
   expandedRows.clear();
+  toggleQuickMenu(false);
   refreshAfterBulk("已恢复到这份报告的初始勾选");
+  syncQuickMenu();
 }
 function refreshAfterBulk(message) {
   if (currentView === "overview") updateSelectionTotals(true); else renderCandidates();
   popScale(document.getElementById("dock-stat"), popSprings, 0.9);
-  if (message) showToast(message);
+  if (message && !menuOpen) showToast(message);
 }
 
 /* ================= Impact bar (workbench) ================= */
@@ -2592,6 +2737,7 @@ function updateSelectionTotals(bump) {
   updateListHeader();
   updateImpact();
   if (actionSeg && currentView !== "overview") actionSeg.refresh(true);
+  if (menuOpen) syncQuickMenu();
   try { renderRingOverview(currentView !== "overview"); } catch (e) {}
 }
 
@@ -2747,6 +2893,7 @@ function toggleQuickMenu(force) {
   btn.setAttribute("aria-expanded", String(open));
   if (open) {
     closeAllPopups(null);
+    syncQuickMenu();
     menu.hidden = false;
     const r = btn.getBoundingClientRect();
     const w = menu.offsetWidth;
@@ -2755,7 +2902,7 @@ function toggleQuickMenu(force) {
     menu.style.bottom = (window.innerHeight - r.top + 10) + "px";
     menu.style.transformOrigin = (r.left + r.width / 2 - left) + "px 100%";
     menuSpring.to(1, SPRING.sheet);
-    const first = menu.querySelector("button");
+    const first = menu.querySelector("button:not(:disabled)");
     if (first) first.focus({ preventScroll: true });
   } else {
     disarmReset();
@@ -2777,11 +2924,22 @@ function handleQuick(action) {
       return;
     }
     resetSavedState();
-  } else if (action === "tierA") selectByTier(["A"]);
-  else if (action === "tierAB") selectByTier(["A", "B"]);
-  else if (action === "opt") selectOptimizations();
-  else if (action === "clear") clearSelections();
-  toggleQuickMenu(false);
+    toggleQuickMenu(false);
+    return;
+  }
+  if (resetArmed) disarmReset();
+  if (action === "tierA" || action === "tierB" || action === "tierC" || action === "opt") {
+    toggleQuickGroup(action);
+    return;
+  }
+  if (action === "all") {
+    selectAllCandidates();
+    return;
+  }
+  if (action === "clear") {
+    clearSelections();
+    return;
+  }
 }
 
 /* ================= Execution prompt sheet (grows from the export button) ================= */
