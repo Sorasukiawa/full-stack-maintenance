@@ -347,38 +347,16 @@ input, select, textarea { font: inherit; color: inherit; }
 .popup-menu button.menu-opt[aria-selected="true"] .opt-check { opacity: 1; color: var(--blue); }
 .popup-menu button.menu-opt:hover .opt-check, .popup-menu button.menu-opt:focus-visible .opt-check { color: #fff; }
 
-/* ---------- Apple .contentTransition(.numericText()) per-digit animation ---------- */
+/* ---------- Apple .contentTransition(.numericText()) per-digit spring animation ---------- */
 .nt-wrap { display: inline-flex; align-items: baseline; font-variant-numeric: tabular-nums; }
+.nt-ch { display: inline-block; }
 .nt-slot { display: inline-grid; align-items: baseline; justify-items: center; position: relative; vertical-align: baseline; }
-.nt-slot > .nt-old, .nt-slot > .nt-new { grid-area: 1 / 1; display: inline-block; will-change: transform, opacity, filter; }
+.nt-slot > .nt-old, .nt-slot > .nt-new {
+  grid-area: 1 / 1; display: inline-block; backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  will-change: transform, opacity;
+}
 .nt-slot > .nt-old { pointer-events: none; user-select: none; }
-.nt-slot > .nt-old::before { content: attr(data-old); display: inline-block; }
-.nt-slot.is-anim > .nt-old {
-  animation: ntOut 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: calc(var(--d, 0) * 18ms);
-}
-.nt-slot.is-anim > .nt-new {
-  animation: ntIn 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: calc(var(--d, 0) * 18ms);
-}
-.nt-slot.nt-exit {
-  overflow: hidden;
-  animation: ntCollapse 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-@keyframes ntOut {
-  0% { transform: translateY(0) scale(1); opacity: 1; filter: blur(0px); }
-  42% { transform: translateY(calc(var(--dir, 1) * -0.24em)) scale(0.92); opacity: 0.68; filter: blur(2.6px); }
-  100% { transform: translateY(calc(var(--dir, 1) * -0.52em)) scale(0.80); opacity: 0; filter: blur(5.5px); }
-}
-@keyframes ntIn {
-  0% { transform: translateY(calc(var(--dir, 1) * 0.52em)) scale(0.80); opacity: 0; filter: blur(5.5px); }
-  42% { transform: translateY(calc(var(--dir, 1) * 0.16em)) scale(0.94); opacity: 0.76; filter: blur(2.2px); }
-  100% { transform: translateY(0) scale(1); opacity: 1; filter: blur(0px); }
-}
-@keyframes ntCollapse {
-  0% { max-width: 0.65em; opacity: 0.85; }
-  100% { max-width: 0; opacity: 0; }
-}
+.nt-slot.nt-exit { overflow: hidden; }
 
 /* ---------- Volume strip (mini rings) ---------- */
 .volume-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(172px, 1fr)); gap: 10px; margin-bottom: 22px; }
@@ -949,10 +927,16 @@ function popScale(el, springStore, from) {
 }
 const popSprings = new WeakMap();
 
-/* Apple SwiftUI .contentTransition(.numericText()) per-digit transition.
- * Unchanged digits stay rock-solid and sharp; only changed digit slots slide vertically
- * with directional motion blur + scale while keeping el.textContent equal to nextText. */
+/* Apple SwiftUI .contentTransition(.numericText()) per-digit spring transition.
+ * Driven by the shared requestAnimationFrame springLoop so every digit accelerates smoothly
+ * from rest, rolls 0.82em vertically with directional motion blur, and cascades left-to-right. */
 const numericState = new WeakMap();
+const NUMERIC_SLOT_DUR = 0.38;
+const NUMERIC_STAGGER = 0.058;
+function numericEase(u) {
+  const x = clamp(u, 0, 1);
+  return 0.5 - 0.5 * Math.cos(Math.PI * Math.pow(x, 0.86));
+}
 function splitNumericParts(str) {
   const m = String(str).match(/^([+\-−]?\d+(?:\.\d+)?)(.*)$/);
   if (!m) return null;
@@ -970,32 +954,123 @@ function parseNumericHint(str, hint) {
   const m = String(str).replace(/−/g, "-").match(/[+-]?\d+(?:\.\d+)?/);
   return m ? parseFloat(m[0]) : 0;
 }
+function applyNumericSlotFrame(slot, dir, blurPeak) {
+  const p = clamp(slot.v, 0, 1);
+  const travel = 0.82;
+  const bell = Math.sin(p * Math.PI);
+  if (slot.isExit) {
+    slot.slotEl.style.maxWidth = ((1 - p) * 0.62).toFixed(3) + "em";
+  }
+  if (slot.oldEl) {
+    const y0 = slot.y0 || 0;
+    const yOld = (y0 - dir * p * travel).toFixed(3);
+    const scOld = (1 - 0.24 * p).toFixed(3);
+    const opOld = clamp(Math.pow(1 - p, 0.92), 0, 1).toFixed(3);
+    slot.oldEl.style.transform = `translate3d(0,${yOld}em,0) scale(${scOld})`;
+    slot.oldEl.style.opacity = opOld;
+    if (blurPeak > 0) {
+      const bOld = Math.max(bell * 0.85, p * 0.9) * blurPeak;
+      slot.oldEl.style.filter = bOld > 0.2 ? `blur(${bOld.toFixed(2)}px)` : "none";
+    }
+  }
+  if (slot.newEl) {
+    const yNew = (dir * (1 - p) * travel).toFixed(3);
+    const scNew = (0.76 + 0.24 * p).toFixed(3);
+    const opNew = clamp(Math.pow(p, 0.78), 0, 1).toFixed(3);
+    slot.newEl.style.transform = `translate3d(0,${yNew}em,0) scale(${scNew})`;
+    slot.newEl.style.opacity = opNew;
+    if (blurPeak > 0) {
+      const bNew = Math.max(bell * 0.9, (1 - p) * 0.85) * blurPeak;
+      slot.newEl.style.filter = bNew > 0.2 && p < 0.96 ? `blur(${bNew.toFixed(2)}px)` : "none";
+    }
+  }
+}
 function setNumericText(el, nextText, numericHint) {
   if (!el) return;
   const next = String(nextText == null ? "" : nextText);
-  const prevInfo = numericState.get(el);
+  let info = numericState.get(el);
   const nextVal = parseNumericHint(next, numericHint);
-  if (!prevInfo) {
+  if (!info) {
     el.textContent = next;
-    numericState.set(el, { text: next, val: nextVal, timer: 0 });
+    info = {
+      el,
+      text: next,
+      fromText: next,
+      val: nextVal,
+      fromVal: nextVal,
+      dir: 1,
+      elapsed: 0,
+      blurPeak: el.id === "ring-center-num" ? 3.2 : (el.id === "selected-gib" || (el.id && el.id.startsWith("rkpi-")) ? 1.5 : 0),
+      slots: [],
+      step(dt) {
+        this.elapsed += dt;
+        let activeCount = 0;
+        for (let i = 0; i < this.slots.length; i++) {
+          const s = this.slots[i];
+          if (s.done) continue;
+          if (this.elapsed <= s.delay) {
+            activeCount++;
+            continue;
+          }
+          const u = (this.elapsed - s.delay) / s.dur;
+          if (u >= 1) {
+            s.u = 1;
+            s.v = 1;
+            s.done = true;
+          } else {
+            s.u = u;
+            s.v = s.v0 + (1 - s.v0) * numericEase(u);
+            activeCount++;
+          }
+          applyNumericSlotFrame(s, this.dir, this.blurPeak);
+        }
+        if (activeCount === 0) {
+          this.el.textContent = this.text;
+          this.slots = [];
+          return false;
+        }
+        return true;
+      }
+    };
+    numericState.set(el, info);
     return;
   }
-  if (prevInfo.text === next) {
-    prevInfo.val = nextVal;
+  if (info.text === next) {
+    info.val = nextVal;
     return;
   }
-  const prev = prevInfo.text;
-  const dir = nextVal > prevInfo.val ? 1 : (nextVal < prevInfo.val ? -1 : (next > prev ? 1 : -1));
-  if (prevInfo.timer) clearTimeout(prevInfo.timer);
-  prevInfo.text = next;
-  prevInfo.val = nextVal;
-  if (REDUCED_MOTION) {
+  const inFlight = springLoop.active.has(info);
+  const prev = (inFlight && info.elapsed < 0.065 && info.fromText) ? info.fromText : info.text;
+  const baseVal = (inFlight && info.elapsed < 0.065 && info.fromVal != null) ? info.fromVal : info.val;
+  if (prev === next) {
+    info.text = next;
+    info.val = nextVal;
+    if (!inFlight) el.textContent = next;
+    return;
+  }
+  const prevDir = info.dir || 1;
+  const dir = nextVal > baseVal ? 1 : (nextVal < baseVal ? -1 : (next > prev ? 1 : -1));
+  const prevSlotByKey = {};
+  if (inFlight && info.slots.length) {
+    info.slots.forEach(s => { if (s.key) prevSlotByKey[s.key] = s; });
+  }
+  info.fromText = prev;
+  info.fromVal = baseVal;
+  info.text = next;
+  info.val = nextVal;
+  info.dir = dir;
+  info.elapsed = 0;
+  if (REDUCED_MOTION || !window.requestAnimationFrame) {
+    springLoop.active.delete(info);
+    info.slots = [];
     el.textContent = next;
     return;
   }
   const pA = splitNumericParts(prev);
   const pB = splitNumericParts(next);
   if (!pA || !pB) {
+    springLoop.active.delete(info);
+    info.slots = [];
     el.textContent = next;
     return;
   }
@@ -1007,35 +1082,101 @@ function setNumericText(el, nextText, numericHint) {
   const dB = pB.decPart.padEnd(maxDec, " ");
   const sA = iA + dA;
   const sB = iB + dB;
+  const wrap = document.createElement("span");
+  wrap.className = "nt-wrap";
+  const slots = [];
   let stagger = 0;
-  let html = '<span class="nt-wrap">';
+  const addAnimSlot = (key, ca, cb, isExit) => {
+    const slotEl = document.createElement("span");
+    slotEl.className = "nt-slot is-anim" + (isExit ? " nt-exit" : "");
+    let oldEl = null, newEl = null;
+    const reused = prevSlotByKey[key];
+    const keepFlight = reused && !reused.done && reused.cb === cb && reused.ca;
+    let effCa = ca;
+    let y0 = 0;
+    let v0 = 0;
+    if (keepFlight) {
+      effCa = reused.ca;
+      v0 = reused.v;
+    } else if (reused && !reused.done && reused.v < 0.38 && reused.ca) {
+      effCa = reused.ca;
+      y0 = -prevDir * reused.v * 0.82;
+    } else if (reused && !reused.done && reused.cb) {
+      effCa = reused.cb;
+      y0 = prevDir * (1 - reused.v) * 0.82;
+    }
+    if (effCa) {
+      oldEl = document.createElement("span");
+      oldEl.className = "nt-old";
+      oldEl.setAttribute("aria-hidden", "true");
+      oldEl.textContent = effCa;
+      slotEl.appendChild(oldEl);
+    }
+    if (cb) {
+      newEl = document.createElement("span");
+      newEl.className = "nt-new";
+      newEl.textContent = cb;
+      slotEl.appendChild(newEl);
+    }
+    wrap.appendChild(slotEl);
+    const s = {
+      key,
+      ca: effCa,
+      cb,
+      slotEl,
+      oldEl,
+      newEl,
+      isExit: Boolean(isExit),
+      delay: keepFlight ? 0 : Math.min(0.22, stagger * NUMERIC_STAGGER),
+      dur: keepFlight ? Math.max(0.14, NUMERIC_SLOT_DUR * (1 - v0 * 0.6)) : NUMERIC_SLOT_DUR,
+      u: 0,
+      v0,
+      v: v0,
+      y0,
+      done: false
+    };
+    stagger++;
+    applyNumericSlotFrame(s, dir, info.blurPeak);
+    slots.push(s);
+  };
   for (let i = 0; i < sB.length; i++) {
     const ca = sA[i] === " " ? "" : sA[i];
     const cb = sB[i] === " " ? "" : sB[i];
-    if (ca === cb) {
-      if (cb) html += `<span class="nt-slot"><span class="nt-new">${escapeHtml(cb)}</span></span>`;
+    const key = "d" + (i - maxInt);
+    const reused = prevSlotByKey[key];
+    if (ca === cb && (!reused || reused.done)) {
+      if (cb) {
+        const ch = document.createElement("span");
+        ch.className = "nt-ch";
+        ch.textContent = cb;
+        wrap.appendChild(ch);
+      }
     } else if (!cb && ca) {
-      html += `<span class="nt-slot is-anim nt-exit" style="--dir:${dir};--d:${stagger++}"><span class="nt-old" data-old="${escapeHtml(ca)}" aria-hidden="true"></span></span>`;
-    } else if (cb && !ca) {
-      html += `<span class="nt-slot is-anim" style="--dir:${dir};--d:${stagger++}"><span class="nt-new">${escapeHtml(cb)}</span></span>`;
+      addAnimSlot(key, ca, "", true);
     } else {
-      html += `<span class="nt-slot is-anim" style="--dir:${dir};--d:${stagger++}"><span class="nt-old" data-old="${escapeHtml(ca)}" aria-hidden="true"></span><span class="nt-new">${escapeHtml(cb)}</span></span>`;
+      addAnimSlot(key, ca, cb, false);
     }
   }
   if (pB.suffix) {
     if (pA.suffix === pB.suffix) {
-      html += `<span class="nt-slot"><span class="nt-new">${escapeHtml(pB.suffix)}</span></span>`;
+      const ch = document.createElement("span");
+      ch.className = "nt-ch";
+      ch.textContent = pB.suffix;
+      wrap.appendChild(ch);
     } else {
-      html += `<span class="nt-slot is-anim" style="--dir:${dir};--d:${stagger++}"><span class="nt-old" data-old="${escapeHtml(pA.suffix.trim())}" aria-hidden="true"></span><span class="nt-new">${escapeHtml(pB.suffix)}</span></span>`;
+      addAnimSlot("suf", pA.suffix.trim(), pB.suffix, false);
     }
   }
-  html += "</span>";
-  el.innerHTML = html;
-  prevInfo.timer = setTimeout(() => {
-    if (numericState.get(el) && numericState.get(el).text === next) {
-      el.textContent = next;
-    }
-  }, 540);
+  if (!slots.length) {
+    springLoop.active.delete(info);
+    info.slots = [];
+    el.textContent = next;
+    return;
+  }
+  el.replaceChildren(wrap);
+  info.slots = slots;
+  springLoop.active.add(info);
+  if (!springLoop.raf) springLoop.raf = requestAnimationFrame(springTick);
 }
 
 /* ================= Storage & state ================= */
@@ -1479,7 +1620,7 @@ function updateMiniRings(entries, activeId) {
     }
     const pctEl = document.getElementById("mring-pct-" + m.id);
     if (pctEl) {
-      setNumericText(pctEl, m.afterPct.toFixed(0) + "%", m.afterPct);
+      pctEl.textContent = m.afterPct.toFixed(0) + "%";
       pctEl.className = "vol-pct " + (m.id === "_all" ? "" : levelFor(m.afterPct, m.warnPct));
     }
     const metaEl = document.getElementById("mring-meta-" + m.id);
@@ -1496,6 +1637,9 @@ function updateMiniRings(entries, activeId) {
 }
 
 function selectRingPool(poolId) {
+  if (hoverRingRaf) { cancelAnimationFrame(hoverRingRaf); hoverRingRaf = 0; }
+  if (hoverClearTimer) { clearTimeout(hoverClearTimer); hoverClearTimer = 0; }
+  pendingHoverRingId = null;
   activeRingPoolId = poolId;
   hoveredRingItemId = null;
   const card = document.getElementById("mring-card-" + poolId);
@@ -1503,9 +1647,30 @@ function selectRingPool(poolId) {
   renderRingOverview(false);
 }
 
+let hoverRingRaf = 0;
+let hoverClearTimer = 0;
+let pendingHoverRingId = null;
 function highlightRingItem(itemId, active) {
-  hoveredRingItemId = active ? itemId : null;
-  renderRingOverview(true);
+  if (hoverClearTimer) { clearTimeout(hoverClearTimer); hoverClearTimer = 0; }
+  if (!active) {
+    hoverClearTimer = setTimeout(() => {
+      hoverClearTimer = 0;
+      pendingHoverRingId = null;
+      if (hoveredRingItemId !== null) {
+        hoveredRingItemId = null;
+        renderRingOverview(true);
+      }
+    }, 45);
+    return;
+  }
+  pendingHoverRingId = itemId;
+  if (hoverRingRaf) return;
+  hoverRingRaf = requestAnimationFrame(() => {
+    hoverRingRaf = 0;
+    if (hoveredRingItemId === pendingHoverRingId) return;
+    hoveredRingItemId = pendingHoverRingId;
+    renderRingOverview(true);
+  });
 }
 
 /* ================= Overview: composition bar ================= */
@@ -1646,7 +1811,7 @@ function updateOverviewSub(agg) {
 
 function renderRingOverview(onlyUpdateArcs) {
   const { list, agg } = computeAllMetrics();
-  updateOverviewSub(agg);
+  if (!onlyUpdateArcs) updateOverviewSub(agg);
   const hero = document.getElementById("hero");
   const heroEmpty = document.getElementById("hero-empty");
   if (!list.length) {
@@ -1658,7 +1823,7 @@ function renderRingOverview(onlyUpdateArcs) {
   const entries = list.length > 1 ? list.concat([agg]) : list;
   const active = activeRingPoolId === "_all" ? agg : (list.find(m => m.id === activeRingPoolId) || list[0]);
   activeRingPoolId = active.id;
-  updateMiniRings(entries, active.id);
+  if (!onlyUpdateArcs) updateMiniRings(entries, active.id);
 
   const total = Math.max(1, active.total);
   const retained = Math.min(total, active.retainedBytes);
@@ -1688,6 +1853,7 @@ function renderRingOverview(onlyUpdateArcs) {
   setText("ring-center-water", cleaned > 0
     ? `水位 ${fmtPct(active.beforePct)} → ${fmtPct(active.afterPct)}`
     : `当前水位 ${fmtPct(active.afterPct)}`);
+  if (onlyUpdateArcs) return;
   setText("ring-active-title", active.shortTitle);
   setHtml("ring-active-mount", active.id === "_all"
     ? `<code>${escapeHtml(active.mountPath)}</code><span>按各卷警戒线监控</span>`
