@@ -387,9 +387,10 @@ input, select, textarea { font: inherit; color: inherit; }
 .comp { margin-top: 20px; }
 .comp-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; font-size: 13px; color: var(--label-2); }
 .comp-head b { color: var(--label); font-weight: 620; font-size: 13.5px; }
-.sbar { display: flex; gap: 2px; height: 16px; border-radius: 6px; overflow: hidden; background: var(--track); }
-.sbar > i { display: block; height: 100%; flex: none; width: 0; transition: width var(--dur-bounce) var(--ease-bounce), opacity 0.2s; }
-.sbar.lg { height: 22px; border-radius: 7px; }
+/* Pill bar: every segment is its own capsule, matching the round-capped ring. */
+.sbar { display: flex; gap: 3px; height: 14px; border-radius: 999px; overflow: hidden; background: var(--track); }
+.sbar > i { display: block; height: 100%; flex: none; width: 0; min-width: 0; border-radius: 999px; transition: width var(--dur-bounce) var(--ease-bounce), opacity 0.2s; }
+.sbar.lg { height: 20px; gap: 4px; }
 .sbar.dim > i:not(.on) { opacity: 0.28; }
 .comp-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 12.5px; color: var(--label-2); }
 .comp-legend > span { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; cursor: default; transition: opacity 0.2s; }
@@ -1968,7 +1969,9 @@ const impactSprings = {};
 ["seg-retained", "seg-reclaim-item", "seg-reclaim-mid"].forEach(id => {
   impactSprings[id] = new Spring(0, SPRING.ring, v => {
     const el = document.getElementById(id);
-    if (el) el.style.width = clamp(v, 0, 100).toFixed(3) + "%";
+    if (!el) return;
+    el.style.width = clamp(v, 0, 100).toFixed(3) + "%";
+    el.style.display = v < 0.05 ? "none" : "";  // keep the pill gap only between visible segments
   }, { tolerance: 0.02 });
 });
 
