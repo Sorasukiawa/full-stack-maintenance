@@ -61,8 +61,8 @@ def spring_easing(damping: float, response: float, samples: int = 40) -> tuple[s
 DARK_TOKENS = """
   color-scheme: dark;
   --bg: #0d0d10;
-  --surface: rgba(38, 38, 42, 0.62);
-  --surface-strong: rgba(44, 44, 48, 0.82);
+  --surface: rgba(34, 34, 38, 0.86);
+  --surface-strong: rgba(44, 44, 49, 0.94);
   --surface-solid: #1c1c1e;
   --cell: rgba(255, 255, 255, 0.035);
   --sidebar: rgba(22, 22, 26, 0.66);
@@ -73,9 +73,9 @@ DARK_TOKENS = """
   --label-2: #a1a1a6;
   --label-3: #6e6e73;
   --separator: rgba(84, 84, 88, 0.5);
-  --hairline: rgba(255, 255, 255, 0.07);
-  --glass-edge: rgba(255, 255, 255, 0.08);
-  --glass-highlight: rgba(255, 255, 255, 0.06);
+  --hairline: rgba(255, 255, 255, 0.06);
+  --glass-edge: rgba(255, 255, 255, 0.065);
+  --glass-highlight: rgba(255, 255, 255, 0.05);
   --fill: rgba(120, 120, 128, 0.26);
   --fill-2: rgba(120, 120, 128, 0.15);
   --track: rgba(120, 120, 128, 0.22);
@@ -120,8 +120,8 @@ TEMPLATE_HEAD = r"""<!DOCTYPE html>
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 
   --bg: #f2f2f6;
-  --surface: rgba(255, 255, 255, 0.72);
-  --surface-strong: rgba(255, 255, 255, 0.86);
+  --surface: rgba(255, 255, 255, 0.84);
+  --surface-strong: rgba(255, 255, 255, 0.94);
   --surface-solid: #ffffff;
   --cell: rgba(255, 255, 255, 0.62);
   --sidebar: rgba(240, 240, 245, 0.7);
@@ -133,8 +133,8 @@ TEMPLATE_HEAD = r"""<!DOCTYPE html>
   --label-3: #a1a1a6;
   --separator: rgba(60, 60, 67, 0.14);
   --hairline: rgba(0, 0, 0, 0.06);
-  --glass-edge: rgba(255, 255, 255, 0.75);
-  --glass-highlight: rgba(255, 255, 255, 0.85);
+  --glass-edge: rgba(0, 0, 0, 0.055);
+  --glass-highlight: rgba(255, 255, 255, 0.7);
   --fill: rgba(120, 120, 128, 0.14);
   --fill-2: rgba(120, 120, 128, 0.08);
   --track: rgba(120, 120, 128, 0.14);
@@ -165,8 +165,8 @@ TEMPLATE_HEAD = r"""<!DOCTYPE html>
   --dur-soft: __EASE_SOFT_MS__ms;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --shadow-sm: 0 1px 2px var(--shadow-color-sm), 0 0 0 0.5px var(--hairline);
-  --shadow-card: 0 1px 2px var(--shadow-color-sm), 0 16px 40px -18px var(--shadow-color), inset 0 1px 0 var(--glass-highlight);
-  --shadow-float: 0 2px 6px var(--shadow-color-sm), 0 24px 60px -16px var(--shadow-color), inset 0 1px 0 var(--glass-highlight);
+  --shadow-card: 0 1px 2px var(--shadow-color-sm), 0 16px 40px -18px var(--shadow-color);
+  --shadow-float: 0 2px 6px var(--shadow-color-sm), 0 24px 60px -16px var(--shadow-color), inset 0 0.5px 0 var(--glass-highlight);
 }
 @supports (transition-timing-function: linear(0, 1)) {
   :root {
@@ -254,7 +254,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .sidebar-foot .foot-label { font-size: 12px; color: var(--label-3); font-weight: 600; padding: 0 4px; }
 
 .main { min-width: 0; padding: 0 44px 150px; }
-.page { max-width: 1120px; margin: 0 auto; will-change: transform, opacity; }
+.page { max-width: 1120px; margin: 0 auto; }
 .page-head { padding: 46px 4px 22px; }
 .large-title {
   margin: 0; font-family: var(--font-display); font-weight: 800;
@@ -266,8 +266,6 @@ input, select, textarea { font: inherit; color: inherit; }
 
 .glass {
   background: var(--surface);
-  -webkit-backdrop-filter: blur(30px) saturate(180%);
-  backdrop-filter: blur(30px) saturate(180%);
   border: 0.5px solid var(--glass-edge);
   box-shadow: var(--shadow-card);
 }
@@ -332,7 +330,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .popup .ico { position: absolute; right: 9px; width: 13px; height: 13px; pointer-events: none; color: var(--label-2); }
 
 /* ---------- Volume strip (mini rings) ---------- */
-.volume-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(172px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.volume-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(172px, 1fr)); gap: 10px; margin-bottom: 22px; }
 .vol {
   display: flex; align-items: center; gap: 11px; min-width: 0; padding: 10px 12px 10px 10px; border-radius: 16px; text-align: left;
   transition: transform var(--dur-bounce) var(--ease-bounce), box-shadow 0.25s var(--ease-out), background 0.2s;
@@ -878,7 +876,10 @@ function popScale(el, springStore, from) {
   if (!el || REDUCED_MOTION) return;
   let s = springStore.get(el);
   if (!s) {
-    s = new Spring(1, SPRING.bounce, v => { el.style.transform = "scale(" + v.toFixed(4) + ")"; });
+    s = new Spring(1, SPRING.bounce, v => {
+      el.style.transform = Math.abs(v - 1) < 0.001 && Math.abs(s.velocity) < 0.005 ? "" : "scale(" + v.toFixed(4) + ")";
+    }, { tolerance: 0.001 });
+    s.onRest = () => { el.style.transform = ""; };
     springStore.set(el, s);
   }
   s.value = Math.min(s.value, from);
@@ -1663,7 +1664,7 @@ function placeNavPill(animate) {
 const pageSpring = new Spring(1, SPRING.soft, v => {
   const page = document.getElementById(currentView === "overview" ? "ring-overview-page" : "workbench-page");
   if (!page) return;
-  page.style.opacity = clamp(v, 0, 1).toFixed(3);
+  page.style.opacity = v >= 0.999 ? "" : clamp(v, 0, 1).toFixed(3);
   page.style.transform = v >= 0.999 ? "" : "translateY(" + ((1 - v) * 14).toFixed(2) + "px)";
 });
 
@@ -2263,6 +2264,9 @@ function closeModal() {
 
 /* ================= Wiring & boot ================= */
 function wireEvents() {
+  document.addEventListener("animationend", e => {
+    if (e.animationName === "rise" && e.target && e.target.classList) e.target.classList.remove("enter");
+  });
   document.querySelectorAll(".nav-item").forEach(b => b.addEventListener("click", () => navigate(b.getAttribute("data-view"))));
 
   const list = document.getElementById("candidate-list");
