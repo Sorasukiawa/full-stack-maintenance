@@ -6,7 +6,7 @@ compatibility: Requires Python 3.10+ (standard library only) and git. gh is opti
 argument-hint: "[inspect only | dashboard | execute <ids> | mac | projects | github | nas]"
 allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py scan-local *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py diff *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py preflight *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py *), Bash(git status *), Bash(git worktree list *), Bash(gh repo list *), Bash(gh run list *), Bash(df -h *), Bash(du -sh *)
 metadata:
-  version: "1.2.0"
+  version: "1.2.1"
 ---
 
 # 全栈多域巡检与交互式看板维护
@@ -69,7 +69,7 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py" \
 ```
 
 生成的 HTML 看板具备以下交互能力（详见 [看板与脚本契约](references/dashboard-and-cli.md)）：
-- **活动圆环总览**：参考 Apple 健康的三层同心环，外圈清理前水位、中圈清理后水位、内圈已选可回收比例，上方存储卷小圆环可切换单盘或全部存储卷；勾选或取消时圆环、水位条和数字以带轻回弹的弹簧动效实时变化。
+- **存储圆环总览**：样式参考 Apple 健康活动圆环的圆头粗环，灰色为清理后已用、绿青渐变为勾选将释放、蓝色为悬停项占比，上方存储卷小圆环可切换单盘或全部存储卷；勾选或取消时圆环、水位条和数字以带轻回弹的弹簧动效实时变化。
 - **按领域分页的勾选工作台**：侧栏切换 Mac、本地项目、GitHub、NAS 与白名单，按风险等级分组、按动作类型筛选，顶部水位条实时显示对所在存储卷的影响。
 - **距上次巡检基线变化**：直接展示各盘水位涨跌与增长最快的 Top 目录。
 - **浏览器本地记忆（`localStorage`）与单项微调备注框**：刷新页面不丢勾选；每项旁均可填写微调说明（如「只留最近 2 个版本」「移到 NAS 别直接删」）。
