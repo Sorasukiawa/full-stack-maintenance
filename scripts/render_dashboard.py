@@ -323,11 +323,62 @@ input, select, textarea { font: inherit; color: inherit; }
 
 .popup { position: relative; display: inline-flex; align-items: center; }
 .popup select {
-  appearance: none; -webkit-appearance: none; height: 30px; padding: 0 30px 0 12px; border-radius: 8px;
-  border: 0.5px solid var(--separator); background: var(--field); font-size: 13px; font-weight: 500; cursor: pointer;
-  box-shadow: var(--shadow-sm);
+  position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; pointer-events: none; opacity: 0;
 }
-.popup .ico { position: absolute; right: 9px; width: 13px; height: 13px; pointer-events: none; color: var(--label-2); }
+.popup-btn {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: 30px; padding: 0 10px 0 12px; border-radius: 9px;
+  border: 0.5px solid var(--separator); background: var(--field); font-size: 13px; font-weight: 540; color: var(--label);
+  box-shadow: var(--shadow-sm); cursor: pointer; white-space: nowrap;
+  transition: transform var(--dur-bounce) var(--ease-bounce), background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.popup-btn:hover { background: var(--surface-strong); }
+.popup-btn:active { transform: scale(0.96); transition-duration: 70ms; }
+.popup-btn:focus-visible, .popup-btn[aria-expanded="true"] { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 28%, transparent), var(--shadow-sm); }
+.popup-btn .ico { position: static; width: 13px; height: 13px; color: var(--label-2); transition: transform var(--dur-bounce) var(--ease-bounce); }
+.popup-btn[aria-expanded="true"] .ico { transform: rotate(180deg); color: var(--label); }
+.popup > .ico { display: none; }
+.popup-menu { min-width: 176px; padding: 5px; border-radius: 13px; }
+.popup-menu button.menu-opt {
+  display: flex; flex-direction: row; align-items: center; gap: 8px; width: 100%;
+  padding: 6px 11px 6px 8px; border-radius: 8px; font-size: 13px; font-weight: 520; text-align: left; white-space: nowrap;
+}
+.popup-menu .opt-check { width: 14px; height: 14px; stroke: currentColor; stroke-width: 2.4; fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: 0; flex: none; transition: opacity 0.15s; }
+.popup-menu button.menu-opt[aria-selected="true"] .opt-check { opacity: 1; color: var(--blue); }
+.popup-menu button.menu-opt:hover .opt-check, .popup-menu button.menu-opt:focus-visible .opt-check { color: #fff; }
+
+/* ---------- Apple .contentTransition(.numericText()) per-digit animation ---------- */
+.nt-wrap { display: inline-flex; align-items: baseline; font-variant-numeric: tabular-nums; }
+.nt-slot { display: inline-grid; align-items: baseline; justify-items: center; position: relative; vertical-align: baseline; }
+.nt-slot > .nt-old, .nt-slot > .nt-new { grid-area: 1 / 1; display: inline-block; will-change: transform, opacity, filter; }
+.nt-slot > .nt-old { pointer-events: none; user-select: none; }
+.nt-slot > .nt-old::before { content: attr(data-old); display: inline-block; }
+.nt-slot.is-anim > .nt-old {
+  animation: ntOut 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--d, 0) * 18ms);
+}
+.nt-slot.is-anim > .nt-new {
+  animation: ntIn 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--d, 0) * 18ms);
+}
+.nt-slot.nt-exit {
+  overflow: hidden;
+  animation: ntCollapse 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes ntOut {
+  0% { transform: translateY(0) scale(1); opacity: 1; filter: blur(0px); }
+  42% { transform: translateY(calc(var(--dir, 1) * -0.24em)) scale(0.92); opacity: 0.68; filter: blur(2.6px); }
+  100% { transform: translateY(calc(var(--dir, 1) * -0.52em)) scale(0.80); opacity: 0; filter: blur(5.5px); }
+}
+@keyframes ntIn {
+  0% { transform: translateY(calc(var(--dir, 1) * 0.52em)) scale(0.80); opacity: 0; filter: blur(5.5px); }
+  42% { transform: translateY(calc(var(--dir, 1) * 0.16em)) scale(0.94); opacity: 0.76; filter: blur(2.2px); }
+  100% { transform: translateY(0) scale(1); opacity: 1; filter: blur(0px); }
+}
+@keyframes ntCollapse {
+  0% { max-width: 0.65em; opacity: 0.85; }
+  100% { max-width: 0; opacity: 0; }
+}
 
 /* ---------- Volume strip (mini rings) ---------- */
 .volume-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(172px, 1fr)); gap: 10px; margin-bottom: 22px; }
@@ -898,6 +949,95 @@ function popScale(el, springStore, from) {
 }
 const popSprings = new WeakMap();
 
+/* Apple SwiftUI .contentTransition(.numericText()) per-digit transition.
+ * Unchanged digits stay rock-solid and sharp; only changed digit slots slide vertically
+ * with directional motion blur + scale while keeping el.textContent equal to nextText. */
+const numericState = new WeakMap();
+function splitNumericParts(str) {
+  const m = String(str).match(/^([+\-−]?\d+(?:\.\d+)?)(.*)$/);
+  if (!m) return null;
+  const numStr = m[1];
+  const suffix = m[2] || "";
+  const dot = numStr.indexOf(".");
+  return {
+    intPart: dot >= 0 ? numStr.slice(0, dot) : numStr,
+    decPart: dot >= 0 ? numStr.slice(dot) : "",
+    suffix
+  };
+}
+function parseNumericHint(str, hint) {
+  if (typeof hint === "number" && !isNaN(hint)) return hint;
+  const m = String(str).replace(/−/g, "-").match(/[+-]?\d+(?:\.\d+)?/);
+  return m ? parseFloat(m[0]) : 0;
+}
+function setNumericText(el, nextText, numericHint) {
+  if (!el) return;
+  const next = String(nextText == null ? "" : nextText);
+  const prevInfo = numericState.get(el);
+  const nextVal = parseNumericHint(next, numericHint);
+  if (!prevInfo) {
+    el.textContent = next;
+    numericState.set(el, { text: next, val: nextVal, timer: 0 });
+    return;
+  }
+  if (prevInfo.text === next) {
+    prevInfo.val = nextVal;
+    return;
+  }
+  const prev = prevInfo.text;
+  const dir = nextVal > prevInfo.val ? 1 : (nextVal < prevInfo.val ? -1 : (next > prev ? 1 : -1));
+  if (prevInfo.timer) clearTimeout(prevInfo.timer);
+  prevInfo.text = next;
+  prevInfo.val = nextVal;
+  if (REDUCED_MOTION) {
+    el.textContent = next;
+    return;
+  }
+  const pA = splitNumericParts(prev);
+  const pB = splitNumericParts(next);
+  if (!pA || !pB) {
+    el.textContent = next;
+    return;
+  }
+  const maxInt = Math.max(pA.intPart.length, pB.intPart.length);
+  const iA = pA.intPart.padStart(maxInt, " ");
+  const iB = pB.intPart.padStart(maxInt, " ");
+  const maxDec = Math.max(pA.decPart.length, pB.decPart.length);
+  const dA = pA.decPart.padEnd(maxDec, " ");
+  const dB = pB.decPart.padEnd(maxDec, " ");
+  const sA = iA + dA;
+  const sB = iB + dB;
+  let stagger = 0;
+  let html = '<span class="nt-wrap">';
+  for (let i = 0; i < sB.length; i++) {
+    const ca = sA[i] === " " ? "" : sA[i];
+    const cb = sB[i] === " " ? "" : sB[i];
+    if (ca === cb) {
+      if (cb) html += `<span class="nt-slot"><span class="nt-new">${escapeHtml(cb)}</span></span>`;
+    } else if (!cb && ca) {
+      html += `<span class="nt-slot is-anim nt-exit" style="--dir:${dir};--d:${stagger++}"><span class="nt-old" data-old="${escapeHtml(ca)}" aria-hidden="true"></span></span>`;
+    } else if (cb && !ca) {
+      html += `<span class="nt-slot is-anim" style="--dir:${dir};--d:${stagger++}"><span class="nt-new">${escapeHtml(cb)}</span></span>`;
+    } else {
+      html += `<span class="nt-slot is-anim" style="--dir:${dir};--d:${stagger++}"><span class="nt-old" data-old="${escapeHtml(ca)}" aria-hidden="true"></span><span class="nt-new">${escapeHtml(cb)}</span></span>`;
+    }
+  }
+  if (pB.suffix) {
+    if (pA.suffix === pB.suffix) {
+      html += `<span class="nt-slot"><span class="nt-new">${escapeHtml(pB.suffix)}</span></span>`;
+    } else {
+      html += `<span class="nt-slot is-anim" style="--dir:${dir};--d:${stagger++}"><span class="nt-old" data-old="${escapeHtml(pA.suffix.trim())}" aria-hidden="true"></span><span class="nt-new">${escapeHtml(pB.suffix)}</span></span>`;
+    }
+  }
+  html += "</span>";
+  el.innerHTML = html;
+  prevInfo.timer = setTimeout(() => {
+    if (numericState.get(el) && numericState.get(el).text === next) {
+      el.textContent = next;
+    }
+  }, 540);
+}
+
 /* ================= Storage & state ================= */
 function safeStorageGet(key) {
   try { return window.localStorage ? window.localStorage.getItem(key) : null; } catch (e) { return null; }
@@ -1220,21 +1360,25 @@ function drawRing(canvas, segments, geom) {
       grad.addColorStop(1, c2);
       stroke = grad;
     }
-    // A segment that starts on top of another gets a soft shadow under its rounded head.
+    // A segment that starts on top of another gets a soft shadow under its rounded head, clipped to the ring band.
     if (offset > 0.0008) {
       const fade = clamp(frac * 18, 0, 1);
       ctx.save();
+      ctx.beginPath();
+      ctx.arc(c, c, r + w / 2, 0, TAU);
+      ctx.arc(c, c, Math.max(0, r - w / 2), 0, TAU, true);
+      ctx.clip();
       ctx.globalAlpha = fade;
-      ctx.shadowColor = ringPaintTheme.dark ? "rgba(0, 0, 0, 0.55)" : "rgba(0, 0, 0, 0.22)";
-      ctx.shadowBlur = w * 0.32;
+      ctx.shadowColor = ringPaintTheme.dark ? "rgba(0, 0, 0, 0.42)" : "rgba(0, 0, 0, 0.18)";
+      ctx.shadowBlur = w * 0.26;
       ctx.fillStyle = c1;
-      ctx.beginPath(); ctx.arc(c + r * Math.cos(a0), c + r * Math.sin(a0), w / 2, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(c + r * Math.cos(a0), c + r * Math.sin(a0), w / 2 - 0.5, 0, TAU); ctx.fill();
       ctx.restore();
     }
     ctx.save();
     if (seg.glow) {
-      ctx.shadowColor = rgba(c1, ringPaintTheme.dark ? 0.55 : 0.3);
-      ctx.shadowBlur = w * 0.6;
+      ctx.shadowColor = rgba(c1, ringPaintTheme.dark ? 0.42 : 0.26);
+      ctx.shadowBlur = w * 0.48;
     }
     ctx.strokeStyle = stroke;
     ctx.beginPath(); ctx.arc(c, c, r, a0, a1); ctx.stroke();
@@ -1248,7 +1392,7 @@ const ringSprings = {
   ret: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing), { tolerance: 0.0005 }),
   cln: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing), { tolerance: 0.0005 }),
   foc: new Spring(0, SPRING.glide, () => queueFrameJob(paintRing), { tolerance: 0.0005 }),
-  bytes: new Spring(0, SPRING.soft, () => queueFrameJob(paintRing), { precision: 0.0004 })
+  bytes: new Spring(0, SPRING.soft, null, { precision: 0.0004 })
 };
 
 function paintRing() {
@@ -1258,11 +1402,6 @@ function paintRing() {
     { frac: ringSprings.cln.value, colors: [t.green, t.teal], glow: true },
     { frac: ringSprings.foc.value, colors: [t.blue] }
   ], BIG_RING);
-  const pair = bytePair(Math.max(0, ringSprings.bytes.value));
-  const numEl = document.getElementById("ring-center-num");
-  const unitEl = document.getElementById("ring-center-unit");
-  if (numEl) numEl.textContent = pair.num;
-  if (unitEl) unitEl.textContent = pair.unit;
   const wrap = document.getElementById("ring-num");
   if (wrap) {
     wrap.classList.toggle("is-focus", ringFlags.isFocus);
@@ -1277,7 +1416,10 @@ function animateRingTo(retFrac, clnFrac, focFrac, displayBytes, isFocus) {
   ringSprings.ret.to(clamp(retFrac, 0, 1), SPRING.ring);
   ringSprings.cln.to(clamp(clnFrac, 0, 1), SPRING.ring);
   ringSprings.foc.to(clamp(focFrac, 0, 1), isFocus ? SPRING.glide : SPRING.ring);
-  ringSprings.bytes.to(displayBytes, SPRING.soft);
+  ringSprings.bytes.jump(displayBytes);
+  const pair = bytePair(Math.max(0, displayBytes));
+  setNumericText(document.getElementById("ring-center-num"), pair.num, displayBytes);
+  setNumericText(document.getElementById("ring-center-unit"), pair.unit, displayBytes);
   queueFrameJob(paintRing);
 }
 
@@ -1337,7 +1479,7 @@ function updateMiniRings(entries, activeId) {
     }
     const pctEl = document.getElementById("mring-pct-" + m.id);
     if (pctEl) {
-      pctEl.textContent = m.afterPct.toFixed(0) + "%";
+      setNumericText(pctEl, m.afterPct.toFixed(0) + "%", m.afterPct);
       pctEl.className = "vol-pct " + (m.id === "_all" ? "" : levelFor(m.afterPct, m.warnPct));
     }
     const metaEl = document.getElementById("mring-meta-" + m.id);
@@ -1550,10 +1692,10 @@ function renderRingOverview(onlyUpdateArcs) {
   setHtml("ring-active-mount", active.id === "_all"
     ? `<code>${escapeHtml(active.mountPath)}</code><span>按各卷警戒线监控</span>`
     : `<code>${escapeHtml(active.mountPath || active.id)}</code><span>警戒线 ${fmtPct(active.warnPct)}</span>`);
-  setText("rkpi-retained", formatBytes(retained));
-  setText("rkpi-cleaned", cleaned > 0 ? formatBytes(cleaned) : "0 GiB");
-  setText("rkpi-free-after", formatBytes(active.freeAfterBytes));
-  setText("rkpi-total", formatBytes(total));
+  setNumericText(document.getElementById("rkpi-retained"), formatBytes(retained), retained);
+  setNumericText(document.getElementById("rkpi-cleaned"), cleaned > 0 ? formatBytes(cleaned) : "0 GiB", cleaned);
+  setNumericText(document.getElementById("rkpi-free-after"), formatBytes(active.freeAfterBytes), active.freeAfterBytes);
+  setNumericText(document.getElementById("rkpi-total"), formatBytes(total), total);
 
   const badge = document.getElementById("ring-active-badge");
   const desc = document.getElementById("ring-active-desc");
@@ -1771,6 +1913,8 @@ function navigate(view, opts) {
   if (VIEWS.indexOf(view) < 0) view = "overview";
   const changed = view !== currentView;
   currentView = view;
+  if (typeof closeAllPopups === "function") closeAllPopups(null);
+  if (typeof menuOpen !== "undefined" && menuOpen) toggleQuickMenu(false);
   document.documentElement.setAttribute("data-view", view);
   document.querySelectorAll(".nav-item").forEach(b => {
     const on = b.getAttribute("data-view") === view;
@@ -2122,7 +2266,7 @@ function updateImpact() {
   if (!g || currentView === "whitelisted") { card.hidden = true; return; }
   card.hidden = false;
   const sel = document.getElementById("impact-pool");
-  if (sel && sel.value !== g.id) sel.value = g.id;
+  if (sel && sel.value !== g.id) { sel.value = g.id; if (poolPopup) poolPopup.sync(); }
   const m = computePoolRingMetrics(g);
   const total = m.total;
   const saved = m.cleanedBytes;
@@ -2160,10 +2304,7 @@ function updateImpact() {
 }
 
 /* ================= Totals, counters, dock ================= */
-const dockBytes = new Spring(0, SPRING.soft, v => {
-  const el = document.getElementById("selected-gib");
-  if (el) el.textContent = formatBytes(Math.max(0, v));
-}, { precision: 0.0004 });
+const dockBytes = new Spring(0, SPRING.soft, null, { precision: 0.0004 });
 
 function updateCounts() {
   const counts = { all: 0, mac: 0, projects: 0, github: 0, nas: 0, whitelisted: 0 };
@@ -2198,8 +2339,9 @@ function updateListHeader() {
 function updateSelectionTotals(bump) {
   const sel = selectionSummary();
   const countEl = document.getElementById("selected-count");
-  if (countEl) countEl.textContent = String(sel.count);
-  dockBytes.to(sel.bytes, SPRING.soft);
+  if (countEl) setNumericText(countEl, String(sel.count), sel.count);
+  dockBytes.jump(sel.bytes);
+  setNumericText(document.getElementById("selected-gib"), formatBytes(Math.max(0, sel.bytes)), sel.bytes);
   if (bump) popScale(document.getElementById("dock-stat"), popSprings, 0.94);
   updateCounts();
   updateListHeader();
@@ -2236,9 +2378,112 @@ function showToast(text) {
   toastTimer = setTimeout(() => el.classList.remove("show"), 1900);
 }
 
-/* ================= Quick-select menu (anchored to its button) ================= */
+/* ================= Custom frosted-glass popup selects & quick-select menu ================= */
 let menuOpen = false;
 let resetArmed = 0;
+const popupMenus = [];
+let poolPopup = null;
+let sortPopup = null;
+
+function closeAllPopups(except) {
+  popupMenus.forEach(pm => { if (pm !== except && pm.isOpen()) pm.toggle(false); });
+}
+
+function setupPopupSelect(selectEl) {
+  if (!selectEl || !selectEl.parentElement) return null;
+  const wrap = selectEl.parentElement;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "popup-btn";
+  btn.setAttribute("aria-haspopup", "listbox");
+  btn.setAttribute("aria-expanded", "false");
+  const labelSpan = document.createElement("span");
+  labelSpan.className = "popup-label";
+  btn.appendChild(labelSpan);
+  btn.insertAdjacentHTML("beforeend", '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>');
+  wrap.appendChild(btn);
+
+  const menu = document.createElement("div");
+  menu.className = "menu popup-menu";
+  menu.setAttribute("role", "listbox");
+  menu.hidden = true;
+  document.body.appendChild(menu);
+
+  let open = false;
+  const sp = new Spring(0, SPRING.sheet, v => {
+    const p = Math.max(0, v);
+    menu.style.opacity = clamp(p * 1.65, 0, 1).toFixed(3);
+    menu.style.transform = "translateY(" + ((1 - p) * -8).toFixed(2) + "px) scale(" + (0.88 + 0.12 * p).toFixed(4) + ")";
+  });
+  sp.onRest = v => { if (v <= 0.001) menu.hidden = true; };
+
+  function sync() {
+    const opts = Array.from(selectEl.options);
+    const activeOpt = opts.find(o => o.value === selectEl.value) || opts[0];
+    labelSpan.textContent = activeOpt ? activeOpt.textContent : "";
+    menu.innerHTML = opts.map(o => {
+      const sel = o.value === selectEl.value;
+      return `<button type="button" role="option" class="menu-opt" data-value="${escapeHtml(o.value)}" aria-selected="${sel}">` +
+        `<svg class="opt-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7"/></svg>` +
+        `<span>${escapeHtml(o.textContent)}</span></button>`;
+    }).join("");
+  }
+
+  function positionMenu() {
+    const r = btn.getBoundingClientRect();
+    menu.style.minWidth = Math.max(168, Math.round(r.width + 20)) + "px";
+    const w = menu.offsetWidth;
+    const left = clamp(r.right - w, 10, window.innerWidth - w - 10);
+    menu.style.left = left + "px";
+    menu.style.top = (r.bottom + 7) + "px";
+    menu.style.bottom = "auto";
+    menu.style.transformOrigin = clamp(r.left + r.width / 2 - left, 16, w - 16) + "px 0%";
+  }
+
+  function toggle(force) {
+    const next = force == null ? !open : Boolean(force);
+    if (next === open && (next ? !menu.hidden : menu.hidden)) return;
+    open = next;
+    btn.setAttribute("aria-expanded", String(open));
+    if (open) {
+      closeAllPopups(api);
+      if (menuOpen) toggleQuickMenu(false);
+      sync();
+      menu.hidden = false;
+      positionMenu();
+      sp.to(1, SPRING.sheet);
+      const cur = menu.querySelector('.menu-opt[aria-selected="true"]') || menu.querySelector(".menu-opt");
+      if (cur) cur.focus({ preventScroll: true });
+    } else {
+      sp.to(0, SPRING.soft);
+    }
+  }
+
+  btn.addEventListener("click", e => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggle();
+  });
+  menu.addEventListener("click", e => {
+    e.stopPropagation();
+    const optBtn = e.target.closest(".menu-opt");
+    if (!optBtn) return;
+    const val = optBtn.getAttribute("data-value");
+    if (selectEl.value !== val) {
+      selectEl.value = val;
+      selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    sync();
+    popScale(btn, popSprings, 0.95);
+    toggle(false);
+  });
+
+  sync();
+  const api = { sync, toggle, isOpen: () => open, positionMenu };
+  popupMenus.push(api);
+  return api;
+}
+
 const menuSpring = new Spring(0, SPRING.sheet, v => {
   const menu = document.getElementById("quick-menu");
   if (!menu) return;
@@ -2256,6 +2501,7 @@ function toggleQuickMenu(force) {
   menuOpen = open;
   btn.setAttribute("aria-expanded", String(open));
   if (open) {
+    closeAllPopups(null);
     menu.hidden = false;
     const r = btn.getBoundingClientRect();
     const w = menu.offsetWidth;
@@ -2438,8 +2684,11 @@ function wireEvents() {
 
   const poolSel = document.getElementById("impact-pool");
   poolSel.innerHTML = GAUGES.map(g => `<option value="${escapeHtml(g.id)}">${escapeHtml(poolTitle(g))}</option>`).join("");
-  poolSel.addEventListener("change", () => { activePoolId = poolSel.value; lastToggledId = null; updateImpact(); });
-  document.getElementById("sort-select").addEventListener("change", e => { currentSort = e.target.value; renderCandidates(); animateListTransition(); });
+  poolSel.addEventListener("change", () => { activePoolId = poolSel.value; lastToggledId = null; if (poolPopup) poolPopup.sync(); updateImpact(); });
+  const sortSel = document.getElementById("sort-select");
+  sortSel.addEventListener("change", e => { currentSort = e.target.value; if (sortPopup) sortPopup.sync(); renderCandidates(); animateListTransition(); });
+  poolPopup = setupPopupSelect(poolSel);
+  sortPopup = setupPopupSelect(sortSel);
   document.getElementById("select-visible-btn").addEventListener("click", selectVisibleCategory);
 
   document.getElementById("export-btn").addEventListener("click", copyExecutionPrompt);
@@ -2452,11 +2701,12 @@ function wireEvents() {
     const b = e.target.closest("[data-quick]");
     if (b) handleQuick(b.getAttribute("data-quick"));
   });
-  document.addEventListener("click", () => { if (menuOpen) toggleQuickMenu(false); });
+  document.addEventListener("click", () => { if (menuOpen) toggleQuickMenu(false); closeAllPopups(null); });
   document.addEventListener("keydown", e => {
     if (e.key !== "Escape") return;
     if (!document.getElementById("prompt-modal").hidden) closeModal();
     else if (menuOpen) toggleQuickMenu(false);
+    else closeAllPopups(null);
   });
   const schemeQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
   if (schemeQuery && schemeQuery.addEventListener) schemeQuery.addEventListener("change", () => repaintAllRings());
@@ -2465,6 +2715,7 @@ function wireEvents() {
     placeNavPill(false);
     if (actionSeg) actionSeg.refresh(false);
     if (themeSeg) themeSeg.refresh(false);
+    popupMenus.forEach(pm => { if (pm.isOpen()) pm.positionMenu(); });
   });
 }
 
