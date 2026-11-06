@@ -549,6 +549,10 @@ button.cell:active { background: var(--fill); transform: scale(0.996); }
 .row-main:hover .chev { color: var(--label-2); }
 .chev .ico { width: 14px; height: 14px; stroke-width: 2.2; }
 .row-main[aria-expanded="true"] .chev { transform: rotate(90deg); color: var(--label); }
+.row-main[aria-expanded="true"] .row-title { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+.row-main[aria-expanded="true"] .row-sub { flex-wrap: wrap; white-space: normal; overflow: visible; }
+.row-main[aria-expanded="true"] .row-sub .cat { overflow: visible; text-overflow: clip; }
+.row-main[aria-expanded="true"] .row-size.badge { max-width: none; white-space: normal; overflow: visible; text-overflow: clip; }
 .row-detail { grid-column: 2; overflow: hidden; will-change: height; }
 .row-detail-inner { padding: 2px 16px 16px 40px; transform-origin: top center; will-change: opacity, transform; }
 .evidence { margin: 0 0 10px; max-width: 82ch; font-size: 13.5px; line-height: 1.6; color: var(--label-2); }
