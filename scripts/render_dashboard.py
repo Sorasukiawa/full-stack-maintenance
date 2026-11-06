@@ -181,7 +181,7 @@ TEMPLATE_HEAD = r"""<!DOCTYPE html>
 
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { -webkit-text-size-adjust: 100%; background: var(--bg); }
+html { -webkit-text-size-adjust: 100%; background: var(--bg); scrollbar-gutter: stable; }
 body {
   margin: 0;
   min-height: 100vh;
@@ -361,15 +361,15 @@ input, select, textarea { font: inherit; color: inherit; }
 .ring-num.is-focus .n { color: var(--blue); }
 .ring-water { font-size: 13px; color: var(--label-2); font-variant-numeric: tabular-nums; }
 .hero-info { min-width: 0; }
-.hero-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.hero-title { margin: 0; font-family: var(--font-display); font-size: 26px; font-weight: 800; letter-spacing: -0.018em; -webkit-text-stroke: 0.02em currentColor; }
-.status-pill { font-size: 12px; font-weight: 620; padding: 3px 10px; border-radius: 999px; color: var(--pill, var(--label-2)); background: color-mix(in srgb, var(--pill, var(--label-2)) 14%, transparent); }
+.hero-title-row { display: flex; align-items: center; gap: 10px; min-height: 34px; flex-wrap: nowrap; }
+.hero-title { margin: 0; font-family: var(--font-display); font-size: 26px; font-weight: 800; letter-spacing: -0.018em; -webkit-text-stroke: 0.02em currentColor; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-pill { flex: none; font-size: 12px; font-weight: 620; padding: 3px 10px; border-radius: 999px; color: var(--pill, var(--label-2)); background: color-mix(in srgb, var(--pill, var(--label-2)) 14%, transparent); }
 .status-pill.ok { --pill: var(--green-text); }
 .status-pill.warn { --pill: var(--orange-text); }
 .status-pill.crit { --pill: var(--red); }
-.hero-mount { margin: 6px 0 0; font-size: 13px; line-height: 1.45; color: var(--label-2); }
-.hero-mount code { font: 12px var(--font-mono); color: var(--label-3); margin-right: 8px; word-break: break-all; }
-.hero-sentence { margin: 14px 0 18px; max-width: 54ch; font-size: 15px; line-height: 1.55; }
+.hero-mount { margin: 6px 0 0; height: 20px; display: flex; align-items: center; gap: 8px; font-size: 13px; line-height: 20px; color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hero-mount code { font: 12px var(--font-mono); color: var(--label-3); overflow: hidden; text-overflow: ellipsis; }
+.hero-sentence { margin: 12px 0 16px; height: 24px; font-size: 15px; line-height: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hero-sentence b { font-weight: 650; }
 .stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5px; margin: 0; border-radius: 14px; overflow: hidden; background: var(--separator); }
 .stat { margin: 0; padding: 12px 14px; background: var(--cell); }
@@ -382,17 +382,19 @@ input, select, textarea { font: inherit; color: inherit; }
 .dot.ring-focus { --dot: var(--blue); }
 .dot.ring-free { --dot: var(--track); box-shadow: inset 0 0 0 1px var(--separator); }
 
-.comp { margin-top: 20px; }
-.comp-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; font-size: 13px; color: var(--label-2); }
+.comp { margin-top: 18px; }
+.comp-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; height: 20px; margin-bottom: 8px; font-size: 13px; color: var(--label-2); }
 .comp-head b { color: var(--label); font-weight: 620; font-size: 13.5px; }
 /* Pill bar: every segment is its own capsule, matching the round-capped ring. */
 .sbar { display: flex; gap: 3px; height: 14px; border-radius: 999px; overflow: hidden; background: var(--track); }
 .sbar > i { display: block; height: 100%; flex: none; width: 0; min-width: 0; border-radius: 999px; transition: width var(--dur-bounce) var(--ease-bounce), opacity 0.2s; }
 .sbar.lg { height: 20px; gap: 4px; }
 .sbar.dim > i:not(.on) { opacity: 0.28; }
-.comp-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 12.5px; color: var(--label-2); }
-.comp-legend > span { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; cursor: default; transition: opacity 0.2s; }
-.comp-legend b, .comp-legend em { white-space: nowrap; }
+.comp-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, 22px); gap: 6px 20px; margin-top: 12px; font-size: 12.5px; color: var(--label-2); }
+.comp-legend > span { display: flex; align-items: center; gap: 7px; height: 22px; min-width: 0; cursor: default; transition: opacity 0.2s; }
+.comp-legend > span.is-empty { visibility: hidden; pointer-events: none; }
+.comp-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.comp-legend b, .comp-legend em { flex: none; white-space: nowrap; }
 .comp-legend b { color: var(--label); font-weight: 600; font-variant-numeric: tabular-nums; }
 .comp-legend em { font-style: normal; color: var(--green-text); font-weight: 600; }
 .comp-legend.dim > span:not(.on) { opacity: 0.4; }
@@ -1349,79 +1351,126 @@ function highlightRingItem(itemId, active) {
 }
 
 /* ================= Overview: composition bar ================= */
-let compKey = null;
+const COMP_SLOTS = 6;
+let compBuilt = false;
 
 function compositionParts(active, metricsList) {
+  let raw = [];
   if (active.id === "_all") {
-    return metricsList.map((m, i) => ({ key: m.id, name: m.shortTitle, bytes: m.beforeUsedBytes, color: COMP_COLORS[i % COMP_COLORS.length], free: m.cleanedBytes }));
-  }
-  const g = active.gauge;
-  const parts = [];
-  const freeByCat = {};
-  CANDS.forEach(c => {
-    if (c.gauge_id !== g.id || !isChecked(c)) return;
-    const cat = c.category || "其他";
-    freeByCat[cat] = (freeByCat[cat] || 0) + sizeOf(c);
-  });
-  if (Array.isArray(g.breakdown) && g.breakdown.length) {
-    g.breakdown.forEach(b => parts.push({ name: String(b.name || b.label || "未命名"), bytes: Math.max(0, Number(b.size_bytes) || 0) }));
+    raw = metricsList.map((m, i) => ({
+      key: "s" + i, name: m.shortTitle, bytes: m.beforeUsedBytes, color: COMP_COLORS[i % COMP_COLORS.length], free: m.cleanedBytes
+    }));
   } else {
-    const byCat = {};
+    const g = active.gauge;
+    const parts = [];
+    const freeByCat = {};
     CANDS.forEach(c => {
-      if (c.gauge_id !== g.id || !sizeOf(c)) return;
+      if (c.gauge_id !== g.id || !isChecked(c)) return;
       const cat = c.category || "其他";
-      byCat[cat] = (byCat[cat] || 0) + sizeOf(c);
+      freeByCat[cat] = (freeByCat[cat] || 0) + sizeOf(c);
     });
-    Object.keys(byCat).forEach(k => parts.push({ name: k, bytes: byCat[k] }));
+    if (Array.isArray(g.breakdown) && g.breakdown.length) {
+      g.breakdown.forEach(b => parts.push({ name: String(b.name || b.label || "未命名"), bytes: Math.max(0, Number(b.size_bytes) || 0) }));
+    } else {
+      const byCat = {};
+      CANDS.forEach(c => {
+        if (c.gauge_id !== g.id || !sizeOf(c)) return;
+        const cat = c.category || "其他";
+        byCat[cat] = (byCat[cat] || 0) + sizeOf(c);
+      });
+      Object.keys(byCat).forEach(k => parts.push({ name: k, bytes: byCat[k] }));
+    }
+    parts.sort((a, b) => b.bytes - a.bytes);
+    const known = parts.reduce((s, p) => s + p.bytes, 0);
+    raw = parts.filter(p => p.bytes > 0).map((p, i) => ({
+      key: "s" + i, name: p.name, bytes: p.bytes, color: COMP_COLORS[i % COMP_COLORS.length], free: freeByCat[p.name] || 0
+    }));
+    const rest = active.beforeUsedBytes - known;
+    if (rest > active.total * 0.005) raw.push({ key: "rest", name: "其他已用", bytes: rest, color: "var(--used)", free: 0 });
+    if (!raw.length && active.beforeUsedBytes > 0) {
+      if (active.cleanedBytes > 0) {
+        raw.push({ key: "s0", name: "清理后保留已用", bytes: active.retainedBytes, color: COMP_COLORS[0], free: 0 });
+        raw.push({ key: "s1", name: "已选待释放", bytes: active.cleanedBytes, color: COMP_COLORS[7], free: active.cleanedBytes });
+      } else {
+        raw.push({ key: "s0", name: "当前已用空间", bytes: active.beforeUsedBytes, color: COMP_COLORS[0], free: 0 });
+      }
+    }
   }
-  parts.sort((a, b) => b.bytes - a.bytes);
-  const known = parts.reduce((s, p) => s + p.bytes, 0);
-  const out = parts.filter(p => p.bytes > 0).map((p, i) => ({
-    key: "c" + i, name: p.name, bytes: p.bytes, color: COMP_COLORS[i % COMP_COLORS.length], free: freeByCat[p.name] || 0
-  }));
-  const rest = active.beforeUsedBytes - known;
-  if (rest > active.total * 0.005) out.push({ key: "rest", name: "其他已用", bytes: rest, color: "var(--used)", free: 0 });
-  return out;
+  if (raw.length > COMP_SLOTS) {
+    const head = raw.slice(0, COMP_SLOTS - 1);
+    const tail = raw.slice(COMP_SLOTS - 1);
+    head.push({
+      key: "s" + (COMP_SLOTS - 1),
+      name: "其他已用",
+      bytes: tail.reduce((s, p) => s + p.bytes, 0),
+      color: "var(--used)",
+      free: tail.reduce((s, p) => s + (p.free || 0), 0)
+    });
+    return head;
+  }
+  return raw;
 }
 
 function renderComposition(active, metricsList) {
   const box = document.getElementById("composition");
   if (!box) return;
   const parts = compositionParts(active, metricsList);
-  if (!parts.length) { box.innerHTML = ""; compKey = null; return; }
-  const key = active.id + ":" + parts.map(p => p.key).join(",");
-  const rebuild = key !== compKey;
-  if (rebuild) {
-    compKey = key;
+  if (!compBuilt) {
+    const slots = Array.from({ length: COMP_SLOTS }, (_, i) => i);
     box.innerHTML = `
-      <div class="comp-head"><b>${active.id === "_all" ? "各存储卷占用" : "空间构成"}</b><span>清理前已用 ${formatShort(active.beforeUsedBytes)}</span></div>
-      <div class="sbar" id="comp-bar">${parts.map(p => `<i data-k="${p.key}" style="background:${p.color}"></i>`).join("")}</div>
-      <div class="comp-legend" id="comp-legend">${parts.map(p => `<span data-k="${p.key}"><i class="dot" style="background:${p.color}"></i>${escapeHtml(p.name)} <b></b><em></em></span>`).join("")}</div>`;
+      <div class="comp-head"><b id="comp-title">空间构成</b><span id="comp-sub"></span></div>
+      <div class="sbar" id="comp-bar">${slots.map(i => `<i data-slot="${i}" style="display:none;width:0%"></i>`).join("")}</div>
+      <div class="comp-legend" id="comp-legend">${slots.map(i => `<span data-slot="${i}" class="is-empty"><i class="dot"></i><span class="comp-name"></span><b></b><em></em></span>`).join("")}</div>`;
     const bar = box.querySelector("#comp-bar");
     const legend = box.querySelector("#comp-legend");
-    legend.querySelectorAll("span").forEach(sp => {
-      const k = sp.getAttribute("data-k");
+    legend.querySelectorAll("span[data-slot]").forEach(sp => {
+      const slot = sp.getAttribute("data-slot");
       sp.addEventListener("mouseenter", () => {
+        if (sp.classList.contains("is-empty")) return;
         bar.classList.add("dim"); legend.classList.add("dim");
-        bar.querySelectorAll("i").forEach(i => i.classList.toggle("on", i.getAttribute("data-k") === k));
-        legend.querySelectorAll("span").forEach(s => s.classList.toggle("on", s === sp));
+        bar.querySelectorAll("i").forEach(i => i.classList.toggle("on", i.getAttribute("data-slot") === slot));
+        legend.querySelectorAll("span[data-slot]").forEach(s => s.classList.toggle("on", s === sp));
       });
       sp.addEventListener("mouseleave", () => { bar.classList.remove("dim"); legend.classList.remove("dim"); });
     });
+    compBuilt = true;
   }
-  const apply = () => {
-    parts.forEach(p => {
-      const seg = box.querySelector(`#comp-bar i[data-k="${p.key}"]`);
-      if (seg) seg.style.width = clamp(pct(p.bytes, active.total), 0, 100).toFixed(2) + "%";
-      const lg = box.querySelector(`#comp-legend span[data-k="${p.key}"]`);
-      if (lg) {
+  const titleEl = document.getElementById("comp-title");
+  const subEl = document.getElementById("comp-sub");
+  if (titleEl) titleEl.textContent = active.id === "_all" ? "各存储卷占用" : "空间构成";
+  if (subEl) subEl.textContent = "清理前已用 " + formatShort(active.beforeUsedBytes);
+  for (let i = 0; i < COMP_SLOTS; i++) {
+    const p = parts[i];
+    const seg = box.querySelector(`#comp-bar i[data-slot="${i}"]`);
+    const lg = box.querySelector(`#comp-legend span[data-slot="${i}"]`);
+    const w = p ? clamp(pct(p.bytes, active.total), 0, 100) : 0;
+    if (seg) {
+      if (p && w > 0.05) {
+        seg.style.display = "block";
+        seg.style.background = p.color;
+        seg.style.width = w.toFixed(2) + "%";
+      } else {
+        seg.style.width = "0%";
+        seg.style.display = "none";
+      }
+    }
+    if (lg) {
+      if (p) {
+        lg.classList.remove("is-empty");
+        lg.querySelector(".dot").style.background = p.color;
+        const nameEl = lg.querySelector(".comp-name");
+        nameEl.textContent = p.name;
+        nameEl.title = p.name;
         lg.querySelector("b").textContent = formatShort(p.bytes);
         lg.querySelector("em").textContent = p.free > 0 ? "可释放 " + formatShort(p.free) : "";
+      } else {
+        lg.classList.add("is-empty");
+        lg.querySelector(".comp-name").textContent = "";
+        lg.querySelector("b").textContent = "";
+        lg.querySelector("em").textContent = "";
       }
-    });
-  };
-  if (rebuild && !REDUCED_MOTION) requestAnimationFrame(() => requestAnimationFrame(apply));
-  else apply();
+    }
+  }
 }
 
 /* ================= Overview: render ================= */
@@ -1474,8 +1523,8 @@ function renderRingOverview(onlyUpdateArcs) {
     : `当前水位 ${fmtPct(active.afterPct)}`);
   setText("ring-active-title", active.shortTitle);
   setHtml("ring-active-mount", active.id === "_all"
-    ? escapeHtml(active.mountPath)
-    : `<code>${escapeHtml(active.mountPath || active.id)}</code>警戒线 ${fmtPct(active.warnPct)}`);
+    ? `<code>${escapeHtml(active.mountPath)}</code><span>按各卷警戒线监控</span>`
+    : `<code>${escapeHtml(active.mountPath || active.id)}</code><span>警戒线 ${fmtPct(active.warnPct)}</span>`);
   setText("rkpi-retained", formatBytes(retained));
   setText("rkpi-cleaned", cleaned > 0 ? formatBytes(cleaned) : "0 GiB");
   setText("rkpi-free-after", formatBytes(active.freeAfterBytes));
@@ -1547,10 +1596,26 @@ function overviewGroup(key, title, note, items, opts) {
     </section>`;
 }
 
+function overviewEmptyGroup(title, note, iconName, tint, mainText, subText, actionLabel) {
+  const right = actionLabel ? `<span class="amount" style="color:var(--blue)">${actionLabel}</span>` : `<span class="amount muted">0 项</span>`;
+  const tag = actionLabel ? `button type="button" data-goto="all"` : `div`;
+  const closeTag = actionLabel ? `button` : `div`;
+  return `<section class="section">
+      <div class="section-head"><h2 class="section-title">${title}</h2><span class="section-note">${note}</span></div>
+      <div class="grouped glass">
+        <${tag} class="cell">
+          <span class="app-icon tint-${tint}">${icon(iconName)}</span>
+          <span class="cell-text"><span class="cell-title">${mainText}</span><span class="cell-sub">${subText}</span></span>
+          <span class="cell-right">${right}</span>
+        </${closeTag}>
+      </div>
+    </section>`;
+}
+
 function renderOverviewLists(active) {
   const box = document.getElementById("ring-detailed-lists");
   if (!box) return;
-  const inPool = c => !active || active.id === "_all" || !c.gauge_id || c.gauge_id === active.id;
+  const inPool = c => !active || active.id === "_all" ? true : c.gauge_id === active.id;
   const scope = CANDS.filter(inPool);
   const space = scope.filter(c => !isWl(c) && (isDone(c) || state.checked[c.id]) && sizeOf(c) > 0).sort((a, b) => sizeOf(b) - sizeOf(a));
   const opt = scope.filter(c => !isWl(c) && (isDone(c) || state.checked[c.id]) && sizeOf(c) === 0);
@@ -1562,11 +1627,18 @@ function renderOverviewLists(active) {
   if (space.length) {
     out += overviewGroup("space", "将释放空间", `${where}，${space.length} 项，共 ${formatBytes(spaceSum)}`, space, { kind: "space", max });
   } else {
-    out += `<section class="section"><div class="section-head"><h2 class="section-title">将释放空间</h2></div>
-      <div class="grouped glass empty"><b>${escapeHtml(where)}还没有选中会释放空间的项目</b>去清单里勾选，环形图会跟着实时变化。<button type="button" class="btn btn-primary" data-goto="all">打开全部建议</button></div></section>`;
+    out += overviewEmptyGroup("将释放空间", `${where}，0 项`, "trash", "green", `${escapeHtml(where)}还没有选中会释放空间的项目`, "去全部建议里勾选后，环形图与水位会实时变化", "去全部建议 →");
   }
-  if (opt.length) out += overviewGroup("opt", "优化与整理", `${opt.length} 项，不占用也不释放空间`, opt, { kind: "opt" });
-  if (prot.length) out += overviewGroup("prot", "受保护", `${prot.length} 项，执行时一律跳过`, prot, { kind: "protected" });
+  if (opt.length) {
+    out += overviewGroup("opt", "优化与整理", `${where}，${opt.length} 项，不改变磁盘占用`, opt, { kind: "opt" });
+  } else {
+    out += overviewEmptyGroup("优化与整理", `${where}，0 项`, "bolt", "orange", `${escapeHtml(where)}没有待执行的优化与整理项`, "结构整理、版本更新与配置核对会归在这里", "");
+  }
+  if (prot.length) {
+    out += overviewGroup("prot", "受保护", `${where}，${prot.length} 项，执行时一律跳过`, prot, { kind: "protected" });
+  } else {
+    out += overviewEmptyGroup("受保护", `${where}，0 项`, "shield", "orange", `${escapeHtml(where)}没有受白名单保护的条目`, "在任意建议详情里点「加入白名单」即可锁定保护", "");
+  }
   box.innerHTML = out;
   box.querySelectorAll(".cell[data-id]").forEach(cell => {
     const id = cell.getAttribute("data-id");
