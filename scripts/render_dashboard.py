@@ -336,16 +336,16 @@ input, select, textarea { font: inherit; color: inherit; }
 .btn-large { height: 40px; padding: 0 20px; font-size: 14.5px; }
 .btn-warn { color: var(--orange-text); }
 
-.seg { position: relative; display: inline-flex; padding: 2px; border-radius: 9px; background: var(--fill); isolation: isolate; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.seg { position: relative; display: inline-flex; align-items: center; padding: 3px; border-radius: 10px; background: var(--fill); isolation: isolate; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .seg::-webkit-scrollbar { display: none; }
 .seg button {
   position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 6px;
-  padding: 5px 13px; border-radius: 7px; font-size: 13px; font-weight: 520; white-space: nowrap;
+  height: 26px; padding: 0 12px; border-radius: 7px; font-size: 13px; font-weight: 520; white-space: nowrap;
   transition: transform var(--dur-bounce) var(--ease-bounce), color 0.2s;
 }
 .seg button:active { transform: scale(0.95); transition-duration: 70ms; }
 .seg button .count { font-size: 12px; color: var(--label-2); font-variant-numeric: tabular-nums; }
-.seg-glider { position: absolute; z-index: 0; top: 2px; bottom: 2px; left: 0; width: 0; border-radius: 7px; background: var(--seg-thumb); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.04); will-change: transform, width; }
+.seg-glider { position: absolute; z-index: 0; top: 3px; bottom: 3px; left: 0; width: 0; border-radius: 7px; background: var(--seg-thumb); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.04); will-change: transform, width; }
 .seg.small button { padding: 4px 10px; font-size: 12.5px; flex: 1; justify-content: center; }
 .seg.small { display: flex; }
 
@@ -355,7 +355,7 @@ input, select, textarea { font: inherit; color: inherit; }
 }
 .popup-btn {
   display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
-  height: 30px; padding: 0 10px 0 12px; border-radius: 9px;
+  height: 32px; padding: 0 10px 0 12px; border-radius: 10px;
   border: 0.5px solid var(--separator); background: var(--field); font-size: 13px; font-weight: 540; color: var(--label);
   box-shadow: var(--shadow-sm); cursor: pointer; white-space: nowrap;
   transition: transform var(--dur-bounce) var(--ease-bounce), background 0.15s, border-color 0.15s, box-shadow 0.15s;
@@ -441,7 +441,7 @@ input, select, textarea { font: inherit; color: inherit; }
 .dot.ring-used { --dot: var(--used); }
 .dot.ring-clean { background: linear-gradient(135deg, var(--green), var(--teal)); }
 .dot.ring-focus { --dot: var(--blue); }
-.dot.ring-free { --dot: var(--track); box-shadow: inset 0 0 0 1px var(--separator); }
+.dot.ring-free { background: transparent; box-shadow: inset 0 0 0 1.5px var(--label-3); }
 
 .comp { margin-top: 18px; }
 .comp-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; height: 20px; margin-bottom: 8px; font-size: 13px; color: var(--label-2); }
@@ -449,7 +449,7 @@ input, select, textarea { font: inherit; color: inherit; }
 /* Pill bar: every segment is its own capsule, matching the round-capped ring. */
 .sbar { display: flex; gap: 3px; height: 14px; border-radius: 999px; overflow: hidden; background: var(--track); }
 .sbar > i { display: block; height: 100%; flex: none; width: 0; min-width: 0; border-radius: 999px; transition: width var(--dur-bounce) var(--ease-bounce), opacity 0.2s; }
-.sbar.lg { height: 20px; gap: 4px; }
+.sbar.lg { height: 16px; gap: 4px; }
 .sbar.dim > i:not(.on) { opacity: 0.28; }
 .comp-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: 22px; gap: 6px 20px; margin-top: 12px; font-size: 12.5px; color: var(--label-2); }
 #comp-legend { grid-template-rows: repeat(3, 22px); }
@@ -497,6 +497,7 @@ button.cell:active { background: var(--fill); transform: scale(0.996); }
 .chip.tier-a, .chip.good { color: var(--green-text); background: color-mix(in srgb, var(--green) 15%, transparent); }
 .chip.tier-b, .chip.info { color: var(--blue); background: color-mix(in srgb, var(--blue) 13%, transparent); }
 .chip.tier-c, .chip.warn { color: var(--orange-text); background: color-mix(in srgb, var(--orange) 15%, transparent); }
+.chip.done { color: var(--label-2); background: var(--fill); }
 
 /* ---------- Workbench ---------- */
 .impact { padding: 20px 22px; border-radius: 22px; margin-bottom: 14px; }
@@ -507,14 +508,10 @@ button.cell:active { background: var(--fill); transform: scale(0.996); }
 .sbar-focus { background: var(--blue); }
 .sbar-focus.preview { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--blue) 70%, transparent) 0 5px, color-mix(in srgb, var(--blue) 40%, transparent) 5px 10px); }
 .sbar-clean { background: linear-gradient(90deg, var(--green), var(--teal)); }
-.toolbar { position: sticky; top: 0; z-index: 6; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 0; margin-bottom: 8px; }
-.toolbar::before {
-  content: ""; position: absolute; inset: 0 -14px -12px; z-index: -1; pointer-events: none;
-  background: color-mix(in srgb, var(--bg) 62%, transparent);
-  -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%);
-  -webkit-mask-image: linear-gradient(#000 72%, transparent); mask-image: linear-gradient(#000 72%, transparent);
-}
+.toolbar { position: relative; z-index: 6; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 0; margin-bottom: 8px; }
 .toolbar-right { display: flex; align-items: center; gap: 8px; }
+.toolbar-right .btn { height: 32px; border-radius: 10px; }
+.toolbar-right .btn:disabled { opacity: 0.45; pointer-events: none; }
 .list-group { margin-bottom: 26px; }
 .group-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 0 4px 8px; }
 .group-head h3 { margin: 0; font-size: 13.5px; font-weight: 620; color: var(--label-2); display: flex; align-items: center; gap: 8px; }
@@ -547,7 +544,7 @@ button.cell:active { background: var(--fill); transform: scale(0.996); }
 .row-sub { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; font-size: 12px; color: var(--label-2); }
 .row-sub .cat { overflow: hidden; text-overflow: ellipsis; }
 .row-size { font-size: 14.5px; font-weight: 620; line-height: 1.35; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.row-size.badge { max-width: 170px; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 520; color: var(--label-2); }
+.row-size.badge { max-width: 340px; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 520; color: var(--label-2); }
 .chev { color: var(--label-3); display: grid; place-items: center; width: 16px; height: 16px; transition: transform var(--dur-bounce) var(--ease-bounce), color 0.18s; }
 .row-main:hover .chev { color: var(--label-2); }
 .chev .ico { width: 14px; height: 14px; stroke-width: 2.2; }
@@ -1920,9 +1917,10 @@ function renderComposition(active, metricsList) {
     const p = parts[i];
     const seg = box.querySelector(`#comp-bar i[data-slot="${i}"]`);
     const lg = box.querySelector(`#comp-legend span[data-slot="${i}"]`);
-    const w = p ? clamp(pct(p.bytes, active.total), 0, 100) : 0;
+    const rawW = p ? clamp(pct(p.bytes, active.total), 0, 100) : 0;
+    const w = rawW > 0.05 ? Math.max(2.0, rawW) : 0;
     if (seg) {
-      if (p && w > 0.05) {
+      if (p && w > 0) {
         seg.style.display = "block";
         seg.style.background = p.color;
         seg.style.width = w.toFixed(2) + "%";
@@ -2172,12 +2170,13 @@ function renderDiff() {
     gBox.innerHTML = gd.length ? gd.map(x => {
       const d = Number(x.used_delta_bytes) || 0;
       const grow = d > 0;
+      const zero = d === 0;
       return `<div class="cell hoverable">
-          <span class="app-icon tint-${grow ? "orange" : "green"}">${icon("gauge")}</span>
+          <span class="app-icon tint-${zero ? "graphite" : (grow ? "orange" : "green")}">${icon("gauge")}</span>
           <span class="cell-text"><span class="cell-title"><span class="cell-title-text">${escapeHtml(poolTitle(gaugeById[x.id] || { id: x.id, label: x.label || x.id }))}</span></span>
             <span class="cell-sub">已用空间${grow ? "增加" : (d < 0 ? "减少" : "没有变化")}</span></span>
-          <span class="cell-right"><span class="amount ${grow ? "grow" : "free"}">${grow ? "+" : (d < 0 ? "−" : "")}${formatBytes(Math.abs(d))}</span>
-            <span class="minibar ${grow ? "grow" : ""}"><i style="width:${Math.max(4, pct(Math.abs(d), maxG)).toFixed(1)}%"></i></span></span>
+          <span class="cell-right"><span class="amount ${zero ? "muted" : (grow ? "grow" : "free")}">${grow ? "+" : (d < 0 ? "−" : "")}${formatBytes(Math.abs(d))}</span>
+            <span class="minibar ${grow ? "grow" : ""}"><i style="width:${zero ? 0 : Math.max(4, pct(Math.abs(d), maxG)).toFixed(1)}%"></i></span></span>
         </div>`;
     }).join("") : `<div class="empty">没有存储卷变化数据</div>`;
   }
@@ -2382,7 +2381,7 @@ function rowHtml(c) {
   const sizeHtml = sz > 0
     ? `<span class="row-size">${formatBytes(sz)}</span>`
     : `<span class="row-size badge">${escapeHtml(c.metric_badge || "")}</span>`;
-  const statusChip = done ? '<span class="chip good">已执行</span>' : (wl ? '<span class="chip warn">受保护</span>' : "");
+  const statusChip = done ? '<span class="chip done">✓ 已执行</span>' : (wl ? '<span class="chip warn">受保护</span>' : "");
   return `<div class="row${checked ? " is-checked" : ""}${wl ? " is-protected" : ""}${done ? " is-done" : ""}" id="card-${id}" data-id="${id}">
     <button type="button" class="check" role="checkbox" aria-checked="${checked || done}" aria-label="选择：${title}" data-act="toggle"${wl || done ? " disabled" : ""}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 12.5l3.8 3.8 7.2-8.3"/></svg>
@@ -2534,11 +2533,21 @@ function toggleWhitelist(id) {
 }
 
 function selectVisibleCategory() {
+  const selectable = visibleItems().filter(c => !isWl(c) && !isDone(c));
+  if (!selectable.length) return;
+  const allOn = selectable.every(c => state.checked[c.id]);
   let n = 0;
-  visibleItems().forEach(c => { if (!isWl(c) && !isDone(c) && !state.checked[c.id]) { state.checked[c.id] = true; n++; } });
-  saveState();
-  renderCandidates();
-  showToast(n ? `本页又选中了 ${n} 项` : "本页已经全选了");
+  if (allOn) {
+    selectable.forEach(c => { if (state.checked[c.id]) { state.checked[c.id] = false; n++; } });
+    saveState();
+    renderCandidates();
+    showToast(`本页已取消勾选 ${n} 项`);
+  } else {
+    selectable.forEach(c => { if (!state.checked[c.id]) { state.checked[c.id] = true; n++; } });
+    saveState();
+    renderCandidates();
+    showToast(`本页又选中了 ${n} 项`);
+  }
 }
 function inQuickGroup(c, key) {
   if (isDone(c) || isWl(c)) return false;
@@ -2670,9 +2679,10 @@ function updateImpact() {
   const focusBytes = focus ? Math.min(preview ? m.retainedBytes : saved, sizeOf(focus)) : 0;
   const retained = Math.max(0, m.retainedBytes - (preview ? focusBytes : 0));
   const otherSaved = Math.max(0, saved - (preview ? 0 : focusBytes));
-  impactSprings["seg-retained"].to(pct(retained, total));
-  impactSprings["seg-reclaim-item"].to(pct(focusBytes, total));
-  impactSprings["seg-reclaim-mid"].to(pct(otherSaved, total));
+  const barPct = b => b > 0 ? Math.max(1.5, pct(b, total)) : 0;
+  impactSprings["seg-retained"].to(barPct(retained));
+  impactSprings["seg-reclaim-item"].to(barPct(focusBytes));
+  impactSprings["seg-reclaim-mid"].to(barPct(otherSaved));
   const focusEl = document.getElementById("seg-reclaim-item");
   if (focusEl) focusEl.classList.toggle("preview", preview);
   const t = document.getElementById("impact-title");
@@ -2711,18 +2721,37 @@ function updateCounts() {
 function updateListHeader() {
   if (currentView === "overview") return;
   const scope = CANDS.filter(c => matchesView(c, currentView));
+  const doneTotal = scope.filter(c => isDone(c)).length;
   const sel = selectionSummary(c => matchesView(c, currentView));
   const sub = document.getElementById("list-sub");
   if (sub) {
+    const doneNote = doneTotal > 0 ? `（已执行 <b>${doneTotal}</b> 条）` : "";
     sub.innerHTML = currentView === "whitelisted"
       ? `共 <b>${scope.length}</b> 项受保护。执行时会被 preflight 强制跳过，新加入的会写进导出指令。`
-      : `共 <b>${scope.length}</b> 条建议，已选 <b>${sel.count}</b> 条${sel.bytes > 0 ? `，可释放 <b>${formatBytes(sel.bytes)}</b>` : ""}。点开一行可以看依据、写备注或加入白名单。`;
+      : `共 <b>${scope.length}</b> 条建议${doneNote}，已选 <b>${sel.count}</b> 条${sel.bytes > 0 ? `，可释放 <b>${formatBytes(sel.bytes)}</b>` : ""}。点开一行可以看依据、写备注或加入白名单。`;
+  }
+  const selBtn = document.getElementById("select-visible-btn");
+  if (selBtn && currentView !== "whitelisted") {
+    const selectable = visibleItems().filter(c => !isWl(c) && !isDone(c));
+    const allOn = selectable.length > 0 && selectable.every(c => state.checked[c.id]);
+    selBtn.disabled = selectable.length === 0;
+    selBtn.textContent = allOn ? "取消本页" : "全选本页";
   }
   ["A", "B", "C"].forEach(t => {
     const el = document.getElementById("ghead-" + t);
     if (!el) return;
-    const s = selectionSummary(c => matchesView(c, currentView) && tierOf(c) === t && (currentAction === "all" || inferActionType(c) === currentAction));
-    el.textContent = `已选 ${s.count} 项${s.bytes ? "，" + formatBytes(s.bytes) : ""}`;
+    const inTier = c => matchesView(c, currentView) && tierOf(c) === t && (currentAction === "all" || inferActionType(c) === currentAction);
+    const tierItems = CANDS.filter(inTier);
+    const doneCnt = tierItems.filter(c => isDone(c)).length;
+    const selectableCnt = tierItems.filter(c => !isDone(c) && !isWl(c)).length;
+    const s = selectionSummary(inTier);
+    if (selectableCnt === 0 && doneCnt > 0) {
+      el.textContent = `已执行 ${doneCnt} 项`;
+    } else if (doneCnt > 0) {
+      el.textContent = `已选 ${s.count} 项${s.bytes ? "，" + formatBytes(s.bytes) : ""} · 已执行 ${doneCnt} 项`;
+    } else {
+      el.textContent = `已选 ${s.count} 项${s.bytes ? "，" + formatBytes(s.bytes) : ""}`;
+    }
   });
 }
 
