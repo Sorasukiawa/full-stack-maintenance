@@ -250,8 +250,36 @@ input, select, textarea { font: inherit; color: inherit; }
 .nav-item:active { transform: scale(0.97); transition-duration: 70ms; }
 .nav-count { margin-left: auto; font-size: 12.5px; color: var(--label-2); font-variant-numeric: tabular-nums; }
 .nav-label { font-size: 12px; font-weight: 600; color: var(--label-3); padding: 14px 8px 4px; }
-.sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 0; }
-.sidebar-foot .foot-label { font-size: 12px; color: var(--label-3); font-weight: 600; padding: 0 8px; }
+.sidebar-foot { margin-top: auto; display: flex; flex-direction: column; padding: 4px 2px 0; }
+.seg.theme-switch {
+  display: flex; width: 100%; padding: 3px; border-radius: 999px;
+  background: var(--fill); border: 0.5px solid var(--separator);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+.seg.theme-switch .seg-glider {
+  top: 3px; bottom: 3px; border-radius: 999px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16), 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+}
+.seg.theme-switch button {
+  flex: 1; justify-content: center; gap: 5px; height: 30px; padding: 0 8px;
+  border-radius: 999px; font-size: 12.5px; font-weight: 550; color: var(--label-2);
+}
+.seg.theme-switch button.active { color: var(--label); font-weight: 620; }
+.theme-ico {
+  width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor;
+  stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+  transition: transform 0.45s var(--ease-bounce), color 0.25s, fill 0.25s;
+}
+.theme-ico.sun circle, .theme-ico.moon .moon-body { fill: currentColor; fill-opacity: 0; transition: fill-opacity 0.25s; }
+.theme-ico.moon .star { stroke-width: 1.7; opacity: 0.65; transition: opacity 0.25s, transform 0.45s var(--ease-bounce); transform-origin: 18.5px 6px; }
+.theme-ico.auto .half { fill: currentColor; stroke: none; opacity: 0.72; }
+.seg.theme-switch button[data-value="light"].active .theme-ico.sun { color: #ff9f0a; transform: rotate(45deg) scale(1.06); }
+.seg.theme-switch button[data-value="light"].active .theme-ico.sun circle { fill-opacity: 0.24; }
+.seg.theme-switch button[data-value="dark"].active .theme-ico.moon { color: #64d2ff; transform: rotate(-12deg) scale(1.06); }
+.seg.theme-switch button[data-value="dark"].active .theme-ico.moon .moon-body { fill-opacity: 0.24; }
+.seg.theme-switch button[data-value="dark"].active .theme-ico.moon .star { opacity: 1; transform: scale(1.15); }
+.seg.theme-switch button[data-value="auto"].active .theme-ico.auto { color: var(--blue); transform: rotate(180deg) scale(1.05); }
+.seg.theme-switch button[data-value="auto"].active .theme-ico.auto .half { opacity: 0.95; }
 
 .main { min-width: 0; padding: 0 44px 150px; }
 .page { max-width: 1120px; margin: 0 auto; }
@@ -348,11 +376,15 @@ input, select, textarea { font: inherit; color: inherit; }
 .popup-menu button.menu-opt:hover .opt-check, .popup-menu button.menu-opt:focus-visible .opt-check { color: #fff; }
 
 /* ---------- Apple .contentTransition(.numericText()) per-digit spring animation ---------- */
-.nt-wrap { display: inline-flex; align-items: baseline; font-variant-numeric: tabular-nums; }
-.nt-ch { display: inline-block; }
-.nt-slot { display: inline-grid; align-items: baseline; justify-items: center; position: relative; vertical-align: baseline; }
+.nt-wrap { display: inline-flex; align-items: baseline; font-variant-numeric: tabular-nums; white-space: pre; }
+.nt-ch { display: inline-block; flex: none; white-space: pre; }
+.nt-slot {
+  display: inline-grid; grid-template-columns: 100%; min-width: 0; flex: none;
+  align-items: baseline; justify-items: center; position: relative; vertical-align: baseline;
+}
 .nt-slot > .nt-old, .nt-slot > .nt-new {
-  grid-area: 1 / 1; display: inline-block; backface-visibility: hidden; -webkit-backface-visibility: hidden;
+  grid-area: 1 / 1; display: inline-block; width: max-content; justify-self: center; white-space: pre;
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
   will-change: transform, opacity;
 }
 .nt-slot > .nt-old { pointer-events: none; user-select: none; }
@@ -655,12 +687,20 @@ TEMPLATE_BODY = r"""<body>
       <button type="button" class="nav-item" data-view="whitelisted"><span class="app-icon sm tint-orange" data-icon="shield"></span>白名单<span class="nav-count" id="cnt-whitelisted"></span></button>
     </nav>
     <div class="sidebar-foot">
-      <span class="foot-label">外观</span>
-      <div class="seg small" id="theme-seg" role="radiogroup" aria-label="外观">
+      <div class="seg theme-switch" id="theme-seg" role="radiogroup" aria-label="外观">
         <span class="seg-glider" aria-hidden="true"></span>
-        <button type="button" role="radio" data-value="auto">自动</button>
-        <button type="button" role="radio" data-value="light">浅色</button>
-        <button type="button" role="radio" data-value="dark">深色</button>
+        <button type="button" role="radio" data-value="light" title="浅色模式">
+          <svg class="theme-ico sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M2.5 12h2.2M19.3 12h2.2M4.93 19.07l1.56-1.56M17.51 6.49l1.56-1.56"/></svg>
+          <span>浅色</span>
+        </button>
+        <button type="button" role="radio" data-value="dark" title="深色模式">
+          <svg class="theme-ico moon" viewBox="0 0 24 24" aria-hidden="true"><path class="moon-body" d="M20.2 14.4A8.2 8.2 0 0 1 9.6 3.8a8.2 8.2 0 1 0 10.6 10.6Z"/><path class="star" d="M18.5 4.3v3.2M16.9 5.9h3.2"/></svg>
+          <span>深色</span>
+        </button>
+        <button type="button" role="radio" data-value="auto" title="跟随系统外观">
+          <svg class="theme-ico auto" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path class="half" d="M12 4a8 8 0 0 1 0 16Z"/></svg>
+          <span>自动</span>
+        </button>
       </div>
     </div>
   </aside>
@@ -955,13 +995,20 @@ function parseNumericHint(str, hint) {
   const m = String(str).replace(/−/g, "-").match(/[+-]?\d+(?:\.\d+)?/);
   return m ? parseFloat(m[0]) : 0;
 }
-function applyNumericSlotFrame(slot, dir, blurPeak) {
+function applyNumericSlotFrame(slot, dir, blurPeak, wEase) {
   const p = clamp(slot.v, 0, 1);
-  const wCh = slot.wCh || 0.6;
-  if (slot.isExit) {
-    slot.slotEl.style.width = ((1 - p) * wCh).toFixed(3) + "em";
-  } else if (slot.isEnter) {
-    slot.slotEl.style.width = (p * wCh).toFixed(3) + "em";
+  if (slot.wA != null && slot.wB != null) {
+    const we = wEase != null ? wEase : p;
+    const w = slot.wA + (slot.wB - slot.wA) * we;
+    slot.curW = w;
+    slot.slotEl.style.width = w.toFixed(2) + "px";
+  } else {
+    const wCh = slot.wCh || 0.6;
+    if (slot.isExit) {
+      slot.slotEl.style.width = ((1 - p) * wCh).toFixed(3) + "em";
+    } else if (slot.isEnter) {
+      slot.slotEl.style.width = (p * wCh).toFixed(3) + "em";
+    }
   }
   // Decreasing (dir < 0): old shrinks uniformly onto bottom baseline (50% 86%) & dissolves into blur;
   //   new condenses from top cap-line (50% 16%, y = -0.22em -> 0) down onto the baseline.
@@ -1014,14 +1061,12 @@ function runSingleNumericStep(info, next, dir) {
   if (springLoop.active.has(info) && info.slots.length) {
     info.slots.forEach(s => { if (s.key) prevSlotByKey[s.key] = s; });
   }
-  const maxInt = Math.max(pA.intPart.length, pB.intPart.length);
-  const iA = pA.intPart.padStart(maxInt, " ");
-  const iB = pB.intPart.padStart(maxInt, " ");
-  const maxDec = Math.max(pA.decPart.length, pB.decPart.length);
-  const dA = pA.decPart.padEnd(maxDec, " ");
-  const dB = pB.decPart.padEnd(maxDec, " ");
-  const sA = iA + dA;
-  const sB = iB + dB;
+  const numA = pA.intPart + pA.decPart;
+  const numB = pB.intPart + pB.decPart;
+  const maxNum = Math.max(numA.length, numB.length);
+  const padRight = el.id !== "ring-center-num";
+  const sA = padRight ? numA.padEnd(maxNum, " ") : numA.padStart(maxNum, " ");
+  const sB = padRight ? numB.padEnd(maxNum, " ") : numB.padStart(maxNum, " ");
   const wrap = document.createElement("span");
   wrap.className = "nt-wrap";
   const slots = [];
@@ -1069,6 +1114,10 @@ function runSingleNumericStep(info, next, dir) {
       isExit: Boolean(isExit),
       isEnter: Boolean(isEnter && !effCa),
       wCh,
+      reusedW: reused && !reused.done && reused.curW != null ? reused.curW : null,
+      wA: null,
+      wB: null,
+      curW: null,
       delay: keepFlight ? 0 : Math.min(0.14, stagger * NUMERIC_STAGGER),
       dur: keepFlight ? Math.max(0.12, NUMERIC_SLOT_DUR * (1 - v0 * 0.55)) : NUMERIC_SLOT_DUR,
       u: 0,
@@ -1077,13 +1126,12 @@ function runSingleNumericStep(info, next, dir) {
       done: false
     };
     stagger++;
-    applyNumericSlotFrame(s, dir, info.blurPeak);
     slots.push(s);
   };
   for (let i = 0; i < sB.length; i++) {
     const ca = sA[i] === " " ? "" : sA[i];
     const cb = sB[i] === " " ? "" : sB[i];
-    const key = "d" + (i - maxInt);
+    const key = "d" + (i - maxNum);
     const reused = prevSlotByKey[key];
     if (ca === cb && (!reused || reused.done)) {
       if (cb) {
@@ -1099,14 +1147,10 @@ function runSingleNumericStep(info, next, dir) {
     }
   }
   if (pB.suffix) {
-    if (pA.suffix === pB.suffix) {
-      const ch = document.createElement("span");
-      ch.className = "nt-ch";
-      ch.textContent = pB.suffix;
-      wrap.appendChild(ch);
-    } else {
-      addAnimSlot("suf", pA.suffix.trim(), pB.suffix, false);
-    }
+    const ch = document.createElement("span");
+    ch.className = "nt-ch";
+    ch.textContent = pB.suffix;
+    wrap.appendChild(ch);
   }
   if (!slots.length) {
     springLoop.active.delete(info);
@@ -1115,6 +1159,18 @@ function runSingleNumericStep(info, next, dir) {
     return;
   }
   el.replaceChildren(wrap);
+  let totalDur = NUMERIC_SLOT_DUR;
+  for (let i = 0; i < slots.length; i++) {
+    const s = slots[i];
+    const rawWA = s.oldEl ? s.oldEl.getBoundingClientRect().width : 0;
+    const rawWB = s.newEl ? s.newEl.getBoundingClientRect().width : 0;
+    s.wA = s.reusedW != null ? s.reusedW : rawWA;
+    s.wB = rawWB;
+    s.curW = s.wA;
+    if (s.delay + s.dur > totalDur) totalDur = s.delay + s.dur;
+    applyNumericSlotFrame(s, dir, info.blurPeak, 0);
+  }
+  info.totalDur = totalDur;
   info.slots = slots;
   springLoop.active.add(info);
   if (!springLoop.raf) springLoop.raf = requestAnimationFrame(springTick);
@@ -1133,15 +1189,29 @@ function setNumericText(el, nextText, numericHint) {
       val: nextVal,
       dir: 1,
       elapsed: 0,
+      totalDur: NUMERIC_SLOT_DUR,
       blurPeak: el.id === "ring-center-num" ? 9.5 : (el.id === "selected-gib" || (el.id && el.id.startsWith("rkpi-")) ? 3.8 : 2.2),
       slots: [],
       step(dt) {
         this.elapsed += dt;
+        const wEase = numericEase(clamp(this.elapsed / NUMERIC_SLOT_DUR, 0, 1));
         let activeCount = 0;
         for (let i = 0; i < this.slots.length; i++) {
           const s = this.slots[i];
-          if (s.done) continue;
+          if (s.done) {
+            if (s.wA != null && s.wB != null && Math.abs(s.wA - s.wB) > 0.05) {
+              const w = s.wA + (s.wB - s.wA) * wEase;
+              s.curW = w;
+              s.slotEl.style.width = w.toFixed(2) + "px";
+            }
+            continue;
+          }
           if (this.elapsed <= s.delay) {
+            if (s.wA != null && s.wB != null && Math.abs(s.wA - s.wB) > 0.05) {
+              const w = s.wA + (s.wB - s.wA) * wEase;
+              s.curW = w;
+              s.slotEl.style.width = w.toFixed(2) + "px";
+            }
             activeCount++;
             continue;
           }
@@ -1155,7 +1225,7 @@ function setNumericText(el, nextText, numericHint) {
             s.v = s.v0 + (1 - s.v0) * numericEase(u);
             activeCount++;
           }
-          applyNumericSlotFrame(s, this.dir, this.blurPeak);
+          applyNumericSlotFrame(s, this.dir, this.blurPeak, wEase);
         }
         if (activeCount === 0) {
           this.el.textContent = this.text;
