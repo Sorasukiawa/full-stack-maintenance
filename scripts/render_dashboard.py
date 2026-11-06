@@ -4,9 +4,9 @@
 Design system:
 - macOS-style app window: translucent vibrancy sidebar with System Settings style icon tiles,
   large titles, inset grouped lists, and a floating glass action dock.
-- Overview with Apple Health style activity rings: outer = used before cleanup, middle = used
-  after cleanup, inner = share of reclaimable space already selected (canvas, round caps,
-  gradient along the arc), per-volume mini rings, and a segmented "space composition" bar.
+- Overview: one thick storage ring drawn like an Apple Health activity ring (round caps,
+  gradient along the arc) with retained used / selected to free / hovered item segments,
+  per-volume mini rings, and a segmented "space composition" bar.
 - Motion: every interactive change runs on real spring physics described with Apple's two
   designer parameters (damping ratio + response). Springs retarget from the current value and
   keep their velocity, so all motion is interruptible. CSS transitions use spring curves that
@@ -99,10 +99,6 @@ DARK_TOKENS = """
   --yellow: #ffd60a;
   --glow-strength: 34%;
   --glow-opacity: 0.55;
-  --ring-track-alpha: 0.24;
-  --act-red: #fa114f;
-  --act-green: #a6f02e;
-  --act-cyan: #3fe4f5;
 """
 
 
@@ -162,10 +158,6 @@ TEMPLATE_HEAD = r"""<!DOCTYPE html>
   --yellow: #ffcc00;
   --glow-strength: 22%;
   --glow-opacity: 0.32;
-  --ring-track-alpha: 0.16;
-  --act-red: #e8003f;
-  --act-green: #3f9c00;
-  --act-cyan: #008fb0;
 
   --ease-bounce: cubic-bezier(0.34, 1.32, 0.64, 1);
   --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
@@ -348,33 +340,28 @@ input, select, textarea { font: inherit; color: inherit; }
 .vol:hover { background: var(--surface-strong); }
 .vol:active { transform: scale(0.97); transition-duration: 70ms; }
 .vol[aria-selected="true"] { box-shadow: 0 0 0 2px var(--blue), var(--shadow-card); background: var(--surface-strong); }
-.vol-ring { width: 46px; height: 46px; flex: none; display: block; }
+.vol-ring-wrap { position: relative; width: 46px; height: 46px; flex: none; display: grid; place-items: center; }
+.vol-ring { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .vol-text { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .vol-name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vol-meta { font-size: 12px; color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
-.vol-meta .lvl { font-weight: 600; color: var(--label); }
-.vol-meta .lvl.warn { color: var(--orange-text); }
-.vol-meta .lvl.crit { color: var(--red); }
-.vol-meta .rel { display: block; color: var(--green-text); font-weight: 560; }
+.vol-meta.free { color: var(--green-text); font-weight: 560; }
+.vol-pct { position: relative; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.vol-pct.warn { color: var(--orange-text); }
+.vol-pct.crit { color: var(--red); }
 
-/* ---------- Hero: activity rings ---------- */
-.hero { display: grid; grid-template-columns: minmax(250px, 320px) minmax(0, 1fr); gap: 48px; align-items: center; padding: 34px 40px; border-radius: 28px; }
-.ring-col { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; }
-.ring-stage { position: relative; width: 100%; max-width: 300px; aspect-ratio: 1; }
+/* ---------- Hero: storage ring (Activity-ring style: thick, round caps) ---------- */
+.hero { display: grid; grid-template-columns: minmax(250px, 330px) minmax(0, 1fr); gap: 44px; align-items: center; padding: 34px 40px; border-radius: 28px; }
+.ring-stage { position: relative; width: 100%; max-width: 320px; aspect-ratio: 1; justify-self: center; }
 .ring-canvas { display: block; width: 100%; height: 100%; }
-.ring-caption { min-height: 40px; max-width: 300px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px 14px; font-size: 12.5px; color: var(--label-2); text-align: center; }
-.ring-caption > span { display: inline-flex; align-items: center; gap: 6px; }
-.ring-caption.is-focus { flex-direction: column; gap: 2px; }
-.ring-caption.is-focus b { color: var(--label); font-weight: 620; font-size: 13px; max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.act-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5px; border-radius: 14px; overflow: hidden; background: var(--separator); }
-.act { display: flex; flex-direction: column; gap: 2px; padding: 13px 15px 14px; background: var(--cell); min-width: 0; }
-.act-label { font-size: 13px; font-weight: 620; color: var(--label); }
-.act-value { font-family: ui-rounded, "SF Pro Rounded", var(--font-display); font-size: clamp(26px, 2.6vw, 34px); font-weight: 750; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.act-value small { font-size: 0.5em; font-weight: 700; margin-left: 2px; letter-spacing: 0; }
-.act-sub { font-size: 12px; color: var(--label-2); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.act-before .act-value { color: var(--act-red); }
-.act-after .act-value { color: var(--act-green); }
-.act-sel .act-value { color: var(--act-cyan); }
+.ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; padding: 0 20%; }
+.ring-kicker { font-size: 13px; font-weight: 560; color: var(--label-2); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ring-num { display: flex; align-items: baseline; gap: 5px; margin: 2px 0 4px; font-family: ui-rounded, "SF Pro Rounded", var(--font-display); font-variant-numeric: tabular-nums; }
+.ring-num .n { font-size: clamp(38px, 4.4vw, 54px); font-weight: 750; letter-spacing: -0.035em; line-height: 1; transition: color 0.3s; }
+.ring-num .u { font-size: 18px; font-weight: 650; color: var(--label-2); }
+.ring-num.is-free .n { color: var(--green-text); }
+.ring-num.is-focus .n { color: var(--blue); }
+.ring-water { font-size: 13px; color: var(--label-2); font-variant-numeric: tabular-nums; }
 .hero-info { min-width: 0; }
 .hero-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .hero-title { margin: 0; font-family: var(--font-display); font-size: 26px; font-weight: 800; letter-spacing: -0.018em; -webkit-text-stroke: 0.02em currentColor; }
@@ -577,11 +564,6 @@ button.cell:active { background: var(--fill); }
   .stat-grid { grid-template-columns: 1fr 1fr; }
   .toolbar { position: static; }
 }
-@media (max-width: 620px) {
-  .act-metrics { grid-template-columns: 1fr; }
-  .act { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 10px; }
-  .act-label { width: 100%; }
-}
 @media (max-width: 520px) {
   #quick-btn .label { display: none; }
   .row-detail-inner { padding-left: 0; }
@@ -655,11 +637,13 @@ TEMPLATE_BODY = r"""<body>
       <div class="volume-strip" id="mini-rings-strip" role="tablist" aria-label="存储卷"></div>
 
       <section class="hero glass enter" id="hero" style="--i:2">
-        <div class="ring-col">
-          <div class="ring-stage">
-            <canvas class="ring-canvas" id="ring-canvas" width="320" height="320" role="img" aria-label="活动圆环：外圈清理前水位，中圈清理后水位，内圈已选可回收比例"></canvas>
+        <div class="ring-stage">
+          <canvas class="ring-canvas" id="ring-canvas" width="320" height="320" role="img" aria-label="存储卷容量圆环：灰色为清理后已用，绿色为将释放，蓝色为悬停项"></canvas>
+          <div class="ring-center">
+            <span class="ring-kicker" id="ring-center-kicker">预计可释放</span>
+            <div class="ring-num" id="ring-num"><span class="n" id="ring-center-num">0</span><span class="u" id="ring-center-unit">GiB</span></div>
+            <span class="ring-water" id="ring-center-water"></span>
           </div>
-          <div class="ring-caption" id="ring-caption" aria-live="polite"></div>
         </div>
         <div class="hero-info">
           <div class="hero-title-row">
@@ -668,11 +652,12 @@ TEMPLATE_BODY = r"""<body>
           </div>
           <p class="hero-mount" id="ring-active-mount"></p>
           <p class="hero-sentence" id="ring-active-desc"></p>
-          <div class="act-metrics">
-            <div class="act act-before"><span class="act-label">清理前水位</span><span class="act-value" id="act-before">0<small>%</small></span><span class="act-sub" id="act-before-sub"></span></div>
-            <div class="act act-after"><span class="act-label">清理后水位</span><span class="act-value" id="act-after">0<small>%</small></span><span class="act-sub" id="act-after-sub"></span></div>
-            <div class="act act-sel"><span class="act-label">已选可回收</span><span class="act-value" id="act-sel">0<small>GiB</small></span><span class="act-sub" id="act-sel-sub"></span></div>
-          </div>
+          <dl class="stat-grid">
+            <div class="stat"><dt><i class="dot ring-used"></i>清理后已用</dt><dd id="rkpi-retained">0</dd></div>
+            <div class="stat"><dt><i class="dot ring-clean"></i>将释放</dt><dd class="free" id="rkpi-cleaned">0</dd></div>
+            <div class="stat"><dt><i class="dot ring-free"></i>清理后可用</dt><dd id="rkpi-free-after">0</dd></div>
+            <div class="stat"><dt><i class="dot" style="--dot: var(--label-3)"></i>总容量</dt><dd id="rkpi-total">0</dd></div>
+          </dl>
           <div class="comp" id="composition"></div>
         </div>
       </section>
@@ -1152,35 +1137,36 @@ function selectionSummary(filterFn) {
 
 
 TEMPLATE_SCRIPT_OVERVIEW = r"""
-/* ================= Activity rings (Apple Health style) =================
- * Three concentric rings with round caps and a gradient that runs along the arc:
- * outer = used before cleanup, middle = used after cleanup, inner = share of the
- * reclaimable space on this volume that is already selected. Drawn on canvas so the
- * gradient can follow the circle; every value is driven by an interruptible spring. */
+/* ================= Storage ring =================
+ * One thick ring in the style of the Apple Health activity ring: round caps, a gradient
+ * that follows the arc, and each segment's rounded head resting on the previous one with
+ * a soft shadow. Segments: retained used (grey), selected to free (green to teal) and
+ * the hovered item (blue). Drawn on canvas; every value is driven by a spring. */
 let activeRingPoolId = GAUGES.length ? GAUGES[0].id : "_all";
 let hoveredRingItemId = null;
-const RING_COLORS = {
-  before: ["#fa114f", "#ff5c93"],
-  after: ["#6fe000", "#cfff3d"],
-  sel: ["#00c3ea", "#6af5ff"]
-};
-const RING_ORDER = ["before", "after", "sel"];
-const BIG_RING = { box: 320, outer: 158, width: 36, gap: 6 };
-const MINI_RING = { box: 46, outer: 22.6, width: 5.2, gap: 1.3 };
-const ringPaintTheme = { trackAlpha: 0.18, dark: false };
+const BIG_RING = { box: 320, outer: 156, width: 32 };
+const MINI_RING = { box: 46, outer: 22.5, width: 5 };
+const ringPaintTheme = { dark: false, track: "rgba(120,120,128,0.14)", used: "#aeaeb2", green: "#34c759", teal: "#30b0c7", blue: "#0071e3" };
 
 function refreshRingTheme() {
   const cs = getComputedStyle(document.documentElement);
-  ringPaintTheme.trackAlpha = parseFloat(cs.getPropertyValue("--ring-track-alpha")) || 0.18;
-  ringPaintTheme.dark = cs.getPropertyValue("color-scheme").trim() === "dark";
+  const v = name => cs.getPropertyValue(name).trim();
+  ringPaintTheme.dark = v("color-scheme") === "dark";
+  ringPaintTheme.track = v("--track") || ringPaintTheme.track;
+  ringPaintTheme.used = v("--used") || ringPaintTheme.used;
+  ringPaintTheme.green = v("--green") || ringPaintTheme.green;
+  ringPaintTheme.teal = v("--teal") || ringPaintTheme.teal;
+  ringPaintTheme.blue = v("--blue") || ringPaintTheme.blue;
 }
 function hexRgb(hex) {
-  const h = hex.replace("#", "");
+  const h = String(hex).replace("#", "");
+  if (h.length !== 6) return [52, 199, 89];
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 function rgba(hex, a) { const c = hexRgb(hex); return `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`; }
 
-function drawActivityRings(canvas, rings, geom) {
+/* segments: [{ frac, colors: [c1] | [c1, c2], glow }] laid end to end from 12 o'clock. */
+function drawRing(canvas, segments, geom) {
   if (!canvas || !canvas.getContext) return;
   const cssSize = canvas.clientWidth || geom.box;
   const dpr = Math.min(3, window.devicePixelRatio || 1);
@@ -1191,75 +1177,87 @@ function drawActivityRings(canvas, rings, geom) {
   ctx.setTransform(k, 0, 0, k, 0, 0);
   ctx.clearRect(0, 0, geom.box, geom.box);
   const c = geom.box / 2;
+  const w = geom.width;
+  const r = geom.outer - w / 2;
   const TAU = Math.PI * 2;
   const start = -Math.PI / 2;
+  const capAng = (w / 2) / r;
   ctx.lineCap = "round";
-  rings.forEach((ring, i) => {
-    const w = geom.width;
-    const r = geom.outer - w / 2 - i * (w + geom.gap);
-    if (r <= w / 4) return;
-    const [c1, c2] = ring.colors;
-    ctx.shadowColor = "transparent";
-    ctx.lineWidth = w;
-    ctx.strokeStyle = rgba(c1, ringPaintTheme.trackAlpha);
-    ctx.beginPath(); ctx.arc(c, c, r, 0, TAU); ctx.stroke();
-    const frac = clamp(ring.frac, 0, 1);
-    if (frac <= 0.0005) return;
-    const sweep = Math.max(frac * TAU, 0.0001);
-    const capAng = (w / 2) / r;
-    let stroke = c2;
-    if (ctx.createConicGradient) {
-      const grad = ctx.createConicGradient(start - capAng, c, c);
+  ctx.lineWidth = w;
+  ctx.shadowColor = "transparent";
+  ctx.strokeStyle = ringPaintTheme.track;
+  ctx.beginPath(); ctx.arc(c, c, r, 0, TAU); ctx.stroke();
+  let offset = 0;
+  segments.forEach(seg => {
+    const frac = clamp(seg.frac, 0, 1 - offset);
+    if (frac <= 0.0008) return;
+    const a0 = start + offset * TAU;
+    const a1 = a0 + frac * TAU;
+    const c1 = seg.colors[0];
+    const c2 = seg.colors[1] || c1;
+    let stroke = c1;
+    if (c2 !== c1 && ctx.createConicGradient) {
+      const grad = ctx.createConicGradient(a0 - capAng, c, c);
       grad.addColorStop(0, c1);
-      grad.addColorStop(clamp((sweep + capAng) / TAU, 0.02, 1), c2);
+      grad.addColorStop(clamp((frac * TAU + capAng) / TAU, 0.02, 1), c2);
       stroke = grad;
     }
+    // A segment that starts on top of another gets a soft shadow under its rounded head.
+    if (offset > 0.0008) {
+      ctx.save();
+      ctx.shadowColor = ringPaintTheme.dark ? "rgba(0, 0, 0, 0.55)" : "rgba(0, 0, 0, 0.22)";
+      ctx.shadowBlur = w * 0.32;
+      ctx.fillStyle = c1;
+      ctx.beginPath(); ctx.arc(c + r * Math.cos(a0), c + r * Math.sin(a0), w / 2, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
+    ctx.save();
+    if (seg.glow) {
+      ctx.shadowColor = rgba(c1, ringPaintTheme.dark ? 0.55 : 0.3);
+      ctx.shadowBlur = w * 0.6;
+    }
     ctx.strokeStyle = stroke;
-    ctx.beginPath(); ctx.arc(c, c, r, start, start + sweep); ctx.stroke();
-    // End cap: once the arc closes in on its own start, redraw the tip with a soft shadow
-    // so it reads as lying on top of the ring, like the Activity rings.
-    if (frac > 0.96) {
-      const ex = c + r * Math.cos(start + sweep);
-      const ey = c + r * Math.sin(start + sweep);
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = 0;
-      ctx.shadowColor = ringPaintTheme.dark ? "rgba(0, 0, 0, 0.6)" : "rgba(0, 0, 0, 0.3)";
-      ctx.shadowBlur = w * 0.3;
-      ctx.fillStyle = c2;
-      ctx.beginPath(); ctx.arc(ex, ey, w / 2, start + sweep - Math.PI / 2, start + sweep + Math.PI / 2); ctx.fill();
-      ctx.shadowColor = "transparent";
-    }
-    if (ring.focus > 0.0005) {
-      const fs = clamp(ring.focus, 0, frac) * TAU;
-      ctx.lineWidth = Math.max(1.5, w * 0.3);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
-      ctx.beginPath(); ctx.arc(c, c, r, start, start + Math.max(fs, 0.0001)); ctx.stroke();
-      ctx.lineWidth = w;
-    }
+    ctx.beginPath(); ctx.arc(c, c, r, a0, a1); ctx.stroke();
+    ctx.restore();
+    offset += frac;
   });
 }
 
+const ringFlags = { isFocus: false, hasFree: false };
 const ringSprings = {
-  before: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing), { tolerance: 0.0005 }),
-  after: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing), { tolerance: 0.0005 }),
-  sel: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing), { tolerance: 0.0005 }),
-  focus: new Spring(0, SPRING.glide, () => queueFrameJob(paintRing), { tolerance: 0.0005 })
+  ret: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing), { tolerance: 0.0005 }),
+  cln: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing), { tolerance: 0.0005 }),
+  foc: new Spring(0, SPRING.glide, () => queueFrameJob(paintRing), { tolerance: 0.0005 }),
+  bytes: new Spring(0, SPRING.soft, () => queueFrameJob(paintRing), { precision: 0.0004 })
 };
 
 function paintRing() {
-  drawActivityRings(document.getElementById("ring-canvas"), [
-    { colors: RING_COLORS.before, frac: ringSprings.before.value },
-    { colors: RING_COLORS.after, frac: ringSprings.after.value },
-    { colors: RING_COLORS.sel, frac: ringSprings.sel.value, focus: ringSprings.focus.value }
+  const t = ringPaintTheme;
+  drawRing(document.getElementById("ring-canvas"), [
+    { frac: ringSprings.ret.value, colors: [t.used] },
+    { frac: ringSprings.cln.value, colors: [t.green, t.teal], glow: true },
+    { frac: ringSprings.foc.value, colors: [t.blue] }
   ], BIG_RING);
+  const pair = bytePair(Math.max(0, ringSprings.bytes.value));
+  const numEl = document.getElementById("ring-center-num");
+  const unitEl = document.getElementById("ring-center-unit");
+  if (numEl) numEl.textContent = pair.num;
+  if (unitEl) unitEl.textContent = pair.unit;
+  const wrap = document.getElementById("ring-num");
+  if (wrap) {
+    wrap.classList.toggle("is-focus", ringFlags.isFocus);
+    wrap.classList.toggle("is-free", !ringFlags.isFocus && ringFlags.hasFree);
+  }
 }
 
-/* Interruptible spring animation of the three rings (fractions 0..1). */
-function animateRingTo(beforeFrac, afterFrac, selFrac, focusFrac) {
-  ringSprings.before.to(clamp(beforeFrac, 0, 1), SPRING.ring);
-  ringSprings.after.to(clamp(afterFrac, 0, 1), SPRING.ring);
-  ringSprings.sel.to(clamp(selFrac, 0, 1), SPRING.ring);
-  ringSprings.focus.to(clamp(focusFrac || 0, 0, 1), SPRING.glide);
+/* Interruptible spring animation of the ring segments (fractions 0..1) and the centre number. */
+function animateRingTo(retFrac, clnFrac, focFrac, displayBytes, isFocus) {
+  ringFlags.isFocus = Boolean(isFocus);
+  ringFlags.hasFree = displayBytes > 0;
+  ringSprings.ret.to(clamp(retFrac, 0, 1), SPRING.ring);
+  ringSprings.cln.to(clamp(clnFrac, 0, 1), SPRING.ring);
+  ringSprings.foc.to(clamp(focFrac, 0, 1), isFocus ? SPRING.glide : SPRING.ring);
+  ringSprings.bytes.to(displayBytes, SPRING.soft);
   queueFrameJob(paintRing);
 }
 
@@ -1270,10 +1268,10 @@ let miniBuilt = false;
 function paintMini(id) {
   const sp = miniSprings[id];
   if (!sp) return;
-  drawActivityRings(document.getElementById("mring-canvas-" + id), [
-    { colors: RING_COLORS.before, frac: sp.before.value },
-    { colors: RING_COLORS.after, frac: sp.after.value },
-    { colors: RING_COLORS.sel, frac: sp.sel.value }
+  const t = ringPaintTheme;
+  drawRing(document.getElementById("mring-canvas-" + id), [
+    { frac: sp.ret.value, colors: [t.used] },
+    { frac: sp.cln.value, colors: [t.green, t.teal] }
   ], MINI_RING);
 }
 
@@ -1288,7 +1286,7 @@ function buildMiniRings(entries) {
   if (!strip) return;
   strip.innerHTML = entries.map((m, i) => `
     <button type="button" class="vol glass enter" role="tab" style="--i:${i}" id="mring-card-${escapeHtml(m.id)}" data-pool="${escapeHtml(m.id)}" aria-selected="false">
-      <canvas class="vol-ring" id="mring-canvas-${escapeHtml(m.id)}" width="46" height="46" aria-hidden="true"></canvas>
+      <span class="vol-ring-wrap"><canvas class="vol-ring" id="mring-canvas-${escapeHtml(m.id)}" width="46" height="46" aria-hidden="true"></canvas><span class="vol-pct" id="mring-pct-${escapeHtml(m.id)}">0%</span></span>
       <span class="vol-text">
         <span class="vol-name" title="${escapeHtml(m.label)}">${escapeHtml(m.shortTitle)}</span>
         <span class="vol-meta" id="mring-meta-${escapeHtml(m.id)}"></span>
@@ -1300,9 +1298,8 @@ function buildMiniRings(entries) {
   entries.forEach(m => {
     const job = () => paintMini(m.id);
     miniSprings[m.id] = {
-      before: new Spring(0, SPRING.ring, () => queueFrameJob(job), { tolerance: 0.001 }),
-      after: new Spring(0, SPRING.ring, () => queueFrameJob(job), { tolerance: 0.001 }),
-      sel: new Spring(0, SPRING.ring, () => queueFrameJob(job), { tolerance: 0.001 })
+      ret: new Spring(0, SPRING.ring, () => queueFrameJob(job), { tolerance: 0.001 }),
+      cln: new Spring(0, SPRING.ring, () => queueFrameJob(job), { tolerance: 0.001 })
     };
   });
   miniBuilt = true;
@@ -1315,17 +1312,23 @@ function updateMiniRings(entries, activeId) {
     if (card) card.setAttribute("aria-selected", String(m.id === activeId));
     const sp = miniSprings[m.id];
     if (sp) {
-      sp.before.to(m.beforePct / 100);
-      sp.after.to(m.afterPct / 100);
-      sp.sel.to(m.goalBytes > 0 ? m.cleanedBytes / m.goalBytes : 0);
+      sp.ret.to(m.retainedBytes / m.total);
+      sp.cln.to(m.cleanedBytes / m.total);
+    }
+    const pctEl = document.getElementById("mring-pct-" + m.id);
+    if (pctEl) {
+      pctEl.textContent = m.afterPct.toFixed(0) + "%";
+      pctEl.className = "vol-pct " + (m.id === "_all" ? "" : levelFor(m.afterPct, m.warnPct));
     }
     const metaEl = document.getElementById("mring-meta-" + m.id);
     if (metaEl) {
-      const lvl = m.id === "_all" ? "" : levelFor(m.afterPct, m.warnPct);
-      const water = m.cleanedBytes > 0
-        ? `${m.beforePct.toFixed(0)}% → ${m.afterPct.toFixed(0)}%`
-        : `水位 ${m.afterPct.toFixed(0)}%`;
-      metaEl.innerHTML = `<span class="lvl ${lvl}">${water}</span>${m.cleanedBytes > 0 ? `<span class="rel">${m.hasDone ? "已释放" : "可释放"} ${formatShort(m.cleanedBytes)}</span>` : ""}`;
+      if (m.cleanedBytes > 0) {
+        metaEl.className = "vol-meta free";
+        metaEl.textContent = (m.hasDone ? "已释放 " : "可释放 ") + formatShort(m.cleanedBytes);
+      } else {
+        metaEl.className = "vol-meta";
+        metaEl.textContent = "可用 " + formatShort(m.freeAfterBytes) + "，共 " + formatShort(m.total);
+      }
     }
   });
 }
@@ -1451,36 +1454,30 @@ function renderRingOverview(onlyUpdateArcs) {
   const total = Math.max(1, active.total);
   const retained = Math.min(total, active.retainedBytes);
   const cleaned = Math.min(total - retained, active.cleanedBytes);
-  const goal = Math.max(active.goalBytes, cleaned);
+  let focusBytes = 0;
   let hovered = hoveredRingItemId ? candById[hoveredRingItemId] : null;
-  if (!(hovered && (active.id === "_all" || hovered.gauge_id === active.id) && (isChecked(hovered) || isDone(hovered)) && sizeOf(hovered) > 0)) hovered = null;
-  const focusFrac = hovered && goal > 0 ? Math.min(cleaned, sizeOf(hovered)) / goal : 0;
-  animateRingTo(active.beforePct / 100, active.afterPct / 100, goal > 0 ? cleaned / goal : 0, focusFrac);
+  if (hovered && (active.id === "_all" || hovered.gauge_id === active.id) && (isChecked(hovered) || isDone(hovered))) {
+    focusBytes = Math.min(cleaned, sizeOf(hovered));
+  } else {
+    hovered = null;
+  }
+  const other = Math.max(0, cleaned - focusBytes);
+  animateRingTo(retained / total, other / total, focusBytes / total, focusBytes > 0 ? focusBytes : cleaned, focusBytes > 0);
 
   const setText = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
   const setHtml = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
-  const numUnit = (num, unit) => `${escapeHtml(num)}<small>${escapeHtml(unit)}</small>`;
+  setText("ring-center-kicker", hovered ? displayTitle(hovered) : (active.hasDone ? "已释放" : "预计可释放"));
+  setText("ring-center-water", cleaned > 0
+    ? `水位 ${fmtPct(active.beforePct)} → ${fmtPct(active.afterPct)}`
+    : `当前水位 ${fmtPct(active.afterPct)}`);
   setText("ring-active-title", active.shortTitle);
   setHtml("ring-active-mount", active.id === "_all"
-    ? `${escapeHtml(active.mountPath)}，总容量 ${formatBytes(total)}`
-    : `<code>${escapeHtml(active.mountPath || active.id)}</code>总容量 ${formatBytes(total)}，警戒线 ${fmtPct(active.warnPct)}`);
-  setHtml("act-before", numUnit(active.beforePct.toFixed(1), "%"));
-  setText("act-before-sub", `已用 ${formatBytes(active.beforeUsedBytes)}`);
-  setHtml("act-after", numUnit(active.afterPct.toFixed(1), "%"));
-  setText("act-after-sub", `可用 ${formatBytes(active.freeAfterBytes)}`);
-  const selPair = bytePair(cleaned);
-  setHtml("act-sel", cleaned > 0 ? numUnit(selPair.num, selPair.unit) : numUnit("0", "GiB"));
-  setText("act-sel-sub", goal > 0 ? `可回收共 ${formatBytes(goal)}，已选 ${Math.round(pct(cleaned, goal))}%` : "这块盘没有可回收项");
-  const cap = document.getElementById("ring-caption");
-  if (cap) {
-    if (hovered) {
-      cap.classList.add("is-focus");
-      cap.innerHTML = `<b>${escapeHtml(displayTitle(hovered))}</b><span>${formatBytes(sizeOf(hovered))}，占已选 ${Math.round(pct(Math.min(cleaned, sizeOf(hovered)), cleaned))}%</span>`;
-    } else if (cap.classList.contains("is-focus") || !cap.firstChild) {
-      cap.classList.remove("is-focus");
-      cap.innerHTML = `<span><i class="dot" style="--dot:${RING_COLORS.before[0]}"></i>清理前</span><span><i class="dot" style="--dot:${RING_COLORS.after[0]}"></i>清理后</span><span><i class="dot" style="--dot:${RING_COLORS.sel[0]}"></i>已选可回收</span>`;
-    }
-  }
+    ? escapeHtml(active.mountPath)
+    : `<code>${escapeHtml(active.mountPath || active.id)}</code>警戒线 ${fmtPct(active.warnPct)}`);
+  setText("rkpi-retained", formatBytes(retained));
+  setText("rkpi-cleaned", cleaned > 0 ? formatBytes(cleaned) : "0 GiB");
+  setText("rkpi-free-after", formatBytes(active.freeAfterBytes));
+  setText("rkpi-total", formatBytes(total));
 
   const badge = document.getElementById("ring-active-badge");
   const desc = document.getElementById("ring-active-desc");
