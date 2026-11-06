@@ -237,6 +237,7 @@ class FullStackMaintenanceTests(unittest.TestCase):
         self.assertIn("workbench-page", html_content)
         self.assertNotRegex(html_content, r"__[A-Z_]+__")
         self.assertIn("transition-timing-function: linear(0, 1)", html_content)
+        self.assertIn('.row-main[aria-expanded="true"] .row-title { white-space: normal;', html_content)
 
     def test_dashboard_escapes_report_data_and_spring_curve(self) -> None:
         snapshot = {
