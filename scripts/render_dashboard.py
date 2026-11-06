@@ -4,9 +4,9 @@
 Design system:
 - macOS-style app window: translucent vibrancy sidebar with System Settings style icon tiles,
   large titles, inset grouped lists, and a floating glass action dock.
-- Overview inspired by CleanMyMac and macOS Storage settings: a large storage ring
-  (retained used / selected to free / hovered item), a strip of per-volume mini rings,
-  and a segmented "space composition" bar.
+- Overview with Apple Health style activity rings: outer = used before cleanup, middle = used
+  after cleanup, inner = share of reclaimable space already selected (canvas, round caps,
+  gradient along the arc), per-volume mini rings, and a segmented "space composition" bar.
 - Motion: every interactive change runs on real spring physics described with Apple's two
   designer parameters (damping ratio + response). Springs retarget from the current value and
   keep their velocity, so all motion is interruptible. CSS transitions use spring curves that
@@ -99,6 +99,10 @@ DARK_TOKENS = """
   --yellow: #ffd60a;
   --glow-strength: 34%;
   --glow-opacity: 0.55;
+  --ring-track-alpha: 0.24;
+  --act-red: #fa114f;
+  --act-green: #a6f02e;
+  --act-cyan: #3fe4f5;
 """
 
 
@@ -158,6 +162,10 @@ TEMPLATE_HEAD = r"""<!DOCTYPE html>
   --yellow: #ffcc00;
   --glow-strength: 22%;
   --glow-opacity: 0.32;
+  --ring-track-alpha: 0.16;
+  --act-red: #e8003f;
+  --act-green: #3f9c00;
+  --act-cyan: #008fb0;
 
   --ease-bounce: cubic-bezier(0.34, 1.32, 0.64, 1);
   --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
@@ -257,8 +265,9 @@ input, select, textarea { font: inherit; color: inherit; }
 .page { max-width: 1120px; margin: 0 auto; will-change: transform, opacity; }
 .page-head { padding: 46px 4px 22px; }
 .large-title {
-  margin: 0; font-family: var(--font-display); font-weight: 700;
-  font-size: clamp(28px, 3.1vw, 38px); line-height: 1.12; letter-spacing: -0.026em;
+  margin: 0; font-family: var(--font-display); font-weight: 800;
+  font-size: clamp(28px, 3.1vw, 38px); line-height: 1.12; letter-spacing: -0.02em;
+  -webkit-text-stroke: 0.024em currentColor;
 }
 .page-sub { margin: 10px 0 0; max-width: 70ch; color: var(--label-2); font-size: 15px; line-height: 1.55; }
 .page-sub b { color: var(--label); font-weight: 600; }
@@ -339,48 +348,42 @@ input, select, textarea { font: inherit; color: inherit; }
 .vol:hover { background: var(--surface-strong); }
 .vol:active { transform: scale(0.97); transition-duration: 70ms; }
 .vol[aria-selected="true"] { box-shadow: 0 0 0 2px var(--blue), var(--shadow-card); background: var(--surface-strong); }
-.vol-ring-wrap { position: relative; width: 46px; height: 46px; flex: none; display: grid; place-items: center; }
-.vol-ring { position: absolute; inset: 0; width: 100%; height: 100%; }
-.vol-ring circle { fill: none; stroke-width: 5.5; }
-.vol-ring .vt { stroke: var(--track); }
-.vol-ring .vr { stroke: var(--used); }
-.vol-ring .vc { stroke: var(--green); }
+.vol-ring { width: 46px; height: 46px; flex: none; display: block; }
 .vol-text { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .vol-name { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vol-meta { font-size: 12px; color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
-.vol-meta.free { color: var(--green-text); font-weight: 560; }
-.vol-pct { position: relative; font-size: 11px; font-weight: 680; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-.vol-pct.warn { color: var(--orange-text); }
-.vol-pct.crit { color: var(--red); }
+.vol-meta .lvl { font-weight: 600; color: var(--label); }
+.vol-meta .lvl.warn { color: var(--orange-text); }
+.vol-meta .lvl.crit { color: var(--red); }
+.vol-meta .rel { display: block; color: var(--green-text); font-weight: 560; }
 
-/* ---------- Hero: storage ring ---------- */
-.hero { display: grid; grid-template-columns: minmax(250px, 330px) minmax(0, 1fr); gap: 44px; align-items: center; padding: 34px 40px; border-radius: 28px; }
-.ring-stage { position: relative; width: 100%; max-width: 330px; aspect-ratio: 1; justify-self: center; }
-.ring { display: block; width: 100%; height: 100%; overflow: visible; }
-.ring circle { fill: none; stroke-width: 26; }
-.ring-track { stroke: var(--track); }
-.ring-arc-retained { stroke: var(--used); }
-.ring-arc-cleaned { stroke: url(#grad-clean); }
-.ring-arc-focus { stroke: var(--blue); }
-.ring-arc-glow { stroke: url(#grad-clean); filter: url(#ring-glow); opacity: var(--glow-opacity); }
-.ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; pointer-events: none; padding: 0 18%; }
-.ring-kicker { font-size: 13px; font-weight: 560; color: var(--label-2); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ring-num { display: flex; align-items: baseline; gap: 5px; margin: 2px 0 4px; font-family: var(--font-display); font-variant-numeric: tabular-nums; }
-.ring-num .n { font-size: clamp(40px, 4.6vw, 58px); font-weight: 700; letter-spacing: -0.04em; line-height: 1; transition: color 0.3s; }
-.ring-num .u { font-size: 19px; font-weight: 620; color: var(--label-2); }
-.ring-num.is-free .n { color: var(--green-text); }
-.ring-num.is-focus .n { color: var(--blue); }
-.ring-water { font-size: 13px; color: var(--label-2); font-variant-numeric: tabular-nums; }
-
+/* ---------- Hero: activity rings ---------- */
+.hero { display: grid; grid-template-columns: minmax(250px, 320px) minmax(0, 1fr); gap: 48px; align-items: center; padding: 34px 40px; border-radius: 28px; }
+.ring-col { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; }
+.ring-stage { position: relative; width: 100%; max-width: 300px; aspect-ratio: 1; }
+.ring-canvas { display: block; width: 100%; height: 100%; }
+.ring-caption { min-height: 40px; max-width: 300px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px 14px; font-size: 12.5px; color: var(--label-2); text-align: center; }
+.ring-caption > span { display: inline-flex; align-items: center; gap: 6px; }
+.ring-caption.is-focus { flex-direction: column; gap: 2px; }
+.ring-caption.is-focus b { color: var(--label); font-weight: 620; font-size: 13px; max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.act-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.5px; border-radius: 14px; overflow: hidden; background: var(--separator); }
+.act { display: flex; flex-direction: column; gap: 2px; padding: 13px 15px 14px; background: var(--cell); min-width: 0; }
+.act-label { font-size: 13px; font-weight: 620; color: var(--label); }
+.act-value { font-family: ui-rounded, "SF Pro Rounded", var(--font-display); font-size: clamp(26px, 2.6vw, 34px); font-weight: 750; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.act-value small { font-size: 0.5em; font-weight: 700; margin-left: 2px; letter-spacing: 0; }
+.act-sub { font-size: 12px; color: var(--label-2); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.act-before .act-value { color: var(--act-red); }
+.act-after .act-value { color: var(--act-green); }
+.act-sel .act-value { color: var(--act-cyan); }
 .hero-info { min-width: 0; }
 .hero-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.hero-title { margin: 0; font-family: var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: -0.022em; }
+.hero-title { margin: 0; font-family: var(--font-display); font-size: 26px; font-weight: 800; letter-spacing: -0.018em; -webkit-text-stroke: 0.02em currentColor; }
 .status-pill { font-size: 12px; font-weight: 620; padding: 3px 10px; border-radius: 999px; color: var(--pill, var(--label-2)); background: color-mix(in srgb, var(--pill, var(--label-2)) 14%, transparent); }
 .status-pill.ok { --pill: var(--green-text); }
 .status-pill.warn { --pill: var(--orange-text); }
 .status-pill.crit { --pill: var(--red); }
-.hero-mount { margin: 5px 0 0; font: 12.5px/1.4 var(--font-mono); color: var(--label-3); word-break: break-all; }
-.hero-mount.plain { font-family: var(--font); font-size: 13px; }
+.hero-mount { margin: 6px 0 0; font-size: 13px; line-height: 1.45; color: var(--label-2); }
+.hero-mount code { font: 12px var(--font-mono); color: var(--label-3); margin-right: 8px; word-break: break-all; }
 .hero-sentence { margin: 14px 0 18px; max-width: 54ch; font-size: 15px; line-height: 1.55; }
 .hero-sentence b { font-weight: 650; }
 .stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5px; margin: 0; border-radius: 14px; overflow: hidden; background: var(--separator); }
@@ -402,7 +405,8 @@ input, select, textarea { font: inherit; color: inherit; }
 .sbar.lg { height: 22px; border-radius: 7px; }
 .sbar.dim > i:not(.on) { opacity: 0.28; }
 .comp-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 12.5px; color: var(--label-2); }
-.comp-legend > span { display: inline-flex; align-items: center; gap: 6px; cursor: default; transition: opacity 0.2s; }
+.comp-legend > span { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; cursor: default; transition: opacity 0.2s; }
+.comp-legend b, .comp-legend em { white-space: nowrap; }
 .comp-legend b { color: var(--label); font-weight: 600; font-variant-numeric: tabular-nums; }
 .comp-legend em { font-style: normal; color: var(--green-text); font-weight: 600; }
 .comp-legend.dim > span:not(.on) { opacity: 0.4; }
@@ -410,7 +414,7 @@ input, select, textarea { font: inherit; color: inherit; }
 /* ---------- Sections & grouped lists ---------- */
 .section { margin-top: 38px; }
 .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 4px 10px; }
-.section-title { margin: 0; font-family: var(--font-display); font-size: 21px; font-weight: 700; letter-spacing: -0.018em; }
+.section-title { margin: 0; font-family: var(--font-display); font-size: 21px; font-weight: 800; letter-spacing: -0.014em; -webkit-text-stroke: 0.018em currentColor; }
 .section-note { font-size: 13px; color: var(--label-2); }
 .grouped { border-radius: 16px; overflow: hidden; }
 .cell { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 11px 16px; text-align: left; width: 100%; transition: background 0.15s; }
@@ -573,6 +577,11 @@ button.cell:active { background: var(--fill); }
   .stat-grid { grid-template-columns: 1fr 1fr; }
   .toolbar { position: static; }
 }
+@media (max-width: 620px) {
+  .act-metrics { grid-template-columns: 1fr; }
+  .act { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 10px; }
+  .act-label { width: 100%; }
+}
 @media (max-width: 520px) {
   #quick-btn .label { display: none; }
   .row-detail-inner { padding-left: 0; }
@@ -646,29 +655,11 @@ TEMPLATE_BODY = r"""<body>
       <div class="volume-strip" id="mini-rings-strip" role="tablist" aria-label="存储卷"></div>
 
       <section class="hero glass enter" id="hero" style="--i:2">
-        <div class="ring-stage">
-          <svg class="ring" viewBox="0 0 320 320" role="img" aria-labelledby="ring-aria">
-            <title id="ring-aria">存储卷容量与预计释放空间</title>
-            <defs>
-              <linearGradient id="grad-clean" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0" style="stop-color: var(--green)"></stop>
-                <stop offset="1" style="stop-color: var(--teal)"></stop>
-              </linearGradient>
-              <filter id="ring-glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="9"></feGaussianBlur></filter>
-            </defs>
-            <g transform="rotate(-90 160 160)">
-              <circle class="ring-track" cx="160" cy="160" r="136"></circle>
-              <circle class="ring-arc-glow" id="ring-arc-glow" cx="160" cy="160" r="136" stroke-dasharray="0 1000"></circle>
-              <circle class="ring-arc-retained" id="ring-arc-retained" cx="160" cy="160" r="136" stroke-dasharray="0 1000"></circle>
-              <circle class="ring-arc-cleaned" id="ring-arc-cleaned" cx="160" cy="160" r="136" stroke-dasharray="0 1000"></circle>
-              <circle class="ring-arc-focus" id="ring-arc-focus" cx="160" cy="160" r="136" stroke-dasharray="0 1000"></circle>
-            </g>
-          </svg>
-          <div class="ring-center">
-            <span class="ring-kicker" id="ring-center-kicker">预计可释放</span>
-            <div class="ring-num" id="ring-num"><span class="n" id="ring-center-num">0</span><span class="u" id="ring-center-unit">GiB</span></div>
-            <span class="ring-water" id="ring-center-water"></span>
+        <div class="ring-col">
+          <div class="ring-stage">
+            <canvas class="ring-canvas" id="ring-canvas" width="320" height="320" role="img" aria-label="活动圆环：外圈清理前水位，中圈清理后水位，内圈已选可回收比例"></canvas>
           </div>
+          <div class="ring-caption" id="ring-caption" aria-live="polite"></div>
         </div>
         <div class="hero-info">
           <div class="hero-title-row">
@@ -677,12 +668,11 @@ TEMPLATE_BODY = r"""<body>
           </div>
           <p class="hero-mount" id="ring-active-mount"></p>
           <p class="hero-sentence" id="ring-active-desc"></p>
-          <dl class="stat-grid">
-            <div class="stat"><dt><i class="dot ring-used"></i>清理后已用</dt><dd id="rkpi-retained">0</dd></div>
-            <div class="stat"><dt><i class="dot ring-clean"></i>将释放</dt><dd class="free" id="rkpi-cleaned">0</dd></div>
-            <div class="stat"><dt><i class="dot ring-free"></i>清理后可用</dt><dd id="rkpi-free-after">0</dd></div>
-            <div class="stat"><dt><i class="dot" style="--dot: var(--label-3)"></i>总容量</dt><dd id="rkpi-total">0</dd></div>
-          </dl>
+          <div class="act-metrics">
+            <div class="act act-before"><span class="act-label">清理前水位</span><span class="act-value" id="act-before">0<small>%</small></span><span class="act-sub" id="act-before-sub"></span></div>
+            <div class="act act-after"><span class="act-label">清理后水位</span><span class="act-value" id="act-after">0<small>%</small></span><span class="act-sub" id="act-after-sub"></span></div>
+            <div class="act act-sel"><span class="act-label">已选可回收</span><span class="act-value" id="act-sel">0<small>GiB</small></span><span class="act-sub" id="act-sel-sub"></span></div>
+          </div>
           <div class="comp" id="composition"></div>
         </div>
       </section>
@@ -1081,10 +1071,12 @@ function computePoolRingMetrics(g) {
   const currentFree = g.free_bytes != null ? Math.max(0, Number(g.free_bytes)) : Math.max(0, total - currentUsed);
   let doneBytes = 0;
   let checkedBytes = 0;
+  let goalBytes = 0;
   CANDS.forEach(c => {
     if (c.gauge_id !== g.id || isWl(c)) return;
     const sz = sizeOf(c);
     if (!sz) return;
+    goalBytes += sz;
     if (isDone(c)) doneBytes += sz;
     else if (state.checked[c.id]) checkedBytes += sz;
   });
@@ -1120,6 +1112,7 @@ function computePoolRingMetrics(g) {
     beforePct: Math.min(100, pct(beforeUsed, total)),
     afterPct: Math.min(100, pct(retained, total)),
     warnPct: warnPctOf(g),
+    goalBytes: Math.max(goalBytes, cleaned),
     hasDone
   };
 }
@@ -1133,12 +1126,13 @@ function computeAllMetrics() {
     acc.beforeUsedBytes += m.beforeUsedBytes;
     acc.freeBeforeBytes += m.freeBeforeBytes;
     acc.freeAfterBytes += m.freeAfterBytes;
+    acc.goalBytes += m.goalBytes;
     acc.hasDone = acc.hasDone || m.hasDone;
     return acc;
   }, {
     id: "_all", gauge: null, label: "全部存储卷", shortTitle: "全部存储卷", mountPath: "",
     total: 0, retainedBytes: 0, cleanedBytes: 0, beforeUsedBytes: 0, freeBeforeBytes: 0, freeAfterBytes: 0,
-    beforePct: 0, afterPct: 0, warnPct: 101, hasDone: false
+    beforePct: 0, afterPct: 0, warnPct: 101, goalBytes: 0, hasDone: false
   });
   agg.mountPath = list.length + " 个存储卷合计";
   agg.beforePct = pct(agg.beforeUsedBytes, agg.total);
@@ -1158,75 +1152,143 @@ function selectionSummary(filterFn) {
 
 
 TEMPLATE_SCRIPT_OVERVIEW = r"""
-/* ================= Overview: giant ring ================= */
+/* ================= Activity rings (Apple Health style) =================
+ * Three concentric rings with round caps and a gradient that runs along the arc:
+ * outer = used before cleanup, middle = used after cleanup, inner = share of the
+ * reclaimable space on this volume that is already selected. Drawn on canvas so the
+ * gradient can follow the circle; every value is driven by an interruptible spring. */
 let activeRingPoolId = GAUGES.length ? GAUGES[0].id : "_all";
 let hoveredRingItemId = null;
-const RING_RADIUS = 136;
-const RING_CIRC = 2 * Math.PI * RING_RADIUS;
-const RING_GAP = 3;
-const ringFlags = { isFocus: false, hasFree: false };
+const RING_COLORS = {
+  before: ["#fa114f", "#ff5c93"],
+  after: ["#6fe000", "#cfff3d"],
+  sel: ["#00c3ea", "#6af5ff"]
+};
+const RING_ORDER = ["before", "after", "sel"];
+const BIG_RING = { box: 320, outer: 158, width: 36, gap: 6 };
+const MINI_RING = { box: 46, outer: 22.6, width: 5.2, gap: 1.3 };
+const ringPaintTheme = { trackAlpha: 0.18, dark: false };
+
+function refreshRingTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  ringPaintTheme.trackAlpha = parseFloat(cs.getPropertyValue("--ring-track-alpha")) || 0.18;
+  ringPaintTheme.dark = cs.getPropertyValue("color-scheme").trim() === "dark";
+}
+function hexRgb(hex) {
+  const h = hex.replace("#", "");
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+function rgba(hex, a) { const c = hexRgb(hex); return `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`; }
+
+function drawActivityRings(canvas, rings, geom) {
+  if (!canvas || !canvas.getContext) return;
+  const cssSize = canvas.clientWidth || geom.box;
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  const px = Math.max(1, Math.round(cssSize * dpr));
+  if (canvas.width !== px) { canvas.width = px; canvas.height = px; }
+  const ctx = canvas.getContext("2d");
+  const k = px / geom.box;
+  ctx.setTransform(k, 0, 0, k, 0, 0);
+  ctx.clearRect(0, 0, geom.box, geom.box);
+  const c = geom.box / 2;
+  const TAU = Math.PI * 2;
+  const start = -Math.PI / 2;
+  ctx.lineCap = "round";
+  rings.forEach((ring, i) => {
+    const w = geom.width;
+    const r = geom.outer - w / 2 - i * (w + geom.gap);
+    if (r <= w / 4) return;
+    const [c1, c2] = ring.colors;
+    ctx.shadowColor = "transparent";
+    ctx.lineWidth = w;
+    ctx.strokeStyle = rgba(c1, ringPaintTheme.trackAlpha);
+    ctx.beginPath(); ctx.arc(c, c, r, 0, TAU); ctx.stroke();
+    const frac = clamp(ring.frac, 0, 1);
+    if (frac <= 0.0005) return;
+    const sweep = Math.max(frac * TAU, 0.0001);
+    const capAng = (w / 2) / r;
+    let stroke = c2;
+    if (ctx.createConicGradient) {
+      const grad = ctx.createConicGradient(start - capAng, c, c);
+      grad.addColorStop(0, c1);
+      grad.addColorStop(clamp((sweep + capAng) / TAU, 0.02, 1), c2);
+      stroke = grad;
+    }
+    ctx.strokeStyle = stroke;
+    ctx.beginPath(); ctx.arc(c, c, r, start, start + sweep); ctx.stroke();
+    // End cap: once the arc closes in on its own start, redraw the tip with a soft shadow
+    // so it reads as lying on top of the ring, like the Activity rings.
+    if (frac > 0.96) {
+      const ex = c + r * Math.cos(start + sweep);
+      const ey = c + r * Math.sin(start + sweep);
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
+      ctx.shadowColor = ringPaintTheme.dark ? "rgba(0, 0, 0, 0.6)" : "rgba(0, 0, 0, 0.3)";
+      ctx.shadowBlur = w * 0.3;
+      ctx.fillStyle = c2;
+      ctx.beginPath(); ctx.arc(ex, ey, w / 2, start + sweep - Math.PI / 2, start + sweep + Math.PI / 2); ctx.fill();
+      ctx.shadowColor = "transparent";
+    }
+    if (ring.focus > 0.0005) {
+      const fs = clamp(ring.focus, 0, frac) * TAU;
+      ctx.lineWidth = Math.max(1.5, w * 0.3);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+      ctx.beginPath(); ctx.arc(c, c, r, start, start + Math.max(fs, 0.0001)); ctx.stroke();
+      ctx.lineWidth = w;
+    }
+  });
+}
+
 const ringSprings = {
-  ret: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing)),
-  cln: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing)),
-  foc: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing)),
-  bytes: new Spring(0, SPRING.soft, () => queueFrameJob(paintRing), { precision: 0.0004 })
+  before: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing), { tolerance: 0.0005 }),
+  after: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing), { tolerance: 0.0005 }),
+  sel: new Spring(0, SPRING.ring, () => queueFrameJob(paintRing), { tolerance: 0.0005 }),
+  focus: new Spring(0, SPRING.glide, () => queueFrameJob(paintRing), { tolerance: 0.0005 })
 };
 
-function setArc(el, len, offset) {
-  if (!el) return;
-  const visible = len > RING_GAP * 2 ? len - RING_GAP : Math.max(0, len * 0.5);
-  el.setAttribute("stroke-dasharray", visible.toFixed(2) + " " + RING_CIRC.toFixed(2));
-  el.setAttribute("stroke-dashoffset", (-offset).toFixed(2));
-}
-
 function paintRing() {
-  const C = RING_CIRC;
-  const ret = clamp(ringSprings.ret.value, 0, C);
-  const cln = clamp(ringSprings.cln.value, 0, C - ret);
-  const foc = clamp(ringSprings.foc.value, 0, C - ret - cln);
-  setArc(document.getElementById("ring-arc-retained"), ret, 0);
-  setArc(document.getElementById("ring-arc-cleaned"), cln, ret);
-  setArc(document.getElementById("ring-arc-glow"), cln, ret);
-  setArc(document.getElementById("ring-arc-focus"), foc, ret + cln);
-  const pair = bytePair(Math.max(0, ringSprings.bytes.value));
-  const numEl = document.getElementById("ring-center-num");
-  const unitEl = document.getElementById("ring-center-unit");
-  if (numEl) numEl.textContent = pair.num;
-  if (unitEl) unitEl.textContent = pair.unit;
-  const wrap = document.getElementById("ring-num");
-  if (wrap) {
-    wrap.classList.toggle("is-focus", ringFlags.isFocus);
-    wrap.classList.toggle("is-free", !ringFlags.isFocus && ringFlags.hasFree);
-  }
+  drawActivityRings(document.getElementById("ring-canvas"), [
+    { colors: RING_COLORS.before, frac: ringSprings.before.value },
+    { colors: RING_COLORS.after, frac: ringSprings.after.value },
+    { colors: RING_COLORS.sel, frac: ringSprings.sel.value, focus: ringSprings.focus.value }
+  ], BIG_RING);
 }
 
-/* Interruptible spring animation of the ring arcs and the centre number. */
-function animateRingTo(retArc, clnArc, focArc, displayBytes, isFocus) {
-  ringFlags.isFocus = Boolean(isFocus);
-  ringFlags.hasFree = displayBytes > 0;
-  ringSprings.ret.to(retArc, SPRING.ring);
-  ringSprings.cln.to(clnArc, SPRING.ring);
-  ringSprings.foc.to(focArc, isFocus ? SPRING.glide : SPRING.ring);
-  ringSprings.bytes.to(displayBytes, SPRING.soft);
+/* Interruptible spring animation of the three rings (fractions 0..1). */
+function animateRingTo(beforeFrac, afterFrac, selFrac, focusFrac) {
+  ringSprings.before.to(clamp(beforeFrac, 0, 1), SPRING.ring);
+  ringSprings.after.to(clamp(afterFrac, 0, 1), SPRING.ring);
+  ringSprings.sel.to(clamp(selFrac, 0, 1), SPRING.ring);
+  ringSprings.focus.to(clamp(focusFrac || 0, 0, 1), SPRING.glide);
   queueFrameJob(paintRing);
 }
 
 /* ================= Overview: mini rings ================= */
-const MINI_R = 17;
-const MINI_C = 2 * Math.PI * MINI_R;
 const miniSprings = {};
 let miniBuilt = false;
+
+function paintMini(id) {
+  const sp = miniSprings[id];
+  if (!sp) return;
+  drawActivityRings(document.getElementById("mring-canvas-" + id), [
+    { colors: RING_COLORS.before, frac: sp.before.value },
+    { colors: RING_COLORS.after, frac: sp.after.value },
+    { colors: RING_COLORS.sel, frac: sp.sel.value }
+  ], MINI_RING);
+}
+
+function repaintAllRings() {
+  refreshRingTheme();
+  paintRing();
+  Object.keys(miniSprings).forEach(paintMini);
+}
 
 function buildMiniRings(entries) {
   const strip = document.getElementById("mini-rings-strip");
   if (!strip) return;
   strip.innerHTML = entries.map((m, i) => `
     <button type="button" class="vol glass enter" role="tab" style="--i:${i}" id="mring-card-${escapeHtml(m.id)}" data-pool="${escapeHtml(m.id)}" aria-selected="false">
-      <span class="vol-ring-wrap"><svg class="vol-ring" viewBox="0 0 44 44" aria-hidden="true"><g transform="rotate(-90 22 22)">
-        <circle class="vt" cx="22" cy="22" r="${MINI_R}"></circle>
-        <circle class="vr" id="mring-ret-${escapeHtml(m.id)}" cx="22" cy="22" r="${MINI_R}" stroke-dasharray="0 200"></circle>
-        <circle class="vc" id="mring-cln-${escapeHtml(m.id)}" cx="22" cy="22" r="${MINI_R}" stroke-dasharray="0 200"></circle>
-      </g></svg><span class="vol-pct" id="mring-pct-${escapeHtml(m.id)}">0%</span></span>
+      <canvas class="vol-ring" id="mring-canvas-${escapeHtml(m.id)}" width="46" height="46" aria-hidden="true"></canvas>
       <span class="vol-text">
         <span class="vol-name" title="${escapeHtml(m.label)}">${escapeHtml(m.shortTitle)}</span>
         <span class="vol-meta" id="mring-meta-${escapeHtml(m.id)}"></span>
@@ -1236,20 +1298,11 @@ function buildMiniRings(entries) {
     btn.addEventListener("click", () => selectRingPool(btn.getAttribute("data-pool")));
   });
   entries.forEach(m => {
-    const retEl = document.getElementById("mring-ret-" + m.id);
-    const clnEl = document.getElementById("mring-cln-" + m.id);
-    const paint = () => {
-      const r = clamp(miniSprings[m.id].ret.value, 0, MINI_C);
-      const c = clamp(miniSprings[m.id].cln.value, 0, MINI_C - r);
-      if (retEl) retEl.setAttribute("stroke-dasharray", r.toFixed(2) + " " + MINI_C.toFixed(2));
-      if (clnEl) {
-        clnEl.setAttribute("stroke-dasharray", c.toFixed(2) + " " + MINI_C.toFixed(2));
-        clnEl.setAttribute("stroke-dashoffset", (-r).toFixed(2));
-      }
-    };
+    const job = () => paintMini(m.id);
     miniSprings[m.id] = {
-      ret: new Spring(0, SPRING.ring, () => queueFrameJob(paint)),
-      cln: new Spring(0, SPRING.ring, () => queueFrameJob(paint))
+      before: new Spring(0, SPRING.ring, () => queueFrameJob(job), { tolerance: 0.001 }),
+      after: new Spring(0, SPRING.ring, () => queueFrameJob(job), { tolerance: 0.001 }),
+      sel: new Spring(0, SPRING.ring, () => queueFrameJob(job), { tolerance: 0.001 })
     };
   });
   miniBuilt = true;
@@ -1262,23 +1315,17 @@ function updateMiniRings(entries, activeId) {
     if (card) card.setAttribute("aria-selected", String(m.id === activeId));
     const sp = miniSprings[m.id];
     if (sp) {
-      sp.ret.to((m.retainedBytes / m.total) * MINI_C);
-      sp.cln.to((m.cleanedBytes / m.total) * MINI_C);
-    }
-    const pctEl = document.getElementById("mring-pct-" + m.id);
-    if (pctEl) {
-      pctEl.textContent = m.afterPct.toFixed(0) + "%";
-      pctEl.className = "vol-pct " + (m.id === "_all" ? "" : levelFor(m.afterPct, m.warnPct));
+      sp.before.to(m.beforePct / 100);
+      sp.after.to(m.afterPct / 100);
+      sp.sel.to(m.goalBytes > 0 ? m.cleanedBytes / m.goalBytes : 0);
     }
     const metaEl = document.getElementById("mring-meta-" + m.id);
     if (metaEl) {
-      if (m.cleanedBytes > 0) {
-        metaEl.className = "vol-meta free";
-        metaEl.textContent = (m.hasDone ? "已释放 " : "可释放 ") + formatShort(m.cleanedBytes);
-      } else {
-        metaEl.className = "vol-meta";
-        metaEl.textContent = "可用 " + formatShort(m.freeAfterBytes) + "，共 " + formatShort(m.total);
-      }
+      const lvl = m.id === "_all" ? "" : levelFor(m.afterPct, m.warnPct);
+      const water = m.cleanedBytes > 0
+        ? `${m.beforePct.toFixed(0)}% → ${m.afterPct.toFixed(0)}%`
+        : `水位 ${m.afterPct.toFixed(0)}%`;
+      metaEl.innerHTML = `<span class="lvl ${lvl}">${water}</span>${m.cleanedBytes > 0 ? `<span class="rel">${m.hasDone ? "已释放" : "可释放"} ${formatShort(m.cleanedBytes)}</span>` : ""}`;
     }
   });
 }
@@ -1401,33 +1448,39 @@ function renderRingOverview(onlyUpdateArcs) {
   activeRingPoolId = active.id;
   updateMiniRings(entries, active.id);
 
-  const C = RING_CIRC;
   const total = Math.max(1, active.total);
   const retained = Math.min(total, active.retainedBytes);
   const cleaned = Math.min(total - retained, active.cleanedBytes);
-  let focusBytes = 0;
+  const goal = Math.max(active.goalBytes, cleaned);
   let hovered = hoveredRingItemId ? candById[hoveredRingItemId] : null;
-  if (hovered && (active.id === "_all" || hovered.gauge_id === active.id) && (isChecked(hovered) || isDone(hovered))) {
-    focusBytes = Math.min(cleaned, sizeOf(hovered));
-  } else {
-    hovered = null;
-  }
-  const other = Math.max(0, cleaned - focusBytes);
-  animateRingTo((retained / total) * C, (other / total) * C, (focusBytes / total) * C, focusBytes > 0 ? focusBytes : cleaned, focusBytes > 0);
+  if (!(hovered && (active.id === "_all" || hovered.gauge_id === active.id) && (isChecked(hovered) || isDone(hovered)) && sizeOf(hovered) > 0)) hovered = null;
+  const focusFrac = hovered && goal > 0 ? Math.min(cleaned, sizeOf(hovered)) / goal : 0;
+  animateRingTo(active.beforePct / 100, active.afterPct / 100, goal > 0 ? cleaned / goal : 0, focusFrac);
 
   const setText = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
-  setText("ring-center-kicker", hovered ? displayTitle(hovered) : (active.hasDone ? "已释放" : "预计可释放"));
-  setText("ring-center-water", cleaned > 0
-    ? `水位 ${fmtPct(active.beforePct)} → ${fmtPct(active.afterPct)}`
-    : `当前水位 ${fmtPct(active.afterPct)}`);
+  const setHtml = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+  const numUnit = (num, unit) => `${escapeHtml(num)}<small>${escapeHtml(unit)}</small>`;
   setText("ring-active-title", active.shortTitle);
-  setText("ring-active-mount", active.mountPath || active.id);
-  const mountEl = document.getElementById("ring-active-mount");
-  if (mountEl) mountEl.classList.toggle("plain", active.id === "_all");
-  setText("rkpi-retained", formatBytes(retained));
-  setText("rkpi-cleaned", cleaned > 0 ? formatBytes(cleaned) : "0 GiB");
-  setText("rkpi-free-after", formatBytes(active.freeAfterBytes));
-  setText("rkpi-total", formatBytes(total));
+  setHtml("ring-active-mount", active.id === "_all"
+    ? `${escapeHtml(active.mountPath)}，总容量 ${formatBytes(total)}`
+    : `<code>${escapeHtml(active.mountPath || active.id)}</code>总容量 ${formatBytes(total)}，警戒线 ${fmtPct(active.warnPct)}`);
+  setHtml("act-before", numUnit(active.beforePct.toFixed(1), "%"));
+  setText("act-before-sub", `已用 ${formatBytes(active.beforeUsedBytes)}`);
+  setHtml("act-after", numUnit(active.afterPct.toFixed(1), "%"));
+  setText("act-after-sub", `可用 ${formatBytes(active.freeAfterBytes)}`);
+  const selPair = bytePair(cleaned);
+  setHtml("act-sel", cleaned > 0 ? numUnit(selPair.num, selPair.unit) : numUnit("0", "GiB"));
+  setText("act-sel-sub", goal > 0 ? `可回收共 ${formatBytes(goal)}，已选 ${Math.round(pct(cleaned, goal))}%` : "这块盘没有可回收项");
+  const cap = document.getElementById("ring-caption");
+  if (cap) {
+    if (hovered) {
+      cap.classList.add("is-focus");
+      cap.innerHTML = `<b>${escapeHtml(displayTitle(hovered))}</b><span>${formatBytes(sizeOf(hovered))}，占已选 ${Math.round(pct(Math.min(cleaned, sizeOf(hovered)), cleaned))}%</span>`;
+    } else if (cap.classList.contains("is-focus") || !cap.firstChild) {
+      cap.classList.remove("is-focus");
+      cap.innerHTML = `<span><i class="dot" style="--dot:${RING_COLORS.before[0]}"></i>清理前</span><span><i class="dot" style="--dot:${RING_COLORS.after[0]}"></i>清理后</span><span><i class="dot" style="--dot:${RING_COLORS.sel[0]}"></i>已选可回收</span>`;
+    }
+  }
 
   const badge = document.getElementById("ring-active-badge");
   const desc = document.getElementById("ring-active-desc");
@@ -1694,6 +1747,7 @@ let themeSeg = null;
 function applyTheme(theme) {
   if (theme === "light" || theme === "dark") document.documentElement.setAttribute("data-theme", theme);
   else document.documentElement.removeAttribute("data-theme");
+  try { repaintAllRings(); } catch (e) {}
 }
 function setTheme(theme) {
   const t = theme === "light" || theme === "dark" ? theme : "auto";
@@ -2256,6 +2310,9 @@ function wireEvents() {
     if (!document.getElementById("prompt-modal").hidden) closeModal();
     else if (menuOpen) toggleQuickMenu(false);
   });
+  const schemeQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+  if (schemeQuery && schemeQuery.addEventListener) schemeQuery.addEventListener("change", () => repaintAllRings());
+  if (window.ResizeObserver) new ResizeObserver(() => paintRing()).observe(document.getElementById("ring-canvas"));
   window.addEventListener("resize", () => {
     placeNavPill(false);
     if (actionSeg) actionSeg.refresh();
@@ -2265,6 +2322,7 @@ function wireEvents() {
 
 function bootstrapDashboard() {
   const theme = initTheme();
+  refreshRingTheme();
   hydrateIcons(document);
   const timeEl = document.getElementById("brand-time");
   if (timeEl) timeEl.textContent = "快照 " + formatTime(timeEl.getAttribute("data-raw"));
