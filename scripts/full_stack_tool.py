@@ -244,11 +244,47 @@ def bounded_dir_size(
     return total, truncated, latest_mtime
 
 
-def collect_installed_apps(app_roots: list[str]) -> dict[str, set[str]]:
-    """Collect bundle IDs, normalized names, and vendor tokens from installed .app bundles."""
+def _read_plist_safe(plist_path: Path) -> dict[str, Any] | None:
+    if not plist_path.is_file():
+        return None
+    try:
+        with plist_path.open("rb") as fp:
+            info = plistlib.load(fp)
+        return info if isinstance(info, dict) else None
+    except Exception:
+        try:
+            proc = subprocess.run(
+                ["/usr/bin/plutil", "-convert", "json", "-o", "-", "--", str(plist_path)],
+                capture_output=True,
+                text=True,
+                timeout=4,
+                check=False,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                data = json.loads(proc.stdout)
+                return data if isinstance(data, dict) else None
+        except Exception:
+            pass
+    return None
+
+
+def is_host_scan_config(config: dict[str, Any]) -> bool:
+    """Return True when config points at real macOS host roots rather than isolated unit test fixtures."""
+    for key in ("app_roots", "library_roots"):
+        for raw in config.get(key, []):
+            s = str(raw).strip()
+            if s.startswith(("~/", "/Applications", "/Library", "/System/Volumes/Data")):
+                return True
+    return False
+
+
+def collect_installed_apps(app_roots: list[str]) -> dict[str, Any]:
+    """Collect bundle IDs, normalized names, vendor tokens, and detailed metadata from installed .app bundles."""
     bundle_ids: set[str] = set()
     norm_names: set[str] = set()
     vendor_tokens: set[str] = set(COMMON_SHARED_TOOL_TOKENS)
+    apps_detail: list[dict[str, Any]] = []
+    seen_app_paths: set[str] = set()
 
     for raw_root in app_roots:
         root = expand_path(raw_root)
@@ -257,12 +293,12 @@ def collect_installed_apps(app_roots: list[str]) -> dict[str, set[str]]:
         # Scan depth 1 and 2 for *.app
         candidates: list[Path] = []
         try:
-            for child in root.iterdir():
+            for child in sorted(root.iterdir(), key=lambda p: p.name.lower()):
                 if child.suffix.lower() == ".app":
                     candidates.append(child)
                 elif child.is_dir() and not child.is_symlink():
                     try:
-                        for sub in child.iterdir():
+                        for sub in sorted(child.iterdir(), key=lambda p: p.name.lower()):
                             if sub.suffix.lower() == ".app":
                                 candidates.append(sub)
                     except OSError:
@@ -271,6 +307,13 @@ def collect_installed_apps(app_roots: list[str]) -> dict[str, set[str]]:
             continue
 
         for app_dir in candidates:
+            if app_dir.is_symlink():
+                continue
+            app_key = str(app_dir.resolve(strict=False))
+            if app_key in seen_app_paths:
+                continue
+            seen_app_paths.add(app_key)
+
             stem_norm = normalize_token(app_dir.stem)
             if stem_norm:
                 norm_names.add(stem_norm)
@@ -279,37 +322,72 @@ def collect_installed_apps(app_roots: list[str]) -> dict[str, set[str]]:
                     vendor_tokens.add(word.lower())
 
             plist_path = app_dir / "Contents" / "Info.plist"
-            if plist_path.is_file():
-                try:
-                    with plist_path.open("rb") as fp:
-                        info = plistlib.load(fp)
-                    bid = str(info.get("CFBundleIdentifier") or "").strip().lower()
-                    if bid:
-                        bundle_ids.add(bid)
-                        parts = [p for p in bid.split(".") if p not in ("com", "org", "net", "io", "app", "mac", "macos")]
-                        for part in parts:
-                            if len(part) >= 3:
-                                vendor_tokens.add(normalize_token(part))
-                    for key in ("CFBundleName", "CFBundleDisplayName", "CFBundleExecutable"):
-                        val = str(info.get(key) or "").strip()
-                        if val:
-                            norm_names.add(normalize_token(val))
-                except Exception:
-                    pass
+            if not plist_path.is_file():
+                plist_path = app_dir / "Info.plist"
+            info = _read_plist_safe(plist_path) or {}
+
+            bid_orig = str(info.get("CFBundleIdentifier") or "").strip()
+            bid = bid_orig.lower()
+            app_norm_tokens: set[str] = {stem_norm} if stem_norm else set()
+            if bid:
+                bundle_ids.add(bid)
+                parts = [p for p in bid.split(".") if p not in ("com", "org", "net", "io", "app", "mac", "macos")]
+                for part in parts:
+                    if len(part) >= 3:
+                        vendor_tokens.add(normalize_token(part))
+
+            display_name = str(info.get("CFBundleDisplayName") or info.get("CFBundleName") or app_dir.stem).strip()
+            for key in ("CFBundleName", "CFBundleDisplayName", "CFBundleExecutable"):
+                val = str(info.get(key) or "").strip()
+                if val:
+                    nt = normalize_token(val)
+                    if nt:
+                        norm_names.add(nt)
+                        app_norm_tokens.add(nt)
+
+            sparkle_feed = str(info.get("SUFeedURL") or "").strip()
+            has_mas_receipt = (app_dir / "Contents" / "_MASReceipt" / "receipt").is_file()
+            if has_mas_receipt:
+                install_source = "app_store"
+            elif sparkle_feed:
+                install_source = "sparkle"
+            else:
+                install_source = "standalone"
+
+            apps_detail.append(
+                {
+                    "name": display_name or app_dir.stem,
+                    "stem": app_dir.stem,
+                    "path": str(app_dir),
+                    "bundle_id": bid_orig,
+                    "bundle_id_lower": bid,
+                    "version": str(info.get("CFBundleShortVersionString") or "").strip(),
+                    "build": str(info.get("CFBundleVersion") or "").strip(),
+                    "executable": str(info.get("CFBundleExecutable") or "").strip(),
+                    "sparkle_feed": sparkle_feed,
+                    "install_source": install_source,
+                    "norm_tokens": sorted(app_norm_tokens),
+                }
+            )
 
     return {
         "bundle_ids": bundle_ids,
         "norm_names": norm_names,
         "vendor_tokens": vendor_tokens,
+        "apps": apps_detail,
     }
 
 
-def is_entry_matched_to_installed_app(entry_name: str, installed: dict[str, set[str]]) -> bool:
+def is_entry_matched_to_installed_app(entry_name: str, installed: dict[str, Any]) -> bool:
     lower = entry_name.strip().lower()
+    for suffix in (".savedstate", ".binarycookies", ".plist"):
+        if lower.endswith(suffix):
+            lower = lower[: -len(suffix)]
+            break
     if any(lower.startswith(prefix.lower()) for prefix in SYSTEM_LIBRARY_IGNORE_PREFIXES):
         return True
 
-    norm = normalize_token(entry_name)
+    norm = normalize_token(lower)
     if not norm:
         return True
 
@@ -336,22 +414,79 @@ def is_entry_matched_to_installed_app(entry_name: str, installed: dict[str, set[
     return False
 
 
+def match_library_entry_to_app(entry_name: str, app: dict[str, Any]) -> bool:
+    """Return True if a Library directory/file name belongs to the given installed app."""
+    lower = entry_name.strip().lower()
+    for suffix in (".savedstate", ".binarycookies", ".plist"):
+        if lower.endswith(suffix):
+            lower = lower[: -len(suffix)]
+            break
+    bid = app.get("bundle_id_lower", "")
+    if bid and (lower == bid or lower.startswith(bid + ".") or lower.endswith("." + bid)):
+        return True
+    norm = normalize_token(lower)
+    if not norm:
+        return False
+    if bid and normalize_token(bid) == norm:
+        return True
+    for tok in app.get("norm_tokens", []):
+        if len(tok) >= 4 and (tok == norm or (len(tok) >= 5 and tok in norm)):
+            return True
+    return False
+
+
+def _orphan_group_key(entry_name: str) -> str:
+    lower = entry_name.strip().lower()
+    for suffix in (".savedstate", ".binarycookies", ".plist"):
+        if lower.endswith(suffix):
+            lower = lower[: -len(suffix)]
+            break
+    parts = [p for p in lower.split(".") if p not in ("com", "org", "net", "io", "app", "mac", "macos", "savedstate")]
+    if len(parts) >= 2:
+        return normalize_token(parts[-1]) or normalize_token(lower)
+    return normalize_token(lower)
+
+
+def _effective_library_roots(config: dict[str, Any]) -> list[str]:
+    library_roots = list(
+        config.get(
+            "library_roots",
+            ["~/Library/Application Support", "~/Library/Caches", "~/Library/Containers"],
+        )
+    )
+    if is_host_scan_config(config) and "orphan_extra_roots" not in config:
+        for extra in (
+            "~/Library/Group Containers",
+            "~/Library/Saved Application State",
+            "~/Library/Logs",
+            "~/Library/HTTPStorages",
+            "~/Library/WebKit",
+        ):
+            if extra not in library_roots:
+                library_roots.append(extra)
+    else:
+        for extra in config.get("orphan_extra_roots", []):
+            if extra not in library_roots:
+                library_roots.append(extra)
+    return library_roots
+
+
 def scan_app_orphans(
     config: dict[str, Any],
     wl_index: dict[str, Any],
+    installed: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     app_roots = config.get("app_roots", ["/Applications", "~/Applications"])
-    library_roots = config.get(
-        "library_roots",
-        ["~/Library/Application Support", "~/Library/Caches", "~/Library/Containers"],
-    )
+    library_roots = _effective_library_roots(config)
     min_mb = float(config.get("thresholds", {}).get("min_orphan_mb", 50))
     min_bytes = int(min_mb * 1024 * 1024)
 
-    installed = collect_installed_apps(app_roots)
+    if installed is None:
+        installed = collect_installed_apps(app_roots)
     candidates: list[dict[str, Any]] = []
     dir_sizes: dict[str, int] = {}
 
+    raw_orphans: list[dict[str, Any]] = []
     for raw_lib in library_roots:
         lib_dir = expand_path(raw_lib)
         if not lib_dir.is_dir():
@@ -369,37 +504,1123 @@ def scan_app_orphans(
 
             size_bytes, truncated, latest_mtime = bounded_dir_size(entry)
             dir_sizes[str(entry)] = size_bytes
-            if size_bytes < min_bytes:
-                continue
+            raw_orphans.append(
+                {
+                    "entry": entry,
+                    "lib_name": lib_dir.name,
+                    "size_bytes": size_bytes,
+                    "truncated": truncated,
+                    "latest_mtime": latest_mtime,
+                    "group_key": _orphan_group_key(entry.name),
+                }
+            )
 
-            whitelisted, wl_note = check_path_whitelisted(entry, wl_index)
-            if not whitelisted and normalize_token(entry.name) in wl_index["app_tokens"]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in raw_orphans:
+        gk = item["group_key"] or normalize_token(item["entry"].name)
+        grouped.setdefault(gk, []).append(item)
+
+    for gk, items in grouped.items():
+        total_bytes = sum(x["size_bytes"] for x in items)
+        if total_bytes < min_bytes:
+            continue
+        primary = max(items, key=lambda x: x["size_bytes"])
+        entry = primary["entry"]
+        truncated = any(x["truncated"] for x in items)
+        latest_mtime = max(x["latest_mtime"] for x in items)
+
+        whitelisted = False
+        wl_note = ""
+        for x in items:
+            w, note = check_path_whitelisted(x["entry"], wl_index)
+            if not w and normalize_token(x["entry"].name) in wl_index["app_tokens"]:
+                w = True
+                note = f"Protected by whitelist.app_names ({x['entry'].name})"
+            if w:
                 whitelisted = True
-                wl_note = f"Protected by whitelist.app_names ({entry.name})"
+                wl_note = note
+                break
 
-            slug = re.sub(r"[^a-z0-9]+", "-", entry.name.lower()).strip("-")[:32]
+        slug = re.sub(r"[^a-z0-9]+", "-", entry.name.lower()).strip("-")[:32]
+        all_paths = [str(x["entry"]) for x in items]
+        locations = "、".join(sorted({x["lib_name"] for x in items}))
+        cand: dict[str, Any] = {
+            "id": f"orphan-{slug}",
+            "domain": "mac",
+            "category": "app_orphan",
+            "action_type": "cleanup",
+            "tier": "C",
+            "title": f"疑似已卸载应用残留：{entry.name}" + (f"（共 {len(all_paths)} 处残留）" if len(all_paths) > 1 else ""),
+            "path": str(entry),
+            "size_bytes": total_bytes,
+            "size_truncated": truncated,
+            "latest_mtime": latest_mtime,
+            "gauge_id": "mac-data",
+            "whitelisted": whitelisted,
+            "whitelist_note": wl_note,
+            "evidence": (
+                f"位于 {locations}，未在 {app_roots} 中匹配到同 Bundle ID 或应用名称；"
+                "删除前需确认该软件确已停用且不含需保留的个人配置或工程数据。"
+            ),
+        }
+        if len(all_paths) > 1:
+            cand["paths"] = all_paths
+        candidates.append(cand)
+
+    return candidates, dir_sizes
+
+
+CACHE_ROOT_NAMES = {"caches", "saved application state", "logs", "httpstorages", "webkit"}
+
+
+def scan_apps_inventory_and_uninstall(
+    config: dict[str, Any],
+    wl_index: dict[str, Any],
+    installed: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
+    """Inventory all installed apps (size, data, cache, usage frequency) and emit app_uninstall candidates for unused apps."""
+    app_roots = config.get("app_roots", ["/Applications", "~/Applications"])
+    library_roots = _effective_library_roots(config)
+    thresholds = config.get("thresholds", {})
+    unused_days_threshold = float(thresholds.get("unused_app_days", 90))
+    min_app_mb = float(thresholds.get("min_app_size_mb", 50))
+    min_app_bytes = int(min_app_mb * 1024 * 1024)
+
+    if installed is None:
+        installed = collect_installed_apps(app_roots)
+
+    lib_entries: list[dict[str, Any]] = []
+    for raw_lib in library_roots:
+        lib_dir = expand_path(raw_lib)
+        if not lib_dir.is_dir():
+            continue
+        is_cache_kind = lib_dir.name.strip().lower() in CACHE_ROOT_NAMES
+        try:
+            for child in sorted(lib_dir.iterdir(), key=lambda p: p.name.lower()):
+                if child.is_symlink() or not child.is_dir():
+                    continue
+                lib_entries.append({"path": child, "name": child.name, "is_cache": is_cache_kind})
+        except OSError:
+            continue
+
+    now_ts = time.time()
+    inventory_out: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
+    dir_sizes: dict[str, int] = {}
+
+    for app in installed.get("apps", []):
+        app_path = Path(app["path"])
+        if not app_path.exists():
+            continue
+        app_bytes, app_trunc, app_mtime = bounded_dir_size(app_path)
+        dir_sizes[str(app_path)] = app_bytes
+        try:
+            st = os.stat(app_path, follow_symlinks=False)
+            last_used_ts = max(app_mtime, int(st.st_mtime))
+        except OSError:
+            last_used_ts = app_mtime
+
+        data_bytes = 0
+        cache_bytes = 0
+        data_paths: list[str] = []
+        cache_paths: list[str] = []
+
+        for le in lib_entries:
+            if match_library_entry_to_app(le["name"], app):
+                sz, _, mtime = bounded_dir_size(le["path"])
+                dir_sizes[str(le["path"])] = sz
+                if mtime > last_used_ts:
+                    last_used_ts = mtime
+                if le["is_cache"]:
+                    cache_bytes += sz
+                    cache_paths.append(str(le["path"]))
+                else:
+                    data_bytes += sz
+                    data_paths.append(str(le["path"]))
+
+        total_bytes = app_bytes + data_bytes + cache_bytes
+        days_since_used = max(0.0, (now_ts - last_used_ts) / 86400.0) if last_used_ts > 0 else 0.0
+        usage_status = "infrequent" if days_since_used >= unused_days_threshold else "frequent"
+
+        whitelisted, wl_note = check_path_whitelisted(app_path, wl_index)
+        if not whitelisted and normalize_token(app["name"]) in wl_index["app_tokens"]:
+            whitelisted = True
+            wl_note = f"Protected by whitelist.app_names ({app['name']})"
+
+        keep_data_paths = [str(app_path), *cache_paths]
+        purge_all_paths = [str(app_path), *data_paths, *cache_paths]
+        keep_data_bytes = app_bytes + cache_bytes
+
+        inv_item: dict[str, Any] = {
+            "name": app["name"],
+            "bundle_id": app["bundle_id"],
+            "path": str(app_path),
+            "version": app["version"],
+            "build": app["build"],
+            "install_source": app["install_source"],
+            "sparkle_feed": app["sparkle_feed"],
+            "app_bytes": app_bytes,
+            "data_bytes": data_bytes,
+            "cache_bytes": cache_bytes,
+            "total_bytes": total_bytes,
+            "data_paths": data_paths,
+            "cache_paths": cache_paths,
+            "all_paths": purge_all_paths,
+            "last_used_ts": last_used_ts,
+            "days_since_used": round(days_since_used, 1),
+            "usage_status": usage_status,
+            "whitelisted": whitelisted,
+        }
+        inventory_out.append(inv_item)
+
+        if usage_status == "infrequent" and total_bytes >= min_app_bytes:
+            slug = re.sub(r"[^a-z0-9]+", "-", (app["bundle_id_lower"] or app["stem"]).lower()).strip("-")[:36]
             candidates.append(
                 {
-                    "id": f"orphan-{slug}",
+                    "id": f"app-uninstall-{slug}",
                     "domain": "mac",
-                    "category": "app_orphan",
+                    "category": "app_uninstall",
+                    "action_type": "cleanup",
                     "tier": "C",
-                    "title": f"疑似已卸载应用残留：{entry.name}",
-                    "path": str(entry),
-                    "size_bytes": size_bytes,
-                    "size_truncated": truncated,
-                    "latest_mtime": latest_mtime,
+                    "title": f"不常用应用卸载：{app['name']}（约 {int(days_since_used)} 天未用）",
+                    "path": str(app_path),
+                    "paths": purge_all_paths,
+                    "app_only_paths": keep_data_paths,
+                    "all_uninstall_paths": purge_all_paths,
+                    "size_bytes": total_bytes,
+                    "app_bytes": app_bytes,
+                    "data_bytes": data_bytes,
+                    "cache_bytes": cache_bytes,
+                    "size_truncated": app_trunc,
+                    "latest_mtime": last_used_ts,
+                    "metric_badge": f"{int(days_since_used)} 天未用",
                     "gauge_id": "mac-data",
                     "whitelisted": whitelisted,
                     "whitelist_note": wl_note,
+                    "uninstall_modes": {
+                        "purge_all": {
+                            "label": "一键全部删除（含残留与数据）",
+                            "size_bytes": total_bytes,
+                            "paths": purge_all_paths,
+                        },
+                        "keep_data": {
+                            "label": "保留用户数据（仅删应用与缓存）",
+                            "size_bytes": keep_data_bytes,
+                            "paths": keep_data_paths,
+                        },
+                    },
                     "evidence": (
-                        f"位于 {lib_dir.name}，未在 {app_roots} 中匹配到同 Bundle ID 或应用名称；"
-                        "删除前需确认该软件确已停用且不含需保留的个人配置或工程数据。"
+                        f"应用本体 {app_bytes / (1024**2):.1f} MiB + 用户数据 {data_bytes / (1024**2):.1f} MiB + "
+                        f"缓存与状态 {cache_bytes / (1024**2):.1f} MiB（共 {total_bytes / (1024**2):.1f} MiB），"
+                        f"最近活动距今约 {int(days_since_used)} 天。支持选择「保留用户数据」或「一键全部删除（含全部残留）」。"
                     ),
                 }
             )
 
+    inventory_out.sort(key=lambda x: x["total_bytes"], reverse=True)
+    return inventory_out, candidates, dir_sizes
+
+
+DEFAULT_GLOBAL_CACHE_ROOTS = (
+    "~/Library/Developer/Xcode/DerivedData",
+    "~/Library/Caches/Homebrew",
+    "~/.npm/_cacache",
+    "~/.cache/uv",
+    "~/.cache/pip",
+    "~/Library/Caches/ms-playwright",
+)
+
+
+def scan_global_caches(
+    config: dict[str, Any],
+    wl_index: dict[str, Any],
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Scan pure reproducible developer/package global caches without touching daily hot app caches."""
+    if "global_cache_roots" in config:
+        raw_roots = config.get("global_cache_roots", [])
+    elif is_host_scan_config(config):
+        raw_roots = list(DEFAULT_GLOBAL_CACHE_ROOTS)
+    else:
+        raw_roots = []
+
+    min_cache_mb = float(config.get("thresholds", {}).get("min_cache_mb", 200))
+    min_cache_bytes = int(min_cache_mb * 1024 * 1024)
+
+    candidates: list[dict[str, Any]] = []
+    dir_sizes: dict[str, int] = {}
+
+    for raw in raw_roots:
+        p = expand_path(raw)
+        if not p.is_dir() or p.is_symlink():
+            continue
+        sz, trunc, latest_mtime = bounded_dir_size(p)
+        dir_sizes[str(p)] = sz
+        if sz < min_cache_bytes:
+            continue
+        whitelisted, wl_note = check_path_whitelisted(p, wl_index)
+        slug = re.sub(r"[^a-z0-9]+", "-", p.name.lower()).strip("-")[:32]
+        candidates.append(
+            {
+                "id": f"cache-{slug}",
+                "domain": "mac",
+                "category": "system_cache",
+                "action_type": "cleanup",
+                "tier": "A",
+                "title": f"可安全清理的全局工具缓存：{p.name}",
+                "path": str(p),
+                "size_bytes": sz,
+                "size_truncated": trunc,
+                "latest_mtime": latest_mtime,
+                "gauge_id": "mac-data",
+                "whitelisted": whitelisted,
+                "whitelist_note": wl_note,
+                "evidence": (
+                    f"全局构建/包管理器纯缓存目录 {p}（{sz / (1024**2):.1f} MiB），"
+                    "清理后不影响日常软件配置与登录状态，后续按需自动重建。"
+                ),
+            }
+        )
     return candidates, dir_sizes
+
+
+DEFAULT_LAUNCH_AGENT_ROOTS = (
+    "~/Library/LaunchAgents",
+    "/Library/LaunchAgents",
+    "/Library/LaunchDaemons",
+)
+
+SYSTEM_BINARY_PREFIXES = (
+    "/System/",
+    "/usr/libexec/",
+    "/usr/sbin/",
+    "/usr/bin/",
+    "/bin/",
+    "/sbin/",
+)
+
+
+def _extract_launch_executable(plist_data: dict[str, Any]) -> str:
+    prog = plist_data.get("Program")
+    if isinstance(prog, str) and prog.strip():
+        return prog.strip()
+    args = plist_data.get("ProgramArguments")
+    if isinstance(args, list) and args and isinstance(args[0], str) and args[0].strip():
+        return args[0].strip()
+    return ""
+
+
+def _query_launchctl_exit_codes(config: dict[str, Any]) -> dict[str, int]:
+    fixtures = config.get("probe_fixtures", {})
+    if isinstance(fixtures, dict) and isinstance(fixtures.get("launchctl_status"), dict):
+        out_fix: dict[str, int] = {}
+        for k, v in fixtures["launchctl_status"].items():
+            if isinstance(v, int):
+                out_fix[str(k)] = int(v)
+            elif isinstance(v, dict) and isinstance(v.get("exit_code"), int):
+                out_fix[str(k)] = int(v["exit_code"])
+        return out_fix
+    if not is_host_scan_config(config):
+        return {}
+    try:
+        proc = subprocess.run(
+            ["/bin/launchctl", "list"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if proc.returncode != 0:
+            return {}
+        out: dict[str, int] = {}
+        for line in proc.stdout.splitlines()[1:]:
+            parts = line.split("\t")
+            if len(parts) == 3:
+                _, status_str, label = parts
+                try:
+                    code = int(status_str.strip())
+                    out[label.strip()] = code
+                except ValueError:
+                    pass
+        return out
+    except Exception:
+        return {}
+
+
+def scan_launch_items(
+    config: dict[str, Any],
+    wl_index: dict[str, Any],
+    installed: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Scan macOS LaunchAgents/LaunchDaemons for broken executables, uninstalled orphan apps, or crash loops."""
+    if "launch_agent_roots" in config:
+        raw_roots = config.get("launch_agent_roots", [])
+    elif is_host_scan_config(config):
+        raw_roots = list(DEFAULT_LAUNCH_AGENT_ROOTS)
+    else:
+        raw_roots = []
+
+    if not raw_roots:
+        return []
+
+    if installed is None:
+        installed = collect_installed_apps(config.get("app_roots", ["/Applications", "~/Applications"]))
+    exit_codes = _query_launchctl_exit_codes(config)
+    candidates: list[dict[str, Any]] = []
+
+    for raw_root in raw_roots:
+        root = expand_path(raw_root)
+        if not root.is_dir():
+            continue
+        try:
+            plists = sorted(root.glob("*.plist"), key=lambda p: p.name.lower())
+        except OSError:
+            continue
+
+        for plist_path in plists:
+            if plist_path.is_symlink() or not plist_path.is_file():
+                continue
+            data = _read_plist_safe(plist_path)
+            if not data:
+                continue
+            label = str(data.get("Label") or plist_path.stem).strip()
+            if label.lower().startswith("com.apple."):
+                continue
+
+            exe_raw = _extract_launch_executable(data)
+            exe_path = expand_path(exe_raw) if exe_raw.startswith(("~", "/")) else None
+            whitelisted, wl_note = check_path_whitelisted(plist_path, wl_index)
+            if not whitelisted and normalize_token(label) in wl_index["app_tokens"]:
+                whitelisted = True
+                wl_note = f"Protected by whitelist.app_names ({label})"
+
+            slug = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")[:36]
+            try:
+                mtime = int(plist_path.stat().st_mtime)
+            except OSError:
+                mtime = 0
+
+            # 1. Broken executable: points to a non-existent binary on disk
+            if exe_path is not None and not any(str(exe_path).startswith(p) for p in SYSTEM_BINARY_PREFIXES):
+                if not exe_path.exists():
+                    candidates.append(
+                        {
+                            "id": f"launch-broken-{slug}",
+                            "domain": "mac",
+                            "category": "launch_item",
+                            "action_type": "cleanup",
+                            "tier": "B",
+                            "title": f"无用启动项（目标程序已不存在）：{label}",
+                            "path": str(plist_path),
+                            "size_bytes": 0,
+                            "size_truncated": False,
+                            "latest_mtime": mtime,
+                            "metric_badge": "失效启动项",
+                            "gauge_id": "mac-data",
+                            "whitelisted": whitelisted,
+                            "whitelist_note": wl_note,
+                            "evidence": (
+                                f"启动项配置 {plist_path} 指向的可执行文件 `{exe_raw}` 已不存在，"
+                                "通常是软件卸载后遗留的无效开机自启项，可安全卸载并移入隔离区。"
+                            ),
+                        }
+                    )
+                    continue
+
+            # 2. Orphan launch item: points inside an uninstalled .app or unmatched third-party bundle
+            is_in_shared_prefix = exe_raw.startswith(
+                ("/opt/homebrew/", "/usr/local/", "/System/", "/usr/", "/bin/", "/sbin/")
+            )
+            matched_app = is_entry_matched_to_installed_app(label, installed)
+            if not matched_app and exe_path is not None and ".app/" in str(exe_path):
+                app_part = str(exe_path).split(".app/", 1)[0] + ".app"
+                if Path(app_part).exists():
+                    matched_app = True
+
+            if not matched_app and not is_in_shared_prefix:
+                candidates.append(
+                    {
+                        "id": f"launch-orphan-{slug}",
+                        "domain": "mac",
+                        "category": "launch_item",
+                        "action_type": "cleanup",
+                        "tier": "C",
+                        "title": f"疑似孤儿启动项（未匹配已装应用）：{label}",
+                        "path": str(plist_path),
+                        "size_bytes": 0,
+                        "size_truncated": False,
+                        "latest_mtime": mtime,
+                        "metric_badge": "孤儿启动项",
+                        "gauge_id": "mac-data",
+                        "whitelisted": whitelisted,
+                        "whitelist_note": wl_note,
+                        "evidence": (
+                            f"启动项 {plist_path}（可执行路径 `{exe_raw or '未声明'}`）未匹配到任何已安装应用，"
+                            "请确认对应软件是否已停用；若已不用可取消加载并移入隔离区。"
+                        ),
+                    }
+                )
+                continue
+
+            # 3. Crash loop / non-zero exit code in launchctl list
+            exit_code = exit_codes.get(label)
+            if exit_code is not None and exit_code != 0:
+                candidates.append(
+                    {
+                        "id": f"launch-crash-{slug}",
+                        "domain": "mac",
+                        "category": "launch_item",
+                        "action_type": "optimize",
+                        "tier": "B",
+                        "title": f"后台启动项异常退出（退出码 {exit_code}）：{label}",
+                        "path": str(plist_path),
+                        "size_bytes": 0,
+                        "size_truncated": False,
+                        "latest_mtime": mtime,
+                        "metric_badge": f"退出码 {exit_code}",
+                        "gauge_id": "mac-data",
+                        "whitelisted": whitelisted,
+                        "whitelist_note": wl_note,
+                        "evidence": (
+                            f"`launchctl list` 显示启动项 {label} 最近一次退出码为 {exit_code}（可执行路径 `{exe_raw}`），"
+                            "可能在后台反复重启报错，建议检查日志或禁用该自启服务。"
+                        ),
+                    }
+                )
+
+    return candidates
+
+
+def _should_run_system_probes(config: dict[str, Any], cli_override: bool | None = None) -> bool:
+    if cli_override is not None:
+        return cli_override
+    if "system_probes" in config:
+        val = config["system_probes"]
+        return bool(val) if not isinstance(val, dict) else any(bool(v) for v in val.values())
+    return is_host_scan_config(config)
+
+
+def scan_app_updates(
+    config: dict[str, Any],
+    wl_index: dict[str, Any],
+    app_inventory: list[dict[str, Any]],
+    run_probes: bool = False,
+) -> list[dict[str, Any]]:
+    """Check installed macOS apps for available updates via Homebrew Cask, App Store (mas), or fixtures."""
+    fixtures = config.get("probe_fixtures", {})
+    outdated_records: list[dict[str, Any]] = []
+
+    if isinstance(fixtures, dict) and isinstance(fixtures.get("app_updates"), list):
+        outdated_records.extend(fixtures["app_updates"])
+    elif run_probes:
+        brew = shutil.which("brew")
+        if brew:
+            try:
+                env = {**os.environ, "HOMEBREW_NO_AUTO_UPDATE": "1"}
+                proc = subprocess.run(
+                    [brew, "outdated", "--cask", "--json=v2"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    env=env,
+                    check=False,
+                )
+                if proc.returncode == 0 and proc.stdout.strip():
+                    data = json.loads(proc.stdout)
+                    for cask in data.get("casks", []):
+                        inst = cask.get("installed_versions")
+                        cur_ver = inst[0] if isinstance(inst, list) and inst else str(inst or "")
+                        latest_ver = str(cask.get("current_version") or "")
+                        token = str(cask.get("name") or "")
+                        if token and latest_ver and cur_ver != latest_ver:
+                            outdated_records.append(
+                                {
+                                    "name": token,
+                                    "current_version": cur_ver,
+                                    "latest_version": latest_ver,
+                                    "source": "Homebrew Cask",
+                                    "command": f"brew upgrade --cask {token}",
+                                }
+                            )
+            except Exception:
+                pass
+
+        mas = shutil.which("mas")
+        if mas:
+            try:
+                proc = subprocess.run(
+                    [mas, "outdated"],
+                    capture_output=True,
+                    text=True,
+                    timeout=12,
+                    check=False,
+                )
+                if proc.returncode == 0 and proc.stdout.strip():
+                    for line in proc.stdout.splitlines():
+                        m = re.match(r"^\s*(\d+)\s+(.+?)\s+\(([^()]+?)\s*->\s*([^()]+?)\)\s*$", line)
+                        if m:
+                            app_id, name, cur_v, new_v = m.groups()
+                            outdated_records.append(
+                                {
+                                    "name": name.strip(),
+                                    "current_version": cur_v.strip(),
+                                    "latest_version": new_v.strip(),
+                                    "source": "Mac App Store",
+                                    "command": f"mas upgrade {app_id}",
+                                }
+                            )
+            except Exception:
+                pass
+
+    inv_by_norm: dict[str, dict[str, Any]] = {}
+    for app in app_inventory:
+        for tok in (normalize_token(app["name"]), normalize_token(Path(app["path"]).stem), normalize_token(app["bundle_id"])):
+            if tok:
+                inv_by_norm[tok] = app
+
+    candidates: list[dict[str, Any]] = []
+    for rec in outdated_records:
+        raw_name = str(rec.get("name") or "").strip()
+        cur_ver = str(rec.get("current_version") or "未知").strip()
+        latest_ver = str(rec.get("latest_version") or "").strip()
+        source = str(rec.get("source") or "官方更新源").strip()
+        cmd_hint = str(rec.get("command") or "官方更新器").strip()
+        if not raw_name or not latest_ver:
+            continue
+
+        norm_key = normalize_token(raw_name)
+        matched_app = inv_by_norm.get(norm_key)
+        app_path = str(rec.get("path") or (matched_app["path"] if matched_app else f"/Applications/{raw_name}.app"))
+        display_name = matched_app["name"] if matched_app else raw_name
+        if matched_app:
+            matched_app["has_update"] = True
+            matched_app["latest_version"] = latest_ver
+            matched_app["update_source"] = source
+
+        whitelisted = normalize_token(display_name) in wl_index["app_tokens"]
+        wl_note = f"Protected by whitelist.app_names ({display_name})" if whitelisted else ""
+        slug = re.sub(r"[^a-z0-9]+", "-", norm_key).strip("-")[:32]
+
+        candidates.append(
+            {
+                "id": f"app-update-{slug}",
+                "domain": "mac",
+                "category": "app_update",
+                "action_type": "update",
+                "tier": "B",
+                "title": f"应用版本更新：{display_name} ({cur_ver} → {latest_ver})",
+                "path": app_path,
+                "size_bytes": 0,
+                "size_truncated": False,
+                "latest_mtime": 0,
+                "metric_badge": f"{cur_ver} → {latest_ver}",
+                "gauge_id": "mac-data",
+                "whitelisted": whitelisted,
+                "whitelist_note": wl_note,
+                "evidence": (
+                    f"检测到应用 {display_name} 存在可用更新：当前版本 {cur_ver} → 最新版本 {latest_ver}（来源：{source}）。"
+                    f"建议在确认应用未处于关键任务时执行 `{cmd_hint}` 升级。"
+                ),
+            }
+        )
+
+    return candidates
+
+
+def scan_env_and_dependencies(
+    config: dict[str, Any],
+    wl_index: dict[str, Any],
+    run_probes: bool = False,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Scan macOS developer environments, CLI formulae, and global language dependencies for outdated versions."""
+    fixtures = config.get("probe_fixtures", {})
+    env_groups: list[dict[str, Any]] = []
+
+    if isinstance(fixtures, dict) and isinstance(fixtures.get("env_updates"), list):
+        env_groups.extend(fixtures["env_updates"])
+    elif run_probes:
+        brew = shutil.which("brew")
+        if brew:
+            try:
+                env = {**os.environ, "HOMEBREW_NO_AUTO_UPDATE": "1"}
+                proc = subprocess.run(
+                    [brew, "outdated", "--formula", "--json=v2"],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    env=env,
+                    check=False,
+                )
+                if proc.returncode == 0 and proc.stdout.strip():
+                    data = json.loads(proc.stdout)
+                    pkgs = []
+                    for f in data.get("formulae", []):
+                        if f.get("pinned"):
+                            continue
+                        inst = f.get("installed_versions")
+                        cur_v = inst[0] if isinstance(inst, list) and inst else str(inst or "")
+                        new_v = str(f.get("current_version") or "")
+                        if f.get("name") and new_v and cur_v != new_v:
+                            pkgs.append({"name": f["name"], "current": cur_v, "latest": new_v})
+                    if pkgs:
+                        env_groups.append(
+                            {
+                                "id": "brew-formula",
+                                "manager": "Homebrew Formulae",
+                                "command": "brew upgrade --formula",
+                                "packages": pkgs,
+                            }
+                        )
+            except Exception:
+                pass
+
+        npm = shutil.which("npm")
+        if npm:
+            try:
+                proc = subprocess.run(
+                    [npm, "outdated", "-g", "--json"],
+                    capture_output=True,
+                    text=True,
+                    timeout=12,
+                    check=False,
+                )
+                if proc.stdout.strip():
+                    data = json.loads(proc.stdout)
+                    if isinstance(data, dict) and data:
+                        pkgs = [
+                            {
+                                "name": k,
+                                "current": str(v.get("current") or "未知"),
+                                "latest": str(v.get("latest") or v.get("wanted") or ""),
+                            }
+                            for k, v in data.items()
+                            if isinstance(v, dict) and v.get("current") != v.get("latest")
+                        ]
+                        if pkgs:
+                            env_groups.append(
+                                {
+                                    "id": "npm-global",
+                                    "manager": "Node.js 全局依赖 (npm -g)",
+                                    "command": "npm update -g",
+                                    "packages": pkgs,
+                                }
+                            )
+            except Exception:
+                pass
+
+        rustup = shutil.which("rustup")
+        if rustup:
+            try:
+                proc = subprocess.run(
+                    [rustup, "check"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+                if proc.returncode == 0 and "Update available" in proc.stdout:
+                    pkgs = []
+                    for line in proc.stdout.splitlines():
+                        if "Update available" in line:
+                            name = line.split("-", 1)[0].strip()
+                            ver_part = line.split("Update available", 1)[-1].lstrip(" :").strip()
+                            pkgs.append({"name": name, "current": "已安装", "latest": ver_part})
+                    if pkgs:
+                        env_groups.append(
+                            {
+                                "id": "rustup",
+                                "manager": "Rust 工具链 (rustup)",
+                                "command": "rustup update",
+                                "packages": pkgs,
+                            }
+                        )
+            except Exception:
+                pass
+
+    candidates: list[dict[str, Any]] = []
+    for grp in env_groups:
+        gid = re.sub(
+            r"[^a-z0-9]+",
+            "-",
+            str(grp.get("id") or grp.get("manager") or grp.get("ecosystem") or "env").lower(),
+        ).strip("-")
+        manager = str(grp.get("manager") or grp.get("ecosystem") or gid)
+        cmd = str(grp.get("command") or "")
+        pkgs = grp.get("packages", [])
+        if not isinstance(pkgs, list) or not pkgs:
+            continue
+        preview_list = [
+            f"{p.get('name', '?')} ({p.get('current', '?')} → {p.get('latest', '?')})"
+            if isinstance(p, dict)
+            else str(p)
+            for p in pkgs[:8]
+        ]
+        more_suffix = f" 等共 {len(pkgs)} 项" if len(pkgs) > 8 else ""
+        candidates.append(
+            {
+                "id": f"env-update-{gid}",
+                "domain": "mac",
+                "category": "env_update",
+                "action_type": "update",
+                "tier": "B",
+                "title": f"环境与依赖更新：{manager}（{len(pkgs)} 项可升级）",
+                "path": cmd or manager,
+                "size_bytes": 0,
+                "size_truncated": False,
+                "latest_mtime": 0,
+                "metric_badge": f"{len(pkgs)} 项可更新",
+                "gauge_id": "mac-data",
+                "whitelisted": False,
+                "whitelist_note": "",
+                "evidence": (
+                    f"{manager} 检测到可更新组件：{', '.join(preview_list)}{more_suffix}。"
+                    f"建议核对大版本兼容性后执行 `{cmd}` 升级。"
+                ),
+            }
+        )
+
+    return env_groups, candidates
+
+
+def _walk_usb_nodes(
+    nodes: list[dict[str, Any]],
+    out_drives: list[dict[str, Any]],
+    out_docks: list[dict[str, Any]],
+    out_inputs: list[dict[str, Any]],
+) -> None:
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        name = str(node.get("_name") or "").strip()
+        vendor = str(node.get("manufacturer") or node.get("vendor_id") or "").strip()
+        fw = str(node.get("bcd_device") or node.get("firmware_version") or node.get("device_revision") or "").strip()
+        speed = str(node.get("link_speed") or node.get("speed") or "").strip()
+        lname = name.lower()
+
+        if node.get("Media") or any(k in lname for k in ("ssd", "nvme", "portable", "flash", "storage", "card reader")):
+            out_drives.append(
+                {
+                    "name": name or "USB Storage",
+                    "kind": "sd_card" if "card" in lname else "external_drive",
+                    "vendor": vendor,
+                    "firmware_version": fw or "未报告",
+                    "smart_status": "Verified",
+                    "link_speed": speed,
+                    "transport": "USB",
+                }
+            )
+        elif any(k in lname for k in ("hub", "dock", "thunderbolt", "caldigit", "anker", "belkin", "ugreen", "benq", "ivanky")):
+            out_docks.append(
+                {
+                    "name": name,
+                    "vendor": vendor,
+                    "firmware_version": fw or "未报告",
+                    "link_speed": speed,
+                    "transport": "USB/Hub",
+                }
+            )
+        elif any(k in lname for k in ("mouse", "keyboard", "trackpad", "receiver", "keychron", "logi", "razer", "nuphy", "hhkb")):
+            out_inputs.append(
+                {
+                    "name": name,
+                    "kind": "mouse" if "mouse" in lname else ("keyboard" if "key" in lname else "peripheral"),
+                    "vendor": vendor,
+                    "firmware_version": fw or "未报告",
+                    "battery_pct": None,
+                    "transport": "USB",
+                }
+            )
+
+        for child_key in ("_items", "items"):
+            children = node.get(child_key)
+            if isinstance(children, list):
+                _walk_usb_nodes(children, out_drives, out_docks, out_inputs)
+
+
+def scan_peripherals_and_firmware(
+    config: dict[str, Any],
+    wl_index: dict[str, Any],
+    run_probes: bool = False,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Inspect connected disks, SD cards, docks/hubs, mice, and keyboards for firmware, link speed, SMART, and battery health."""
+    fixtures = config.get("probe_fixtures", {})
+    peripherals: dict[str, Any] = {
+        "storage_devices": [],
+        "docks_and_hubs": [],
+        "input_devices": [],
+    }
+
+    if isinstance(fixtures, dict) and isinstance(fixtures.get("peripherals"), dict):
+        fp = fixtures["peripherals"]
+        peripherals["storage_devices"] = list(fp.get("storage_devices", []))
+        peripherals["docks_and_hubs"] = list(fp.get("docks_and_hubs", []))
+        peripherals["input_devices"] = list(fp.get("input_devices", []))
+    elif run_probes and shutil.which("system_profiler"):
+        try:
+            proc = subprocess.run(
+                [
+                    "/usr/sbin/system_profiler",
+                    "SPNVMeDataType",
+                    "SPUSBHostDataType",
+                    "SPThunderboltDataType",
+                    "SPBluetoothDataType",
+                    "SPCardReaderDataType",
+                    "-detailLevel",
+                    "mini",
+                    "-json",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                sp = json.loads(proc.stdout)
+                for ctrl in sp.get("SPNVMeDataType", []):
+                    for item in ctrl.get("_items", []):
+                        peripherals["storage_devices"].append(
+                            {
+                                "name": str(item.get("_name") or item.get("device_model") or "NVMe SSD"),
+                                "kind": "nvme_ssd",
+                                "vendor": "Apple/NVMe",
+                                "model": str(item.get("device_model") or ""),
+                                "firmware_version": str(item.get("device_revision") or "未知"),
+                                "smart_status": str(item.get("smart_status") or "Verified"),
+                                "link_speed": str(item.get("spnvme_linkspeed") or ""),
+                                "transport": "NVMe",
+                            }
+                        )
+                for cr in sp.get("SPCardReaderDataType", []):
+                    for item in cr.get("_items", []):
+                        peripherals["storage_devices"].append(
+                            {
+                                "name": str(item.get("_name") or "SD Card"),
+                                "kind": "sd_card",
+                                "vendor": str(item.get("spcardreader_vendor_id") or ""),
+                                "firmware_version": str(item.get("spcardreader_revision_id") or "未知"),
+                                "smart_status": "Verified",
+                                "link_speed": "",
+                                "transport": "SD Card Reader",
+                            }
+                        )
+                for tb in sp.get("SPThunderboltDataType", []):
+                    for dev in tb.get("_items", []):
+                        name = str(dev.get("_name") or "").strip()
+                        if name and "bus" not in name.lower():
+                            peripherals["docks_and_hubs"].append(
+                                {
+                                    "name": name,
+                                    "vendor": str(dev.get("vendor_name_key") or ""),
+                                    "firmware_version": str(dev.get("firmware_version") or dev.get("switch_version_key") or "未知"),
+                                    "link_speed": str(dev.get("receptacle_1_tag", {}).get("current_speed_key") or ""),
+                                    "transport": "Thunderbolt",
+                                }
+                            )
+                _walk_usb_nodes(
+                    sp.get("SPUSBHostDataType", []),
+                    peripherals["storage_devices"],
+                    peripherals["docks_and_hubs"],
+                    peripherals["input_devices"],
+                )
+                for bt in sp.get("SPBluetoothDataType", []):
+                    connected = bt.get("device_connected", [])
+                    if isinstance(connected, list):
+                        for entry in connected:
+                            if not isinstance(entry, dict):
+                                continue
+                            for dev_name, dev_info in entry.items():
+                                if not isinstance(dev_info, dict):
+                                    continue
+                                minor = str(dev_info.get("device_minorType") or "").lower()
+                                bat_raw = str(dev_info.get("device_batteryLevelMain") or dev_info.get("device_batteryPercent") or "").rstrip("%")
+                                bat_pct = int(bat_raw) if bat_raw.isdigit() else None
+                                peripherals["input_devices"].append(
+                                    {
+                                        "name": dev_name,
+                                        "kind": minor or "bluetooth_device",
+                                        "vendor": str(dev_info.get("device_vendorID") or ""),
+                                        "firmware_version": str(dev_info.get("device_firmwareVersion") or "未知"),
+                                        "battery_pct": bat_pct,
+                                        "transport": "Bluetooth",
+                                    }
+                                )
+        except Exception:
+            pass
+
+    candidates: list[dict[str, Any]] = []
+    fw_summary_parts: list[str] = []
+
+    for drv in peripherals["storage_devices"]:
+        name = str(drv.get("name") or "存储设备")
+        fw = str(drv.get("firmware_version") or "未知")
+        smart = str(drv.get("smart_status") or "Verified")
+        speed = str(drv.get("link_speed") or "")
+        slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:32]
+        fw_summary_parts.append(f"{name} (固件 {fw})")
+
+        if smart and smart.lower() not in ("verified", "ok", "not supported"):
+            candidates.append(
+                {
+                    "id": f"hw-smart-{slug}",
+                    "domain": "mac",
+                    "category": "peripheral_firmware",
+                    "action_type": "optimize",
+                    "tier": "C",
+                    "title": f"磁盘/存储 SMART 健康异常预警：{name} ({smart})",
+                    "path": name,
+                    "size_bytes": 0,
+                    "size_truncated": False,
+                    "latest_mtime": 0,
+                    "metric_badge": f"SMART: {smart}",
+                    "gauge_id": "mac-data",
+                    "whitelisted": False,
+                    "whitelist_note": "",
+                    "evidence": f"存储设备 {name}（固件版本 {fw}）报告 SMART 状态为 `{smart}`，请立即核实备份并检查硬件健康度。",
+                }
+            )
+        if "480 mb" in speed.lower() and drv.get("kind") == "external_drive":
+            candidates.append(
+                {
+                    "id": f"hw-speed-{slug}",
+                    "domain": "mac",
+                    "category": "peripheral_firmware",
+                    "action_type": "optimize",
+                    "tier": "B",
+                    "title": f"外置存储握手速率降级提醒：{name} ({speed})",
+                    "path": name,
+                    "size_bytes": 0,
+                    "size_truncated": False,
+                    "latest_mtime": 0,
+                    "metric_badge": speed,
+                    "gauge_id": "mac-data",
+                    "whitelisted": False,
+                    "whitelist_note": "",
+                    "evidence": (
+                        f"外置存储 {name}（固件 {fw}）当前协商速率仅为 `{speed}`（疑似回落至 USB 2.0），"
+                        "建议检查连接线材、扩展坞端口或设备固件。"
+                    ),
+                }
+            )
+        if drv.get("update_available") or drv.get("latest_firmware"):
+            latest_fw = str(drv.get("latest_firmware") or "新版可升")
+            candidates.append(
+                {
+                    "id": f"hw-fw-{slug}",
+                    "domain": "mac",
+                    "category": "peripheral_firmware",
+                    "action_type": "update",
+                    "tier": "B",
+                    "title": f"存储固件更新可用：{name} ({fw} → {latest_fw})",
+                    "path": name,
+                    "size_bytes": 0,
+                    "size_truncated": False,
+                    "latest_mtime": 0,
+                    "metric_badge": f"{fw} → {latest_fw}",
+                    "gauge_id": "mac-data",
+                    "whitelisted": False,
+                    "whitelist_note": "",
+                    "evidence": f"存储设备 {name} 存在可匹配的官方固件更新（当前 {fw} → 目标 {latest_fw}）。",
+                }
+            )
+
+    for dock in peripherals["docks_and_hubs"]:
+        name = str(dock.get("name") or "扩展坞")
+        fw = str(dock.get("firmware_version") or "未知")
+        slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:32]
+        fw_summary_parts.append(f"{name} (固件 {fw})")
+        if dock.get("update_available") or dock.get("latest_firmware"):
+            latest_fw = str(dock.get("latest_firmware") or "新版可升")
+            candidates.append(
+                {
+                    "id": f"hw-fw-{slug}",
+                    "domain": "mac",
+                    "category": "peripheral_firmware",
+                    "action_type": "update",
+                    "tier": "B",
+                    "title": f"扩展坞固件更新可用：{name} ({fw} → {latest_fw})",
+                    "path": name,
+                    "size_bytes": 0,
+                    "size_truncated": False,
+                    "latest_mtime": 0,
+                    "metric_badge": f"{fw} → {latest_fw}",
+                    "gauge_id": "mac-data",
+                    "whitelisted": False,
+                    "whitelist_note": "",
+                    "evidence": f"扩展坞/集线器 {name} 检测到可用固件更新（当前 {fw} → 目标 {latest_fw}）。",
+                }
+            )
+
+    for inp in peripherals["input_devices"]:
+        name = str(inp.get("name") or "外设")
+        fw = str(inp.get("firmware_version") or "未知")
+        bat = inp.get("battery_pct")
+        slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:32]
+        fw_summary_parts.append(f"{name} (固件 {fw}" + (f", 电量 {bat}%" if bat is not None else "") + ")")
+
+        if isinstance(bat, int) and bat <= 20:
+            candidates.append(
+                {
+                    "id": f"hw-battery-{slug}",
+                    "domain": "mac",
+                    "category": "peripheral_firmware",
+                    "action_type": "optimize",
+                    "tier": "B",
+                    "title": f"无线键鼠/外设低电量提醒：{name}（剩余 {bat}%）",
+                    "path": name,
+                    "size_bytes": 0,
+                    "size_truncated": False,
+                    "latest_mtime": 0,
+                    "metric_badge": f"电量 {bat}%",
+                    "gauge_id": "mac-data",
+                    "whitelisted": False,
+                    "whitelist_note": "",
+                    "evidence": f"外设 {name}（连接方式：{inp.get('transport', 'Bluetooth')}，固件 {fw}）当前电量为 {bat}%，建议及时充电。",
+                }
+            )
+        if inp.get("update_available") or inp.get("latest_firmware"):
+            latest_fw = str(inp.get("latest_firmware") or "新版可升")
+            candidates.append(
+                {
+                    "id": f"hw-fw-{slug}",
+                    "domain": "mac",
+                    "category": "peripheral_firmware",
+                    "action_type": "update",
+                    "tier": "B",
+                    "title": f"键鼠外设固件更新可用：{name} ({fw} → {latest_fw})",
+                    "path": name,
+                    "size_bytes": 0,
+                    "size_truncated": False,
+                    "latest_mtime": 0,
+                    "metric_badge": f"{fw} → {latest_fw}",
+                    "gauge_id": "mac-data",
+                    "whitelisted": False,
+                    "whitelist_note": "",
+                    "evidence": f"外设 {name} 检测到官方固件更新（当前 {fw} → 目标 {latest_fw}），可通过厂商官方驱动工具升级。",
+                }
+            )
+
+    if fw_summary_parts and not candidates:
+        candidates.append(
+            {
+                "id": "hw-firmware-inventory",
+                "domain": "mac",
+                "category": "peripheral_firmware",
+                "action_type": "update",
+                "tier": "B",
+                "default_checked": False,
+                "title": f"已连接硬盘、扩展坞与键鼠固件核对（共 {len(fw_summary_parts)} 台设备）",
+                "path": "system_profiler",
+                "size_bytes": 0,
+                "size_truncated": False,
+                "latest_mtime": 0,
+                "metric_badge": f"{len(fw_summary_parts)} 台设备",
+                "gauge_id": "mac-data",
+                "whitelisted": False,
+                "whitelist_note": "",
+                "evidence": "当前在线存储与外设固件清单：" + "；".join(fw_summary_parts[:10]) + "。勾选后由代理核对各型号官方最新固件发布说明。",
+            }
+        )
+
+    return peripherals, candidates
 
 
 def iter_git_repos(workspace_roots: list[str], max_depth: int = 3) -> list[Path]:
@@ -656,13 +1877,44 @@ def write_secure_json(path: Path, payload: dict[str, Any], overwrite: bool = Fal
 def cmd_scan_local(args: argparse.Namespace) -> int:
     config = load_topology(args.config)
     wl_index = build_whitelist_index(config)
+    app_roots = config.get("app_roots", ["/Applications", "~/Applications"])
+    installed = collect_installed_apps(app_roots)
+    cli_probe_override = False if getattr(args, "skip_probes", False) else None
+    run_probes = _should_run_system_probes(config, cli_override=cli_probe_override)
 
     gauges = collect_storage_gauges(config)
-    orphan_candidates, orphan_sizes = scan_app_orphans(config, wl_index)
+    orphan_candidates, orphan_sizes = scan_app_orphans(config, wl_index, installed=installed)
+    app_inventory, uninstall_candidates, app_sizes = scan_apps_inventory_and_uninstall(
+        config, wl_index, installed=installed
+    )
+    cache_candidates, cache_sizes = scan_global_caches(config, wl_index)
+    launch_candidates = scan_launch_items(config, wl_index, installed=installed)
+    app_update_candidates = scan_app_updates(config, wl_index, app_inventory, run_probes=run_probes)
+    env_groups, env_update_candidates = scan_env_and_dependencies(config, wl_index, run_probes=run_probes)
+    peripherals, hw_candidates = scan_peripherals_and_firmware(config, wl_index, run_probes=run_probes)
     ws_candidates, ws_sizes = scan_workspaces_and_backups(config, wl_index)
 
-    all_candidates = orphan_candidates + ws_candidates
-    all_sizes = {**orphan_sizes, **ws_sizes}
+    all_candidates = (
+        orphan_candidates
+        + uninstall_candidates
+        + cache_candidates
+        + launch_candidates
+        + app_update_candidates
+        + env_update_candidates
+        + hw_candidates
+        + ws_candidates
+    )
+    all_sizes = {**orphan_sizes, **app_sizes, **cache_sizes, **ws_sizes}
+
+    freq_apps = [a for a in app_inventory if a.get("usage_status") == "frequent"]
+    infreq_apps = [a for a in app_inventory if a.get("usage_status") == "infrequent"]
+    app_inventory_summary = {
+        "total_apps": len(app_inventory),
+        "frequent_count": len(freq_apps),
+        "infrequent_count": len(infreq_apps),
+        "total_bytes": sum(int(a.get("total_bytes", 0)) for a in app_inventory),
+        "apps": app_inventory,
+    }
 
     snapshot = {
         "schema": SCHEMA_VERSION,
@@ -670,6 +1922,9 @@ def cmd_scan_local(args: argparse.Namespace) -> int:
         "config_path": str(Path(args.config).resolve()),
         "storage_gauges": gauges,
         "candidates": all_candidates,
+        "app_inventory": app_inventory_summary,
+        "environments": env_groups,
+        "peripherals": peripherals,
         "directory_sizes": all_sizes,
     }
 
@@ -898,7 +2153,26 @@ def is_remote_or_non_fs_spec(raw_path: str, item: dict[str, Any]) -> bool:
         return True
     if not s.startswith(("/", "~", ".")) and ":" in s:
         return True
+    if not s.startswith(("/", "~", ".")):
+        return True
     return False
+
+
+def resolve_item_paths(item: dict[str, Any], cli_uninstall_mode: str | None = None) -> tuple[list[str], str | None]:
+    """Resolve target paths for a candidate item, honoring keep_data / purge_all uninstall modes when present."""
+    modes = item.get("uninstall_modes")
+    if isinstance(modes, dict) and modes:
+        raw_mode = cli_uninstall_mode or item.get("selected_uninstall_mode") or "purge_all"
+        norm_mode = str(raw_mode).strip().lower().replace("-", "_")
+        if norm_mode not in modes:
+            norm_mode = "purge_all" if "purge_all" in modes else next(iter(modes.keys()))
+        mode_obj = modes.get(norm_mode, {})
+        if isinstance(mode_obj, dict) and isinstance(mode_obj.get("paths"), list) and mode_obj["paths"]:
+            return [str(p) for p in mode_obj["paths"]], norm_mode
+    if isinstance(item.get("paths"), list) and item.get("paths"):
+        return [str(p) for p in item["paths"]], None
+    p = str(item.get("path") or "").strip()
+    return ([p] if p else []), None
 
 
 def evaluate_single_target(
@@ -1020,14 +2294,18 @@ def resolve_quarantine_root(config: dict[str, Any], explicit_dir: str | None = N
     if explicit_dir:
         return expand_path(explicit_dir)
     q_cfg = config.get("quarantine", {})
-    candidates = q_cfg.get(
-        "root_dirs",
-        [
-            "/Volumes/Sora2T/.Cleanup_Quarantine",
-            "/Volumes/Sora4T/.Cleanup_Quarantine",
-            "~/.Cleanup_Quarantine",
-        ],
-    )
+    candidates = q_cfg.get("root_dirs") if isinstance(q_cfg, dict) else None
+    if not isinstance(candidates, list) or not candidates:
+        candidates = []
+        volumes_dir = Path("/Volumes")
+        if volumes_dir.is_dir():
+            try:
+                for vol in sorted(volumes_dir.iterdir()):
+                    if vol.is_dir() and not vol.is_symlink() and vol.name not in ("Macintosh HD", "Macintosh HD - Data", "Recovery", "Preboot", "VM", "Update"):
+                        candidates.append(str(vol / ".Cleanup_Quarantine"))
+            except OSError:
+                pass
+        candidates.append("~/.Cleanup_Quarantine")
     for raw in candidates:
         p = expand_path(raw)
         if str(p).startswith("/Volumes/"):
@@ -1069,6 +2347,7 @@ def cmd_quarantine(args: argparse.Namespace) -> int:
     selected_ids = (
         {x.strip() for x in args.ids.split(",") if x.strip()} if args.ids else None
     )
+    cli_uninstall_mode = getattr(args, "uninstall_mode", None)
 
     q_root = resolve_quarantine_root(config, args.quarantine_dir)
     batch_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
@@ -1082,7 +2361,7 @@ def cmd_quarantine(args: argparse.Namespace) -> int:
         item_id = item.get("id", "unknown")
         if selected_ids is not None and item_id not in selected_ids:
             continue
-        paths_to_check = item.get("paths") if isinstance(item.get("paths"), list) and item.get("paths") else [item.get("path", "")]
+        paths_to_check, active_mode = resolve_item_paths(item, cli_uninstall_mode=cli_uninstall_mode)
         for raw_p in paths_to_check:
             res = evaluate_single_target(
                 str(raw_p),
@@ -1107,15 +2386,16 @@ def cmd_quarantine(args: argparse.Namespace) -> int:
                 dst_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(src_path), str(dst_path))
 
-            staged_items.append(
-                {
-                    "id": item_id,
-                    "original_path": str(src_path),
-                    "quarantine_path": str(dst_path),
-                    "size_bytes": size_bytes,
-                    "staged_at": utc_now_iso(),
-                }
-            )
+            staged_entry: dict[str, Any] = {
+                "id": item_id,
+                "original_path": str(src_path),
+                "quarantine_path": str(dst_path),
+                "size_bytes": size_bytes,
+                "staged_at": utc_now_iso(),
+            }
+            if active_mode:
+                staged_entry["uninstall_mode"] = active_mode
+            staged_items.append(staged_entry)
 
     restore_script_path = batch_dir / "restore.sh"
     manifest_path = batch_dir / "manifest.json"
@@ -1185,6 +2465,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
     selected_ids = (
         {x.strip() for x in args.ids.split(",") if x.strip()} if args.ids else None
     )
+    cli_uninstall_mode = getattr(args, "uninstall_mode", None)
 
     results: list[dict[str, Any]] = []
     blocked_count = 0
@@ -1194,8 +2475,8 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         if selected_ids is not None and item_id not in selected_ids:
             continue
 
-        raw_paths = item.get("paths")
-        if isinstance(raw_paths, list) and len(raw_paths) > 0:
+        resolved_paths, active_mode = resolve_item_paths(item, cli_uninstall_mode=cli_uninstall_mode)
+        if len(resolved_paths) > 1 or active_mode is not None or (isinstance(item.get("paths"), list) and item.get("paths")):
             sub_results = [
                 evaluate_single_target(
                     str(p),
@@ -1207,54 +2488,57 @@ def cmd_preflight(args: argparse.Namespace) -> int:
                     worktree_cutoff_ts=wt_cutoff_ts,
                     worktree_protect_minutes=worktree_protect_minutes,
                 )
-                for p in raw_paths
+                for p in resolved_paths
             ]
             safe_paths = [r["path"] for r in sub_results if r["status"] == "SAFE_TO_EXECUTE"]
             blocked_subs = [r for r in sub_results if r["status"].startswith("BLOCKED_")]
             if blocked_subs:
                 blocked_count += 1
                 first_blocked = blocked_subs[0]
-                results.append(
-                    {
-                        "id": item_id,
-                        "path": str(item.get("path") or first_blocked["path"]),
-                        "status": first_blocked["status"],
-                        "reason": (
-                            f"{len(blocked_subs)}/{len(sub_results)} sub-targets blocked "
-                            f"(first: {first_blocked['path']} -> {first_blocked['reason']})"
-                        ),
-                        "safe_paths": safe_paths,
-                        "blocked_paths": [r["path"] for r in blocked_subs],
-                        "sub_results": sub_results,
-                    }
-                )
+                entry_res: dict[str, Any] = {
+                    "id": item_id,
+                    "path": str(item.get("path") or first_blocked["path"]),
+                    "status": first_blocked["status"],
+                    "reason": (
+                        f"{len(blocked_subs)}/{len(sub_results)} sub-targets blocked "
+                        f"(first: {first_blocked['path']} -> {first_blocked['reason']})"        
+                    ),
+                    "safe_paths": safe_paths,
+                    "blocked_paths": [r["path"] for r in blocked_subs],
+                    "sub_results": sub_results,
+                }
+                if active_mode:
+                    entry_res["uninstall_mode"] = active_mode
+                results.append(entry_res)
             elif all(r["status"] == "MISSING_ALREADY_DONE" for r in sub_results):
-                results.append(
-                    {
-                        "id": item_id,
-                        "path": str(item.get("path") or sub_results[0]["path"]),
-                        "status": "MISSING_ALREADY_DONE",
-                        "reason": "All sub-target paths no longer exist.",
-                        "safe_paths": [],
-                        "blocked_paths": [],
-                        "sub_results": sub_results,
-                    }
-                )
+                entry_res = {
+                    "id": item_id,
+                    "path": str(item.get("path") or (sub_results[0]["path"] if sub_results else "")),
+                    "status": "MISSING_ALREADY_DONE",
+                    "reason": "All sub-target paths no longer exist.",
+                    "safe_paths": [],
+                    "blocked_paths": [],
+                    "sub_results": sub_results,
+                }
+                if active_mode:
+                    entry_res["uninstall_mode"] = active_mode
+                results.append(entry_res)
             else:
-                results.append(
-                    {
-                        "id": item_id,
-                        "path": str(item.get("path") or sub_results[0]["path"]),
-                        "status": "SAFE_TO_EXECUTE",
-                        "reason": f"All {len(safe_paths)} present sub-targets passed preflight checks.",
-                        "safe_paths": safe_paths,
-                        "blocked_paths": [],
-                        "sub_results": sub_results,
-                    }
-                )
+                entry_res = {
+                    "id": item_id,
+                    "path": str(item.get("path") or (sub_results[0]["path"] if sub_results else "")),
+                    "status": "SAFE_TO_EXECUTE",
+                    "reason": f"All {len(safe_paths)} present sub-targets passed preflight checks.",
+                    "safe_paths": safe_paths,
+                    "blocked_paths": [],
+                    "sub_results": sub_results,
+                }
+                if active_mode:
+                    entry_res["uninstall_mode"] = active_mode
+                results.append(entry_res)
             continue
 
-        raw_path = str(item.get("path") or "")
+        raw_path = resolved_paths[0] if resolved_paths else str(item.get("path") or "")
         single = evaluate_single_target(
             raw_path,
             item,
@@ -1299,8 +2583,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
-    p_scan = sub.add_parser("scan-local", help="Run read-only local scan for orphans, .git bloat, and backup drift.")
+    p_scan = sub.add_parser(
+        "scan-local",
+        help="Run read-only local scan for orphans, app uninstaller, caches, launch items, updates, peripherals, and .git bloat.",
+    )
     p_scan.add_argument("--config", required=True, help="Path to topology.json or topology.local.json")
+    p_scan.add_argument("--skip-probes", action="store_true", help="Skip live CLI probes (brew/npm/rustup/system_profiler)")
     p_scan.add_argument("--output", help="Write JSON snapshot to path (0600 permissions)")
     p_scan.add_argument("--overwrite", action="store_true", help="Overwrite output file if it exists")
 
@@ -1314,6 +2602,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_pre.add_argument("--config", required=True, help="Path to topology.json or topology.local.json")
     p_pre.add_argument("--targets", required=True, help="Path to snapshot or targets JSON")
     p_pre.add_argument("--ids", help="Comma-separated candidate IDs to check (default: all)")
+    p_pre.add_argument(
+        "--uninstall-mode",
+        choices=["purge-all", "keep-data", "purge_all", "keep_data"],
+        default=None,
+        help="Override uninstall mode for app_uninstall targets (purge-all or keep-data)",
+    )
     p_pre.add_argument("--recent-minutes", type=float, default=None, help="Override recent activity window in minutes")
     p_pre.add_argument("--skip-lsof", action="store_true", help="Skip lsof invocation (for fast fixture tests)")
     p_pre.add_argument("--output", help="Write preflight JSON to path")
@@ -1321,11 +2615,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_quar = sub.add_parser(
         "quarantine",
-        help="Stage idle project/worktree/artifact targets into external/local Quarantine with manifest.json + restore.sh.",
+        help="Stage idle project/worktree/artifact/uninstall targets into external/local Quarantine with manifest.json + restore.sh.",
     )
     p_quar.add_argument("--config", required=True, help="Path to topology.json or topology.local.json")
     p_quar.add_argument("--targets", required=True, help="Path to snapshot or targets JSON")
     p_quar.add_argument("--ids", help="Comma-separated candidate IDs to quarantine (default: all)")
+    p_quar.add_argument(
+        "--uninstall-mode",
+        choices=["purge-all", "keep-data", "purge_all", "keep_data"],
+        default=None,
+        help="Override uninstall mode for app_uninstall targets (purge-all or keep-data)",
+    )
     p_quar.add_argument("--quarantine-dir", help="Explicit quarantine root directory")
     p_quar.add_argument("--recent-minutes", type=float, default=None, help="Override recent activity window in minutes")
     p_quar.add_argument("--skip-lsof", action="store_true", help="Skip lsof invocation")

@@ -540,6 +540,305 @@ class FullStackMaintenanceTests(unittest.TestCase):
         subprocess.run(["bash", str(restore_sh)], check=True)
         self.assertTrue((idle_proj / "result.json").is_file())
 
+    def test_mac_extended_inspections_and_dual_mode_uninstall(self) -> None:
+        now_ts = time.time()
+        old_app_ts = now_ts - (120 * 86400)  # 120 days ago (unused)
+        recent_app_ts = now_ts - (5 * 86400)  # 5 days ago (frequently used)
+        safe_old_mtime = now_ts - 10800  # 3 hours ago (safe for preflight)
+
+        apps_dir = self.root / "Applications"
+        lib_root = self.root / "Library"
+        lib_support = lib_root / "Application Support"
+        lib_caches = lib_root / "Caches"
+        lib_containers = lib_root / "Containers"
+        lib_saved_state = lib_root / "Saved Application State"
+        launch_agents = lib_root / "LaunchAgents"
+        global_cache = self.root / "GlobalCaches" / "DerivedData"
+
+        # 1. Frequently used app: DailyCoder.app (should appear in app_inventory as frequent, NOT in app_uninstall)
+        daily_app = apps_dir / "DailyCoder.app"
+        self._write_plist(
+            daily_app / "Contents" / "Info.plist",
+            {"CFBundleIdentifier": "com.example.DailyCoder", "CFBundleName": "DailyCoder"},
+        )
+        (daily_app / "Contents" / "MacOS").mkdir(parents=True, exist_ok=True)
+        (daily_app / "Contents" / "MacOS" / "bin").write_bytes(b"d" * (2 * 1024 * 1024))
+        os.utime(daily_app, (recent_app_ts, recent_app_ts))
+
+        # 2. Unused app: OldHeavyGame.app (120 days unused, has app bundle + user data + cache)
+        unused_app = apps_dir / "OldHeavyGame.app"
+        self._write_plist(
+            unused_app / "Contents" / "Info.plist",
+            {"CFBundleIdentifier": "com. studio.OldHeavyGame".replace(" ", ""), "CFBundleName": "OldHeavyGame"},
+        )
+        (unused_app / "Contents" / "MacOS").mkdir(parents=True, exist_ok=True)
+        app_bin = unused_app / "Contents" / "MacOS" / "game"
+        app_bin.write_bytes(b"g" * (2 * 1024 * 1024))
+
+        game_data = lib_support / "com.studio.OldHeavyGame"
+        game_data.mkdir(parents=True)
+        save_file = game_data / "savegame.dat"
+        save_file.write_bytes(b"s" * (1 * 1024 * 1024))
+
+        game_cache = lib_caches / "com.studio.OldHeavyGame"
+        game_cache.mkdir(parents=True)
+        shader_file = game_cache / "shaders.bin"
+        shader_file.write_bytes(b"c" * (1 * 1024 * 1024))
+
+        game_state = lib_saved_state / "com.studio.OldHeavyGame.savedState"
+        game_state.mkdir(parents=True)
+        state_file = game_state / "windows.plist"
+        state_file.write_bytes(b"w" * (512 * 1024))
+
+        for p in [unused_app, app_bin, game_data, save_file, game_cache, shader_file, game_state, state_file]:
+            os.utime(p, (old_app_ts, old_app_ts), follow_symlinks=False)
+        os.utime(unused_app / "Contents" / "Info.plist", (old_app_ts, old_app_ts))
+        os.utime(unused_app / "Contents" / "MacOS", (old_app_ts, old_app_ts))
+        os.utime(unused_app / "Contents", (old_app_ts, old_app_ts))
+        os.utime(unused_app, (old_app_ts, old_app_ts))
+
+        # 3. Uninstalled app leftovers scattered across multiple Library dirs (should group into 1 multi-path app_orphan)
+        orphan_sup = lib_support / "com.ghost.RemovedSuite"
+        orphan_sup.mkdir(parents=True)
+        (orphan_sup / "db.sqlite").write_bytes(b"1" * (1 * 1024 * 1024))
+        orphan_cache = lib_caches / "com.ghost.RemovedSuite"
+        orphan_cache.mkdir(parents=True)
+        (orphan_cache / "thumb.cache").write_bytes(b"2" * (1 * 1024 * 1024))
+        orphan_cont = lib_containers / "com.ghost.RemovedSuite"
+        orphan_cont.mkdir(parents=True)
+        (orphan_cont / "container.bin").write_bytes(b"3" * (1 * 1024 * 1024))
+
+        # 4. Broken LaunchAgents (missing binary + crash loop)
+        self._write_plist(
+            launch_agents / "com.ghost.RemovedSuite.agent.plist",
+            {
+                "Label": "com.ghost.RemovedSuite.agent",
+                "ProgramArguments": ["/Applications/RemovedSuite.app/Contents/MacOS/helper", "--daemon"],
+            },
+        )
+        # Crash loop agent belonging to installed DailyCoder app so it reaches check #3 (crash loop)
+        valid_exec = daily_app / "Contents" / "MacOS" / "bin"
+        self._write_plist(
+            launch_agents / "com.example.DailyCoder.helper.plist",
+            {
+                "Label": "com.example.DailyCoder.helper",
+                "Program": str(valid_exec),
+            },
+        )
+
+        # 5. Reproducible global pure cache
+        global_cache.mkdir(parents=True)
+        (global_cache / "index.noindex").write_bytes(b"x" * (2 * 1024 * 1024))
+
+        config_path = self.root / "topology_ext.json"
+        config_data = {
+            "version": 1,
+            "workspace_roots": [],
+            "worktree_hubs": [],
+            "app_roots": [str(apps_dir)],
+            "library_roots": [
+                str(lib_support),
+                str(lib_caches),
+                str(lib_containers),
+                str(lib_saved_state),
+            ],
+            "launch_agent_roots": [str(launch_agents)],
+            "global_cache_roots": [str(global_cache)],
+            "thresholds": {
+                "min_orphan_mb": 1,
+                "min_app_size_mb": 1,
+                "unused_app_days": 90,
+                "min_cache_mb": 1,
+                "recent_activity_minutes": 60,
+            },
+            "storage_gauges": [
+                {
+                    "id": "mac-data",
+                    "label": "Mac Data",
+                    "mount_path": str(self.root),
+                    "warn_used_pct": 85.0,
+                }
+            ],
+            "probe_fixtures": {
+                "launchctl_status": {"com.example.DailyCoder.helper": {"pid": None, "exit_code": 78}},
+                "app_updates": [
+                    {
+                        "name": "Raycast",
+                        "token": "raycast",
+                        "current_version": "1.80.0",
+                        "latest_version": "1.84.2",
+                        "source": "Homebrew Cask",
+                        "command": "brew upgrade --cask raycast",
+                    }
+                ],
+                "env_updates": [
+                    {
+                        "ecosystem": "Homebrew Formulae",
+                        "count": 2,
+                        "packages": ["ripgrep (14.0 -> 14.1)", "fd (9.0 -> 10.2)"],
+                        "command": "brew upgrade",
+                    }
+                ],
+                "peripherals": {
+                    "storage_devices": [
+                        {
+                            "name": "External NVMe Media",
+                            "kind": "external_drive",
+                            "vendor": "Samsung",
+                            "firmware_version": "SVT01B6Q",
+                            "smart_status": "Failing",
+                            "link_speed": "Up to 480 Mb/s",
+                            "transport": "USB",
+                        }
+                    ],
+                    "docks_and_hubs": [
+                        {
+                            "name": "CalDigit TS4 Dock",
+                            "vendor": "CalDigit",
+                            "firmware_version": "39.1",
+                            "latest_firmware": "43.1",
+                            "update_available": True,
+                            "link_speed": "40 Gb/s",
+                            "transport": "Thunderbolt",
+                        }
+                    ],
+                    "input_devices": [
+                        {
+                            "name": "MX Master 3S",
+                            "kind": "mouse",
+                            "vendor": "Logitech",
+                            "firmware_version": "22.01.0015",
+                            "battery_pct": 15,
+                            "transport": "Bluetooth",
+                        }
+                    ],
+                },
+            },
+            "whitelist": {"paths": [], "repos": [], "app_names": [], "guest_ids": [], "notes": {}},
+        }
+        config_path.write_text(json.dumps(config_data), encoding="utf-8")
+
+        snap_out = self.root / "snapshot_ext.json"
+        rc = full_stack_tool.main(["scan-local", "--config", str(config_path), "--output", str(snap_out)])
+        self.assertEqual(rc, 0)
+
+        snap = json.loads(snap_out.read_text(encoding="utf-8"))
+        by_id = {c["id"]: c for c in snap["candidates"]}
+
+        # Verify app_inventory summary
+        inv = snap["app_inventory"]
+        self.assertEqual(inv["total_apps"], 2)
+        self.assertEqual(inv["frequent_count"], 1)
+        self.assertEqual(inv["infrequent_count"], 1)
+
+        # Verify multi-directory app_orphan grouping
+        self.assertIn("orphan-com-ghost-removedsuite", by_id)
+        orphan_cand = by_id["orphan-com-ghost-removedsuite"]
+        self.assertEqual(len(orphan_cand["paths"]), 3)
+
+        # Verify dual-mode app_uninstall candidate
+        self.assertIn("app-uninstall-com-studio-oldheavygame", by_id)
+        uninst_cand = by_id["app-uninstall-com-studio-oldheavygame"]
+        modes = uninst_cand["uninstall_modes"]
+        self.assertIn("purge_all", modes)
+        self.assertIn("keep_data", modes)
+        self.assertGreater(modes["purge_all"]["size_bytes"], modes["keep_data"]["size_bytes"])
+        self.assertIn(str(game_data.resolve()), modes["purge_all"]["paths"])
+        self.assertNotIn(str(game_data.resolve()), modes["keep_data"]["paths"])
+        self.assertIn(str(game_cache.resolve()), modes["keep_data"]["paths"])
+        self.assertIn(str(game_state.resolve()), modes["keep_data"]["paths"])
+
+        # Verify launch_item, system_cache, app_update, env_update, peripheral_firmware
+        self.assertIn("launch-broken-com-ghost-removedsuite-agent", by_id)
+        self.assertIn("launch-crash-com-example-dailycoder-helper", by_id)
+        self.assertTrue(any(c["category"] == "system_cache" for c in snap["candidates"]))
+        self.assertIn("app-update-raycast", by_id)
+        self.assertIn("env-update-homebrew-formulae", by_id)
+        self.assertIn("hw-smart-external-nvme-media", by_id)
+        self.assertIn("hw-speed-external-nvme-media", by_id)
+        self.assertIn("hw-fw-caldigit-ts4-dock", by_id)
+        self.assertIn("hw-battery-mx-master-3s", by_id)
+
+        # Render dashboard HTML and verify dual-mode UI & category labels
+        html_out = self.root / "dashboard_ext.html"
+        self.assertEqual(render_dashboard.main(["--input", str(snap_out), "--output", str(html_out)]), 0)
+        html_str = html_out.read_text(encoding="utf-8")
+        self.assertIn("uninstall-mode-box", html_str)
+        self.assertIn("setUninstallMode", html_str)
+        self.assertIn("保留用户数据", html_str)
+        self.assertIn("一键全部删除", html_str)
+
+        # Test quarantine in keep-data mode: should stage .app + cache + savedState, but keep Application Support data!
+        q_dir = self.root / "quarantine_keep_data"
+        q_manifest_path = self.root / "q_keep_data.json"
+        rc_q = full_stack_tool.main(
+            [
+                "quarantine",
+                "--config",
+                str(config_path),
+                "--targets",
+                str(snap_out),
+                "--ids",
+                "app-uninstall-com-studio-oldheavygame",
+                "--uninstall-mode",
+                "keep-data",
+                "--quarantine-dir",
+                str(q_dir),
+                "--skip-lsof",
+                "--output",
+                str(q_manifest_path),
+            ]
+        )
+        self.assertEqual(rc_q, 0)
+        q_manifest = json.loads(q_manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual(q_manifest["staged_count"], 3)
+        self.assertFalse(unused_app.exists())
+        self.assertFalse(game_cache.exists())
+        self.assertFalse(game_state.exists())
+        # User data in Application Support MUST still exist!
+        self.assertTrue(save_file.is_file())
+
+        # Restore via restore.sh and verify .app and caches come back
+        subprocess.run(["bash", str(q_manifest["restore_script"])], check=True)
+        self.assertTrue(app_bin.is_file())
+        self.assertTrue(shader_file.is_file())
+        self.assertTrue(state_file.is_file())
+
+        # Reset mtimes back to old_app_ts after restore so preflight sees them as idle, then test purge-all mode
+        for root_p in [unused_app, game_data, game_cache, game_state]:
+            for dirpath, dirnames, filenames in os.walk(root_p):
+                for n in dirnames + filenames:
+                    os.utime(Path(dirpath) / n, (old_app_ts, old_app_ts), follow_symlinks=False)
+            os.utime(root_p, (old_app_ts, old_app_ts))
+
+        q_dir_purge = self.root / "quarantine_purge_all"
+        q_purge_path = self.root / "q_purge_all.json"
+        rc_q2 = full_stack_tool.main(
+            [
+                "quarantine",
+                "--config",
+                str(config_path),
+                "--targets",
+                str(snap_out),
+                "--ids",
+                "app-uninstall-com-studio-oldheavygame",
+                "--uninstall-mode",
+                "purge-all",
+                "--quarantine-dir",
+                str(q_dir_purge),
+                "--skip-lsof",
+                "--output",
+                str(q_purge_path),
+            ]
+        )
+        self.assertEqual(rc_q2, 0)
+        q_purge = json.loads(q_purge_path.read_text(encoding="utf-8"))
+        self.assertEqual(q_purge["staged_count"], 4)
+        self.assertFalse(unused_app.exists())
+        self.assertFalse(game_data.exists())
+        self.assertFalse(game_cache.exists())
+        self.assertFalse(game_state.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

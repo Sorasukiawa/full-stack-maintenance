@@ -33,11 +33,11 @@
 - 🍎 **macOS 应用式布局** — 毛玻璃侧栏配「系统设置」风格的彩色图标块、加粗大标题、内嵌分组列表和悬浮玻璃操作栏；默认跟随系统浅色／深色外观，也可以手动切换「自动／浅色／深色」。
 - 🎯 **存储圆环总览（样式参考 Apple 健康活动圆环）** — 一条圆头粗环：灰色是清理后已用，沿弧绿青渐变（带柔和圆头阴影）是本次勾选将释放的空间，蓝色是悬停项的占比，圆心显示可释放的大小，右侧配四格容量数据。上方一排存储卷小圆环可切换单盘或全部存储卷，右侧的药丸形分段「空间构成」条展示磁盘被什么占满。
 - 🪀 **带轻回弹的弹簧动效** — 圆环、数字、分段控件滑块、侧栏选中块、行展开和导出面板全部由可打断的弹簧驱动，参数采用 Apple 的「阻尼比 + 响应时间」；CSS 过渡使用预先算好的弹簧曲线（`linear()`）。会遵循系统的「减少动态效果」「降低透明度」「增强对比度」设置。
-- 🎛️ **勾选工作台** — 按领域分页、按风险等级（A／B／C）分组，可按动作类型（空间清理／结构整理／性能优化／版本更新）筛选；顶部药丸形水位条实时显示勾选对所在存储卷的影响，底部操作栏提供快速选择。
+- 🎛️ **勾选工作台与 APP 双模式卸载** — 按领域分页、按风险等级（A／B／C）分组，可按动作类型（空间清理／结构整理／性能优化／版本更新）筛选；久未使用 APP 支持在卡片内直接切换「**一键全部删除（含残留）**」或「**保留用户数据（仅删 App 与缓存）**」；顶部药丸形水位条实时显示勾选对所在存储卷的影响。
 - 📈 **距上次巡检基线变化** — 自动对比上一次快照（`diff`），标出各存储卷涨跌与增长最快的 Top 目录。
-- ✏️ **沙箱兼容 `localStorage` 记忆 + 单项微调备注** — 刷新页面不丢勾选和备注（在禁用 `localStorage` 的沙箱 `iframe` 预览中自动安全降级）。
+- ✏️ **沙箱兼容 `localStorage` 记忆 + 单项微调备注** — 刷新页面不丢勾选、卸载模式和备注（在禁用 `localStorage` 的沙箱 `iframe` 预览中自动安全降级）。
 - 🛡️ **持久化豁免白名单** — 在任意建议的详情里点「加入白名单」即可移入白名单页，并随导出指令写回本地 `config/topology.local.json`。
-- 📋 **一键导出执行指令** — 把勾选的 ID、单项微调备注和新增白名单打包成结构化 Markdown 指令，直接粘贴回 AI 对话框。
+- 📋 **一键导出执行指令** — 把勾选的 ID、所选卸载模式（`--uninstall-mode`）、单项微调备注和新增白名单打包成结构化 Markdown 指令，直接粘贴回 AI 对话框。
 
 ---
 
@@ -53,17 +53,17 @@ flowchart LR
     end
 
     subgraph S2["2. 快照采集与基线对比"]
-        SCAN["full_stack_tool.py scan-local\n孤儿残留 · .git 膨胀 · 备份穿透"]
+        SCAN["full_stack_tool.py scan-local\nAPP 盘点 · 深度残留 · 启动项 · 固件 · 缓存"]
         DIFF["full_stack_tool.py diff\n存储水位涨跌 & Top 增长路径"]
     end
 
     subgraph S3["3. 可视化交互审批"]
-        HTML["render_dashboard.py\n单文件 HTML 水位看板\n勾选 + 微调备注 + 白名单"]
+        HTML["render_dashboard.py\n单文件 HTML 水位看板\n勾选 + 双模式卸载 + 备注 + 白名单"]
     end
 
     subgraph S4["4. 并发复核与物理释放"]
-        PRE["full_stack_tool.py preflight\nlsof · mtime < 60m · 白名单拦截"]
-        EXEC["分域执行 + 物理空间回收\ntmutil · pct fstrim · #recycle"]
+        PRE["full_stack_tool.py preflight\nlsof · 活跃整树豁免 · 白名单拦截"]
+        EXEC["分域执行 + 外置盘隔离区 + 物理回收\nquarantine · tmutil · pct fstrim"]
     end
 
     S1 --> SCAN --> DIFF --> HTML --> PRE --> EXEC
@@ -75,7 +75,7 @@ flowchart LR
 
 | 巡检领域 | 联动复用的单域技能 / 工具 | `full-stack-maintenance` 补充的跨层能力 |
 | :--- | :--- | :--- |
-| **💻 Mac 与备份管线** | [`mac-maintenance`](https://github.com/Sorasukiawa/mac-maintenance) | 将 `~/Library/{Application Support,Caches,Containers}` 与已安装 `/Applications` 的 `Info.plist` 做**孤儿残留交叉比对**；检测**备份脚本漏排穿透**；回收 APFS 本地快照锁死空间 |
+| **💻 Mac、应用与外设** | [`mac-maintenance`](https://github.com/Sorasukiawa/mac-maintenance) | **全量 APP 常用/不常用与体积盘点及双模式卸载**（保留用户数据 vs 一键全删含残留）；跨 8 类 `~/Library` 目录的**深度卸载残留扫描与同源聚合**；**无用启动项检查**；**全部 APP 与开发依赖环境更新检查**；**外设与存储固件/健康度检查**（硬盘/SD 卡/扩展坞/键鼠）；**全局纯缓存扫描**；检测**备份脚本漏排穿透**与回收 APFS 快照 |
 | **📂 本地多仓库与 AI** | [`repo-cleanup`](https://github.com/Sorasukiawa/repo-cleanup) · [`codex-maintenance`](https://github.com/Sorasukiawa/codex-maintenance) | 跨工作区批量扫描 `.git/objects/pack` 膨胀、汇总多宿主 Worktree（`.claude/worktrees`、`.worktrees`、Orca、Codex），并检查 `AGENTS.md` 合入前检查声明 |
 | **🐙 GitHub 全账号远端** | `gh repo list` · `gh run list` | 全量盘点公开/私有仓库、清理 `checkpoints/*` 等陈旧分支、甄别 CI 失败真因（偶发竞态 vs 真实报错）、识别可归档仓库 |
 | **🏠 NAS 与家庭服务器** | 只读 SSH 与挂载卷探针 | 检查 Proxmox `/boot/efi` 旧内核水位、`local-lvm` 未挂载孤儿盘与演练克隆机、LXC `pct fstrim`、Docker 构建缓存与容器健康度，以及 NAS SMB `#recycle` 二次截留 |

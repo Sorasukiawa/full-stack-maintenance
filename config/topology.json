@@ -9,10 +9,31 @@
   "library_roots": [
     "~/Library/Application Support",
     "~/Library/Caches",
-    "~/Library/Containers"
+    "~/Library/Containers",
+    "~/Library/Group Containers",
+    "~/Library/Saved Application State",
+    "~/Library/Logs",
+    "~/Library/HTTPStorages",
+    "~/Library/WebKit"
+  ],
+  "launch_agent_roots": [
+    "~/Library/LaunchAgents",
+    "/Library/LaunchAgents",
+    "/Library/LaunchDaemons"
+  ],
+  "global_cache_roots": [
+    "~/Library/Developer/Xcode/DerivedData",
+    "~/Library/Caches/Homebrew",
+    "~/.npm/_cacache",
+    "~/.cache/uv",
+    "~/.cache/pip",
+    "~/Library/Caches/ms-playwright"
   ],
   "thresholds": {
     "min_orphan_mb": 50,
+    "min_app_size_mb": 50,
+    "unused_app_days": 90,
+    "min_cache_mb": 200,
     "min_git_pack_mb": 100,
     "min_build_artifact_mb": 100,
     "recent_activity_minutes": 60,
@@ -20,8 +41,7 @@
   },
   "quarantine": {
     "root_dirs": [
-      "/Volumes/Sora2T/.Cleanup_Quarantine",
-      "/Volumes/Sora4T/.Cleanup_Quarantine",
+      "/Volumes/ExternalSSD/.Cleanup_Quarantine",
       "~/.Cleanup_Quarantine"
     ],
     "retention_days": 7

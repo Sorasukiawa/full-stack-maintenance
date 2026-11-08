@@ -2,6 +2,15 @@
 
 版本号写在 `SKILL.md` 的 `metadata.version` 和 `.claude-plugin/plugin.json` 的 `version`，与本文件最上面的条目保持一致（`tests/check-skill.sh` 会自动检查）。
 
+## 1.3.0 — 2026-11-07
+
+- **Mac 全量 APP 体积/常用度统计与双模式智能卸载（`app_uninstall` + `app_inventory`）**：扫描 `/Applications` 与 `~/Applications`，结合 Spotlight `kMDItemLastUsedDate` 区分常用 APP 与久未使用 APP（默认 `>= 90` 天未用且 `>= 50 MiB`），分别统计 `.app` 本体体积（`app_bytes`）、用户数据体积（`data_bytes`）与缓存体积（`cache_bytes`）。在交互看板与 `preflight` / `quarantine` CLI 中支持「**一键全部删除（`purge_all`，含卸载残留）**」与「**保留用户数据（`keep_data`，仅删 App 本体与缓存）**」双模式实时切换与隔离暂存。
+- **跨 8 类 Library 目录的深度卸载残留扫描与同源聚合（`app_orphan` 升级）**：将卸载残留排查范围扩展至 `Application Support`、`Caches`、`Containers`、`Group Containers`、`Saved Application State`、`Logs`、`HTTPStorages`、`WebKit`，自动剔除 UUID/Group 前缀与容器后缀，将同一已卸载应用散落在多处的残留目录合并为单张多路径（`paths`）候选卡片。
+- **无用 Mac 启动项检查（`launch_item`）**：扫描 `~/Library/LaunchAgents`、`/Library/LaunchAgents`、`/Library/LaunchDaemons`，自动识别可执行文件缺失（`broken_executable`）、所属父应用已卸载（`orphan_app`）以及 `launchctl list` 非零退出码崩溃循环（`crash_loop`）的启动项。
+- **Mac 全部 APP 更新与全栈开发依赖更新检查（`app_update` & `env_update`）**：整合 Homebrew Cask（`brew outdated --cask`）、Mac App Store（`mas outdated`）、Homebrew Formulae（`brew outdated --formula`）、全局 `npm` 包（`npm outdated -g`）与 `rustup` 工具链更新检查，并支持 `--skip-probes` 与 `probe_fixtures` 离线确定性测试。
+- **外设与存储固件及健康度检查（`peripheral_firmware`）**：盘点内置/外置硬盘（NVMe/USB 存储固件版本与 SMART 健康状态）、SD 卡读卡器、雷电/USB 扩展坞（自动检测高速外设降速到 USB 2.0 `480 Mb/s`）与蓝牙/USB 键鼠（固件版本与 `<= 20%` 低电量提醒）。
+- **全局可重建纯缓存检查（`system_cache`）**：扫描 `Xcode/DerivedData`、`Caches/Homebrew`、`~/.npm/_cacache`、`~/.cache/uv`、`~/.cache/pip`、`Caches/ms-playwright` 等大体积纯缓存（默认 `>= 200 MiB`），严格避开日常应用热缓存与登录态。
+
 ## 1.2.7 — 2026-11-06
 
 - **SwiftUI `.contentTransition(.numericText())` 还原度升级与 KPI 单位防跳动**：逐位数字翻转采用单列 CSS Grid 原地叠放与字符基线锚点缩放（`transform-origin: 50% 82%` / `50% 18%`），配合退场位水平宽度弹簧坍缩、左对齐 KPI 尾部对齐（`padEnd`）与 `.nt-slot` `min-width: 0` 约束，消除右侧单位（`GiB` / `TiB`）在位数增减时的水平跳动。
