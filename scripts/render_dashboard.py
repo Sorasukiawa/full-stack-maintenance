@@ -556,7 +556,13 @@ button.cell:active { background: var(--fill); transform: scale(0.996); }
 .row-detail { grid-column: 2; overflow: hidden; will-change: height; }
 .row-detail-inner { padding: 2px 16px 16px 40px; transform-origin: top center; will-change: opacity, transform; }
 .evidence { margin: 0 0 10px; max-width: 82ch; font-size: 13.5px; line-height: 1.6; color: var(--label-2); }
+.path-line { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .path-line code { display: inline-block; max-width: 100%; padding: 3px 8px; border-radius: 6px; background: var(--fill-2); font: 12px/1.5 var(--font-mono); color: var(--label-2); word-break: break-all; }
+.uninstall-mode-box { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; }
+.uninstall-mode-box .um-label { font-size: 12px; font-weight: 600; color: var(--label-2); }
+.uninstall-mode-box .um-seg { display: inline-flex; gap: 4px; padding: 3px; border-radius: 9px; background: var(--fill); }
+.uninstall-mode-box .um-btn { height: 26px; padding: 0 11px; border-radius: 7px; font-size: 12.5px; font-weight: 540; color: var(--label-2); transition: background 0.16s, color 0.16s, box-shadow 0.16s; }
+.uninstall-mode-box .um-btn.active { background: var(--seg-thumb); color: var(--label); font-weight: 620; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14); }
 .note-field { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; font-size: 12px; font-weight: 600; color: var(--label-2); }
 .note-field input { padding: 8px 11px; border-radius: 9px; border: 0.5px solid var(--separator); background: var(--field); font-size: 13.5px; font-weight: 400; color: var(--label); transition: box-shadow 0.18s, border-color 0.18s; }
 .note-field input:focus { border-color: var(--blue); box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--blue) 30%, transparent); }
@@ -1351,7 +1357,12 @@ function loadState() {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === "object") {
-        return { checked: parsed.checked || {}, notes: parsed.notes || {}, whitelisted: parsed.whitelisted || {} };
+        return {
+          checked: parsed.checked || {},
+          notes: parsed.notes || {},
+          whitelisted: parsed.whitelisted || {},
+          uninstallModes: parsed.uninstallModes || {}
+        };
       }
     }
   } catch (e) {}
@@ -1361,7 +1372,7 @@ function loadState() {
     if (c.whitelisted) whitelisted[c.id] = true;
     else if (c.default_checked != null ? c.default_checked : c.tier === "A") checked[c.id] = true;
   });
-  return { checked, notes: {}, whitelisted };
+  return { checked, notes: {}, whitelisted, uninstallModes: {} };
 }
 
 let state = loadState();
@@ -1451,6 +1462,19 @@ const ACTION_META = {
   optimize: { label: "性能优化", icon: "bolt", tint: "orange", rank: 2 },
   update: { label: "版本更新", icon: "arrowDown", tint: "purple", rank: 1 }
 };
+const CATEGORY_LABELS = {
+  app_orphan: "卸载残留清理",
+  app_uninstall: "不常用应用卸载",
+  system_cache: "全局工具纯缓存",
+  launch_item: "开机启动项检查",
+  app_update: "应用版本更新",
+  env_update: "开发环境与依赖",
+  peripheral_firmware: "外设与存储固件",
+  build_artifact: "可重建构建产物",
+  git_bloat: "Git 仓库膨胀",
+  governance_drift: "工程规则缺失",
+  backup_exclusion_drift: "备份排除漏排"
+};
 const TIER_META = {
   A: { label: "A 级", desc: "可安全重建", cls: "tier-a" },
   B: { label: "B 级", desc: "建议整理", cls: "tier-b" },
@@ -1463,7 +1487,34 @@ CANDS.forEach(c => { candById[c.id] = c; });
 const gaugeById = {};
 GAUGES.forEach(g => { gaugeById[g.id] = g; });
 
-function sizeOf(c) { return Math.max(0, Number(c.size_bytes) || 0); }
+function uninstallModeOf(c) {
+  if (!c || !c.uninstall_modes) return null;
+  const saved = state.uninstallModes && state.uninstallModes[c.id];
+  if (saved && c.uninstall_modes[saved]) return saved;
+  if (c.selected_uninstall_mode && c.uninstall_modes[c.selected_uninstall_mode]) return c.selected_uninstall_mode;
+  return "purge_all";
+}
+function sizeOf(c) {
+  if (c && c.uninstall_modes) {
+    const mode = uninstallModeOf(c);
+    const mObj = mode && c.uninstall_modes[mode];
+    if (mObj && mObj.size_bytes != null) return Math.max(0, Number(mObj.size_bytes) || 0);
+  }
+  return Math.max(0, Number(c.size_bytes) || 0);
+}
+function activePathsOf(c) {
+  if (c && c.uninstall_modes) {
+    const mode = uninstallModeOf(c);
+    const mObj = mode && c.uninstall_modes[mode];
+    if (mObj && Array.isArray(mObj.paths) && mObj.paths.length) return mObj.paths;
+  }
+  if (c && Array.isArray(c.paths) && c.paths.length) return c.paths;
+  return c && c.path ? [c.path] : [];
+}
+function categoryLabel(c) {
+  if (!c) return "";
+  return CATEGORY_LABELS[c.category] || c.category || ACTION_META[inferActionType(c)].label;
+}
 function isWl(c) { return Boolean(state.whitelisted[c.id]); }
 function isDone(c) { return c.status === "done"; }
 function isChecked(c) { return !isWl(c) && !isDone(c) && Boolean(state.checked[c.id]); }
@@ -1471,11 +1522,13 @@ function tierOf(c) { return TIER_META[c.tier] ? c.tier : "B"; }
 
 function inferActionType(c) {
   if (c.action_type && ACTION_META[c.action_type]) return c.action_type;
+  if (c.category === "app_update" || c.category === "env_update") return "update";
+  if (c.category === "app_uninstall" || c.category === "app_orphan" || c.category === "system_cache") return "cleanup";
   const text = `${c.id || ""} ${c.title || ""} ${c.category || ""}`.toLowerCase();
   const has = words => words.some(w => text.includes(w));
-  if (has(["更新", "升级", "outdated", "upgrade", "rustup"])) return "update";
-  if (has(["优化", "压缩", "pack", "fstrim", "规则", "drift", "修复", "ci_failure"])) return "optimize";
-  if (has(["整理", "归档", "合入", "推送", "纳管", "规范", "软链", "governance", "unpushed", "unlinked"])) return "organize";
+  if (has(["更新", "升级", "outdated", "upgrade", "rustup", "firmware"])) return "update";
+  if (has(["优化", "压缩", "pack", "fstrim", "规则", "drift", "修复", "ci_failure", "smart", "速率", "电量"])) return "optimize";
+  if (has(["整理", "归档", "合并", "推送", "纳管", "规范", "软链", "governance", "unpushed", "unlinked"])) return "organize";
   return "cleanup";
 }
 function isOptOrUpdate(c) { return inferActionType(c) !== "cleanup"; }
@@ -1844,7 +1897,7 @@ function compositionParts(active, metricsList) {
     const freeByCat = {};
     CANDS.forEach(c => {
       if (c.gauge_id !== g.id || !isChecked(c)) return;
-      const cat = c.category || "其他";
+      const cat = categoryLabel(c) || "其他";
       freeByCat[cat] = (freeByCat[cat] || 0) + sizeOf(c);
     });
     if (Array.isArray(g.breakdown) && g.breakdown.length) {
@@ -1853,7 +1906,7 @@ function compositionParts(active, metricsList) {
       const byCat = {};
       CANDS.forEach(c => {
         if (c.gauge_id !== g.id || !sizeOf(c)) return;
-        const cat = c.category || "其他";
+        const cat = categoryLabel(c) || "其他";
         byCat[cat] = (byCat[cat] || 0) + sizeOf(c);
       });
       Object.keys(byCat).forEach(k => parts.push({ name: k, bytes: byCat[k] }));
@@ -2386,6 +2439,24 @@ function rowHtml(c) {
     ? `<span class="row-size">${formatBytes(sz)}</span>`
     : `<span class="row-size badge">${escapeHtml(c.metric_badge || "")}</span>`;
   const statusChip = done ? '<span class="chip done">✓ 已执行</span>' : (wl ? '<span class="chip warn">受保护</span>' : "");
+  const activePaths = activePathsOf(c);
+  const pathsHtml = activePaths.length
+    ? `<div class="path-line">${activePaths.map(p => `<code>${escapeHtml(p)}</code>`).join("")}</div>`
+    : "";
+  let uModeHtml = "";
+  if (c.uninstall_modes && c.uninstall_modes.purge_all && c.uninstall_modes.keep_data) {
+    const curMode = uninstallModeOf(c);
+    const pMode = c.uninstall_modes.purge_all;
+    const kMode = c.uninstall_modes.keep_data;
+    const curObj = curMode === "keep_data" ? kMode : pMode;
+    uModeHtml = `<div class="uninstall-mode-box">
+      <div class="um-head"><span>卸载方式</span><span class="um-desc" id="umdesc-${id}">${escapeHtml(curObj.description || "")}</span></div>
+      <div class="um-seg">
+        <button type="button" class="um-btn${curMode === "purge_all" ? " active" : ""}" data-act="umode" data-mode="purge_all">一键全部删除（含残留 · ${formatShort(Number(pMode.size_bytes || 0))}）</button>
+        <button type="button" class="um-btn${curMode === "keep_data" ? " active" : ""}" data-act="umode" data-mode="keep_data">保留用户数据（仅删 App 与缓存 · ${formatShort(Number(kMode.size_bytes || 0))}）</button>
+      </div>
+    </div>`;
+  }
   return `<div class="row${checked ? " is-checked" : ""}${wl ? " is-protected" : ""}${done ? " is-done" : ""}" id="card-${id}" data-id="${id}">
     <button type="button" class="check" role="checkbox" aria-checked="${checked || done}" aria-label="选择：${title}" data-act="toggle"${wl || done ? " disabled" : ""}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 12.5l3.8 3.8 7.2-8.3"/></svg>
@@ -2394,14 +2465,15 @@ function rowHtml(c) {
       <span class="app-icon tint-${wl ? "orange" : act.tint}">${icon(wl ? "shield" : act.icon)}</span>
       <span class="row-text">
         <span class="row-title" title="${title}">${title}</span>
-        <span class="row-sub"><span class="chip ${tier.cls}">${tier.label} ${tier.desc}</span>${statusChip}${g ? `<span class="chip">${escapeHtml(poolTitle(g))}</span>` : ""}<span class="cat">${escapeHtml(c.category || act.label)}</span></span>
+        <span class="row-sub"><span class="chip ${tier.cls}">${tier.label} ${tier.desc}</span>${statusChip}${g ? `<span class="chip">${escapeHtml(poolTitle(g))}</span>` : ""}<span class="cat">${escapeHtml(categoryLabel(c) || act.label)}</span></span>
       </span>
       ${sizeHtml}
       <span class="chev">${icon("chevron")}</span>
     </button>
     <div class="row-detail" id="detail-${id}" hidden><div class="row-detail-inner">
       ${c.evidence ? `<p class="evidence">${escapeHtml(c.evidence)}</p>` : ""}
-      ${c.path ? `<div class="path-line"><code>${escapeHtml(c.path)}</code></div>` : ""}
+      ${uModeHtml}
+      ${pathsHtml}
       <label class="note-field">微调备注
         <input type="text" data-act="note" value="${escapeHtml(note)}" placeholder="比如：只保留最近 2 个版本，或者先移到 NAS 再删">
       </label>
@@ -2411,6 +2483,29 @@ function rowHtml(c) {
       </div>
     </div></div>
   </div>`;
+}
+
+function setUninstallMode(id, mode) {
+  const c = candById[id];
+  if (!c || !c.uninstall_modes || !c.uninstall_modes[mode]) return;
+  state.uninstallModes[id] = mode;
+  saveState();
+  const card = document.getElementById("card-" + id);
+  if (card) {
+    card.querySelectorAll('.um-btn[data-act="umode"]').forEach(btn => {
+      btn.classList.toggle("active", btn.getAttribute("data-mode") === mode);
+    });
+    const descEl = document.getElementById("umdesc-" + id);
+    if (descEl) descEl.textContent = c.uninstall_modes[mode].description || "";
+    const sizeEl = card.querySelector(".row-size:not(.badge)");
+    if (sizeEl) sizeEl.textContent = formatShort(sizeOf(c));
+    const pathBox = card.querySelector(".path-line");
+    if (pathBox) {
+      pathBox.innerHTML = activePathsOf(c).map(p => `<code>${escapeHtml(p)}</code>`).join("");
+    }
+  }
+  updateRow(c, false);
+  updateSelectionTotals(true);
 }
 
 function renderCandidates() {
@@ -2981,10 +3076,12 @@ function buildExecutionPrompt() {
   const newlyWhitelisted = [];
   CANDS.forEach(c => {
     const note = (state.notes[c.id] || "").trim();
+    const uMode = c.uninstall_modes ? uninstallModeOf(c) : "";
+    const paths = activePathsOf(c);
     if (state.whitelisted[c.id] && !c.whitelisted) {
-      newlyWhitelisted.push({ id: c.id, title: stripLeadingEmoji(c.title), path: c.path || "", note });
+      newlyWhitelisted.push({ id: c.id, title: stripLeadingEmoji(c.title), path: c.path || (paths[0] || ""), note });
     } else if (state.checked[c.id] && c.status !== "done" && !state.whitelisted[c.id]) {
-      selected.push({ id: c.id, title: stripLeadingEmoji(c.title), path: c.path || "", note });
+      selected.push({ id: c.id, title: stripLeadingEmoji(c.title), path: c.path || "", paths, uMode, note });
     }
   });
   const lines = [
@@ -2996,9 +3093,14 @@ function buildExecutionPrompt() {
   } else {
     lines.push(`### 已勾选执行项（共 ${selected.length} 项）`);
     selected.forEach(item => {
-      const pathPart = item.path ? ` (\`${item.path}\`)` : "";
+      const pathPart = item.paths && item.paths.length > 1
+        ? ` (${item.paths.map(p => `\`${p}\``).join(", ")})`
+        : (item.path ? ` (\`${item.path}\`)` : "");
+      const modePart = item.uMode
+        ? ` [卸载模式: \`--uninstall-mode ${item.uMode === "keep_data" ? "keep-data" : "purge-all"}\` (${item.uMode === "keep_data" ? "保留用户数据" : "一键全部删除含残留"})]`
+        : "";
       const notePart = item.note ? ` —— **微调备注：${item.note}**` : "";
-      lines.push(`- [x] \`${item.id}\`: ${item.title}${pathPart}${notePart}`);
+      lines.push(`- [x] \`${item.id}\`: ${item.title}${pathPart}${modePart}${notePart}`);
     });
   }
   if (newlyWhitelisted.length > 0) {
@@ -3100,6 +3202,7 @@ function wireEvents() {
     if (act === "toggle") toggleItem(id);
     else if (act === "expand") setExpanded(id, !expandedRows.has(id), false);
     else if (act === "wl") toggleWhitelist(id);
+    else if (act === "umode") setUninstallMode(id, actEl.getAttribute("data-mode"));
   });
   list.addEventListener("input", e => {
     const input = e.target.closest('input[data-act="note"]');
@@ -3197,6 +3300,9 @@ def render_dashboard_html(
         "generated_at": generated_at,
         "storage_gauges": snapshot.get("storage_gauges", []),
         "candidates": snapshot.get("candidates", []),
+        "app_inventory": snapshot.get("app_inventory"),
+        "environments": snapshot.get("environments"),
+        "peripherals": snapshot.get("peripherals"),
         "diff": diff if diff is not None else snapshot.get("diff"),
     }
     report_json = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")

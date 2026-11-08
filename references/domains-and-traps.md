@@ -6,16 +6,31 @@
 
 ## 一、四域并行只读巡检清单
 
-### 1. 💻 Mac 本机与自动备份管线（配合 `$mac-maintenance`）
+### 1. 💻 Mac 本机、应用、启动项、外设固件与备份管线（配合 `$mac-maintenance`）
 - **核心水位**：`/System/Volumes/Data` 总量、已用、可用及 APFS 容器 `Purgeable`（可清除）空间。
-- **开发缓存重灾区**：
-  - `~/Library/Developer/Xcode/DerivedData`（含空壳目录与过期工程构建缓存）；
+- **全局纯缓存重灾区（`system_cache`，A 级安全立省）**：
+  - `~/Library/Developer/Xcode/DerivedData`（含空壳目录与过期工程构建缓存）、`~/Library/Caches/Homebrew`、`~/.npm/_cacache`、`~/.cache/uv`、`~/.cache/pip`、`~/Library/Caches/ms-playwright` 旧浏览器内核；
   - `xcrun simctl list devices unavailable`（已淘汰 iOS 版本的 `Unavailable` 模拟器运行时与设备沙盒）；
-  - Rust `target/`、Swift `.build*`、前端 `node_modules/.cache`、Playwright `ms-playwright` 旧内核、桌面端应用 Updater 缓存（如 `*-updater`、旧版本 `claude-code` 二进制）。
-- **孤儿应用残留交叉比对（Orphan Cross-Referencing）**：
-  - 将 `~/Library/Application Support`、`~/Library/Caches`、`~/Library/Containers` 与当前已安装的 `/Applications`、`~/Applications` 及 Homebrew 软件包做 Bundle ID / 规范化名称交叉比对；
-  - 筛出「主程序已卸载、但残留 ≥50 MiB 数据」的目录，统一归为 **C 级（需用户拍板确认）**，不自动当作普通缓存删除。
-- **软件更新**：运行 `brew outdated` 检查过期 CLI 工具与库，升级后执行 `brew cleanup`。
+  - 区分原则：只清体积 `>= min_cache_mb`（默认 200 MiB）且 100% 可自动重建的开发者/包管理器缓存，**绝不清理浏览器登录态、日常通讯软件热缓存或 Spotlight 索引**。
+- **全量 APP 体积/常用度统计与双模式卸载（`app_uninstall` + `app_inventory`）**：
+  - 扫描 `/Applications` 与 `~/Applications` 下所有 `.app`，结合 Spotlight `kMDItemLastUsedDate` 区分**常用 APP**与**久未使用 APP**（默认 `>= unused_app_days` 90 天未打开且总占用 `>= min_app_size_mb` 50 MiB），分别统计：
+    - `app_bytes`（`.app` 本体体积）
+    - `data_bytes`（`Application Support`、`Containers`、`Group Containers`、`Preferences` 等用户数据与配置）
+    - `cache_bytes`（`Caches`、`Saved Application State`、`Logs`、`HTTPStorages`、`WebKit` 等缓存与运行状态）
+  - 支持在看板与 CLI 中切换两种卸载模式：
+    - **一键全部删除（`purge_all`）**：连同 `.app` 本体、用户数据与所有关联残留一并移入隔离区或清理；
+    - **保留用户数据（`keep_data`）**：仅移走 `.app` 本体与缓存目录，完整保留 `Application Support`、`Containers` 与偏好设置，方便日后重装无缝恢复。
+- **深度卸载残留清理（`app_orphan` 跨目录同源聚合）**：
+  - 扫描 `~/Library` 下 8 类目录（`Application Support`、`Caches`、`Containers`、`Group Containers`、`Saved Application State`、`Logs`、`HTTPStorages`、`WebKit`），与已安装 APP 的 `CFBundleIdentifier`、`CFBundleName` 及 Homebrew 软件包做交叉比对；
+  - 同一已卸载应用散落在多处的残留目录按归一化主键自动聚合成单张多路径（`paths`）候选卡片（`tier: "C"`，需用户拍板确认）。
+- **无用 Mac 启动项检查（`launch_item`）**：
+  - 扫描 `~/Library/LaunchAgents`、`/Library/LaunchAgents`、`/Library/LaunchDaemons` 下的 `.plist`；
+  - 精准识别三类病灶：**目标可执行文件已丢失（`broken_executable`）**、**所属父级 `.app` 已卸载（`orphan_app`）**、以及 **`launchctl list` 退出码非零处于崩溃循环（`crash_loop`）**。
+- **全部 APP 更新与全栈开发依赖更新检查（`app_update` & `env_update`）**：
+  - 应用更新：结合 `brew outdated --cask --json=v2` 与 `mas outdated` 检查全部 Mac 应用可用更新；
+  - 环境与依赖更新：检查 Homebrew Formulae（`brew outdated --formula`）、Node.js 全局包（`npm outdated -g`）与 Rust 工具链（`rustup check`）版本落后情况。
+- **外设与存储固件及健康度检查（`peripheral_firmware`）**：
+  - 扫描内置/外置硬盘（NVMe、USB 移动硬盘的固件版本与 `SMART Status`）、SD 卡读卡器（`SPCardReaderDataType`）、雷电/USB 扩展坞（`SPThunderboltDataType` / `SPUSBDataType`，自动捕获支持 `5 Gb/s`+ 的高速外设因线材或接口协商降速到 USB 2.0 `480 Mb/s` 的异常）、以及蓝牙/USB 鼠标键盘（固件版本与 `<= 20%` 低电量告警）。
 
 ### 2. 📂 本地项目群与多宿主 Worktree（配合 `$repo-cleanup` & `$codex-maintenance`）
 - **多宿主 Worktree 盘点**：
@@ -95,4 +110,4 @@
 - **现象**：另一个 Codex / Claude 会话正在某棵工作树（如 `~/.codex/worktrees/nonraw-coverage/Lightferry`）里做跨轮回归测试，依赖被 `.gitignore` 忽略的 `distribution/artifacts/` 下的 CSV 样本、便携版 `LibreOffice.app` 或编译产物。巡检时虽然保留了该 worktree 的 Git 源码，但把里面的 `distribution/artifacts/` 或 `target/` 当成「可重建产物」删掉（或移去回收站），导致隔壁会话下一秒读取原路径直接报错中断。
 - **治本对策**：
   1. **活跃工作树整树连带豁免**：`full_stack_tool.py preflight` 会向上追溯目标的父级 Git 工作树/仓库根目录，结合 `.git` 元数据修改时间、工作树文件修改时间（默认 48 小时保护窗 `worktree_protect_minutes: 2880`）、`git status --porcelain` 以及 `~/.codex/thread_history_1.sqlite` 活跃会话记录。只要父级工作树处于活跃或未收尾状态，**整棵工作树（含内部所有 `target`、`node_modules`、`distribution/artifacts`）全部锁定跳过，连移动都不允许**。
-  2. **闲置项目产物先移入「外置盘隔离区（Quarantine）」**：对已超过保护窗确认闲置的项目产物、旧 worktree 或测试载荷，使用 `full_stack_tool.py quarantine` 移入外置盘隔离区（如 `/Volumes/Sora2T/.Cleanup_Quarantine/<批次>/`），自动生成 `manifest.json` 与一键恢复脚本 `restore.sh`。既能当场腾出 Mac 本机空间，又能保留 100% 原文件供随时秒级还原，等用户确认所有任务无异常后再彻底清除。
+  2. **闲置项目产物先移入「外置盘隔离区（Quarantine）」**：对已超过保护窗确认闲置的项目产物、旧 worktree 或测试载荷，使用 `full_stack_tool.py quarantine` 移入外置盘隔离区（如 `/Volumes/ExternalSSD/.Cleanup_Quarantine/<批次>/`），自动生成 `manifest.json` 与一键恢复脚本 `restore.sh`。既能当场腾出 Mac 本机空间，又能保留 100% 原文件供随时秒级还原，等用户确认所有任务无异常后再彻底清除。

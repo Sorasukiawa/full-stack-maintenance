@@ -33,11 +33,11 @@ Every audit generates a self-contained single-file `inspection-dashboard.html` d
 - 🍎 **macOS-style layout** — A translucent vibrancy sidebar with System Settings style icon tiles, bold large titles, inset grouped lists, and a floating glass action dock. Follows the system light/dark appearance automatically, with a manual Auto / Light / Dark switch.
 - 🎯 **Storage ring overview (drawn like an Apple Health activity ring)** — One thick round-capped canvas ring shows retained used space (grey), the space your selection will free (along-arc green-to-teal gradient with soft cap shadow), and the hovered item's slice (blue), with the reclaimable amount in the centre and a 4-cell volume summary on the right. A strip of per-volume mini rings switches between disks or the all-volumes total, and a pill-shaped capsule "space composition" bar shows what fills the disk.
 - 🪀 **Spring physics with a light rebound** — Every interactive change (ring arcs, numbers, segmented-control thumbs, sidebar selection, row expansion, the export sheet) runs on interruptible springs defined by Apple's damping ratio + response parameters. CSS transitions use spring curves pre-computed into `linear()` easing. Reduced motion, reduced transparency and increased contrast preferences are honoured.
-- 🎛️ **Approval workbench** — Per-domain lists grouped by risk tier (A / B / C), filters by action type (cleanup / organize / optimize / update), a live pill-shaped storage impact bar for the affected volume, and quick-select presets in the dock.
+- 🎛️ **Approval workbench & dual-mode app uninstaller** — Per-domain lists grouped by risk tier (A / B / C), filters by action type (cleanup / organize / optimize / update), an inline **Keep User Data vs. Purge All (incl. leftovers)** mode switch for unused apps, and a live pill-shaped storage impact bar.
 - 📈 **Baseline snapshot diff** — Compares against your previous audit snapshot (`diff`) to spotlight which volumes grew and the top newly bloated directories.
-- ✏️ **Sandboxed-safe `localStorage` state & per-item notes** — Checkboxes and inline adjustment notes (e.g., *"keep latest 2 versions"*) persist across refreshes and degrade gracefully inside restricted `iframe[sandbox="allow-scripts"]` previews.
+- ✏️ **Sandboxed-safe `localStorage` state & per-item notes** — Checkboxes, app uninstall modes, and inline adjustment notes (e.g., *"keep latest 2 versions"*) persist across refreshes and degrade gracefully inside restricted `iframe[sandbox="allow-scripts"]` previews.
 - 🛡️ **Persistent exemption whitelist** — `加入白名单` moves an item to the Whitelist page and exports it for your Git-ignored `config/topology.local.json`.
-- 📋 **One-click execution prompt export** — Packages your checked item IDs, per-item notes, and newly whitelisted paths into a structured Markdown instruction ready to paste back into your AI agent.
+- 📋 **One-click execution prompt export** — Packages your checked item IDs, selected `--uninstall-mode`, per-item notes, and newly whitelisted paths into a structured Markdown instruction ready to paste back into your AI agent.
 
 ---
 
@@ -53,17 +53,17 @@ flowchart LR
     end
 
     subgraph S2["2. Snapshot & Diff Engine"]
-        SCAN["full_stack_tool.py scan-local\nOrphans · .git Pack · Backup Drift"]
+        SCAN["full_stack_tool.py scan-local\nApps · Orphans · LaunchAgents · Firmware · Caches"]
         DIFF["full_stack_tool.py diff\nWaterline Deltas & Growth Top 10"]
     end
 
     subgraph S3["3. Interactive Approval"]
-        HTML["render_dashboard.py\nSingle-File HTML Board\nCheckboxes + Notes + Whitelist"]
+        HTML["render_dashboard.py\nSingle-File HTML Board\nCheckboxes + Dual-Mode Uninstall + Notes"]
     end
 
     subgraph S4["4. Guarded Execution & Reclaim"]
-        PRE["full_stack_tool.py preflight\nlsof · mtime < 60m · Fail-Closed WL"]
-        EXEC["Domain Cleanup + Physical Reclaim\ntmutil · pct fstrim · #recycle"]
+        PRE["full_stack_tool.py preflight\nlsof · Worktree Guard · Fail-Closed WL"]
+        EXEC["Domain Cleanup + Quarantine + Reclaim\nquarantine · tmutil · pct fstrim"]
     end
 
     S1 --> SCAN --> DIFF --> HTML --> PRE --> EXEC
@@ -75,7 +75,7 @@ Instead of duplicating single-domain rules, `full-stack-maintenance` coordinates
 
 | Domain | Coordinated Skill / Tool | Cross-Layer Capabilities Added by `full-stack-maintenance` |
 | :--- | :--- | :--- |
-| **💻 Mac & Backups** | [`mac-maintenance`](https://github.com/Sorasukiawa/mac-maintenance) | Cross-references `~/Library/{Application Support,Caches,Containers}` against installed `/Applications` `Info.plist` for **uninstalled app orphans**; detects **backup exclusion drift**; reclaims APFS local snapshots |
+| **💻 Mac, Apps & Peripherals** | [`mac-maintenance`](https://github.com/Sorasukiawa/mac-maintenance) | **Full app usage/size inventory & dual-mode uninstaller** (`keep_data` vs `purge_all`); **deep uninstalled leftover correlation** across 8 `~/Library` directories; **broken/crashing LaunchAgents check**; **all Mac apps & dev environment updates**; **peripheral & storage firmware/SMART/link-speed/battery checks**; **reproducible global cache scan**; **backup exclusion drift** & APFS snapshot reclaim |
 | **📂 Multi-Repo & AI** | [`repo-cleanup`](https://github.com/Sorasukiawa/repo-cleanup) · [`codex-maintenance`](https://github.com/Sorasukiawa/codex-maintenance) | Workspace-wide `.git/objects/pack` bloat scanner, multi-host worktree inventory (`.claude/worktrees`, `.worktrees`, Orca, Codex), and `AGENTS.md` pre-merge check verification |
 | **🐙 GitHub Remote** | `gh repo list` · `gh run list` | Account-wide audit of public/private repos, stale `checkpoints/*` branches, CI failure root-cause triage (flake vs real regression), and repo archive candidates |
 | **🏠 NAS & Homelab** | Read-only SSH & SMB mounts | Proxmox `/boot/efi` kernel bloat, `local-lvm` unused disks & test clones, LXC `pct fstrim`, Docker build cache & container health (`unhealthy` / restart loops), and NAS SMB `#recycle` capture |

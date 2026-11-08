@@ -6,7 +6,7 @@ compatibility: Requires Python 3.10+ (standard library only) and git. gh is opti
 argument-hint: "[inspect only | dashboard | execute <ids> | mac | projects | github | nas]"
 allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py scan-local *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py diff *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py preflight *), Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py *), Bash(git status *), Bash(git worktree list *), Bash(gh repo list *), Bash(gh run list *), Bash(df -h *), Bash(du -sh *)
 metadata:
-  version: "1.2.7"
+  version: "1.3.0"
 ---
 
 # 全栈多域巡检与交互式看板维护
@@ -21,8 +21,8 @@ metadata:
 
 | 领域 | 联动技能与工具 | 本技能补充的跨层职责 |
 |---|---|---|
-| **Mac 系统与空间** | 优先调用 `$mac-maintenance`（`audit.py` / `cleanup.py`） | 补充**孤儿应用残留交叉比对**（`~/Library` vs `/Applications`）、**云端/NAS 备份脚本排除规则穿透检测**、APFS 本地快照锁死排查 |
-| **本地多仓库与 AI 组件** | 优先调用 `$repo-cleanup`（`survey.sh`）与 `$codex-maintenance` | 补充跨仓库批量扫描、**`.git/objects/pack` 膨胀体检**、多宿主 Worktree 汇总（`.claude/worktrees`、`.worktrees`、Orca、Codex）与 `AGENTS.md` 合入前检查核对 |
+| **Mac 系统、应用与外设** | 优先调用 `$mac-maintenance`（`audit.py` / `cleanup.py`） | 补充**全量 APP 体积与常用度统计及双模式卸载**（`keep_data` 保留用户数据 vs `purge_all` 一键全删含残留）、**跨 8 类 Library 目录的深度卸载残留扫描与同源聚合**、**无用启动项排查**（失效路径/已卸载父应用/崩溃循环）、**全部 APP 与开发依赖环境更新检查**、**外设与存储固件/健康度检查**（硬盘/SD 卡/扩展坞/键鼠）、**全局纯缓存扫描**、**云端/NAS 备份排除规则穿透检测**、APFS 本地快照锁死排查 |
+| **本地多仓库与 AI 组件** | 优先调用 `$repo-cleanup`（`survey.sh`）与 `$codex-maintenance` | 补充跨仓库批量扫描、**`.git/objects/pack` 膨胀体检**、多宿主 Worktree 汇总（`.claude/worktrees`、`.worktrees`、Orca、Codex）与 `AGENTS.md` 合并前检查核对 |
 | **GitHub 全账号远端** | 使用 `gh repo list`、`gh run list`、`git ls-remote` | 全量盘点公开/私有仓库、陈旧分支与 `checkpoints/*`、CI 失败真因（区分偶发竞态与真实报错）、归档候选与本地未建远端项目 |
 | **NAS 与 PVE 家庭服务器** | 只读 SSH / 挂载卷检查 | 存储池红线水位、PVE `/boot/efi` 旧内核、`local-lvm` 未挂载孤儿盘与演练克隆机、LXC `pct fstrim`、Docker 构建缓存与容器健康度、SMB/Btrfs `#recycle` 二次截留 |
 
@@ -42,6 +42,13 @@ metadata:
      --config "${CLAUDE_SKILL_DIR}/config/topology.local.json" \
      --output work/full-stack/current-snapshot.json --overwrite
    ```
+   `scan-local` 会一次性完成：
+   - **APP 盘点与智能双模式卸载候选（`app_uninstall` + `app_inventory`）**：统计每个已安装 APP 的本体体积、用户数据体积与缓存体积，结合 Spotlight `kMDItemLastUsedDate` 区分「常用 APP」与「久未使用 APP」（默认 `>=90` 天未打开且 `>=50 MiB`），提供 `purge_all`（一键全部删除含残留）与 `keep_data`（保留用户数据，仅删 `.app` 与缓存）两种卸载模式；
+   - **深度卸载残留清理（`app_orphan`）**：扫描 `Application Support`、`Caches`、`Containers`、`Group Containers`、`Saved Application State`、`Logs`、`HTTPStorages`、`WebKit` 等目录，将同一已卸载应用散落在多处的残留自动聚合成单张多路径卡片；
+   - **无用 Mac 启动项检查（`launch_item`）**：检查 `LaunchAgents` / `LaunchDaemons` 中可执行文件已丢失、父 APP 已卸载或 `launchctl` 异常退出的启动项；
+   - **全量 APP 更新（`app_update`）与开发环境依赖更新（`env_update`）**：检查 Homebrew Cask、Mac App Store (`mas`)、Homebrew Formulae、全局 `npm` 包与 `rustup` 工具链更新；
+   - **外设与存储固件健康检查（`peripheral_firmware`）**：盘点内置/外置硬盘（SMART 状态与固件版本）、SD 卡读卡器、雷电/USB 扩展坞（排查高速设备降速到 USB 2.0 `480 Mb/s`）及蓝牙/USB 键鼠（固件与低电量告警）；
+   - **全局纯缓存检查（`system_cache`）**：扫描 Xcode `DerivedData`、Homebrew 下载缓存、`npm`/`uv`/`pip` 缓存与 `ms-playwright` 旧浏览器内核，跳过日常热缓存。
    若存在上一次巡检留下的基线快照（如 `work/full-stack/baseline-snapshot.json`），立即运行 `diff` 找出**「这几天是谁偷偷占了空间」**：
    ```bash
    python3 "${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py" diff \
@@ -50,12 +57,12 @@ metadata:
      --output work/full-stack/diff.json --overwrite
    ```
 2. **派出 4 路并行只读子代理（Subagents）补齐深层证据**（不支持子代理的宿主按 [多 Agent 宿主适配指南](references/multi-agent-hosts.md) 顺序执行）：
-   - **子代理 1（Mac 与备份管线）**：结合 `$mac-maintenance` 的 `audit.py --quick`，核查 `/System/Volumes/Data` 水位、Xcode `DerivedData` 与 `Unavailable` 模拟器、Time Machine 本地快照、以及 iCloud/NAS 自动备份脚本是否漏排了新建的构建或归档目录。
-   - **子代理 2（本地项目群与 AI 工具）**：遍历 `workspace_roots` 与 `worktree_hubs`，检查各仓库未提交改动、已合并可退役的 Worktree、缺少 `合入前检查：` 的 `AGENTS.md`、缺失的 `CLAUDE.md`、以及散落的编译产物。
+   - **子代理 1（Mac 与备份管线）**：结合 `$mac-maintenance` 的 `audit.py --quick`，核查 `/System/Volumes/Data` 水位、Xcode `Unavailable` 模拟器、Time Machine 本地快照、以及 iCloud/NAS 自动备份脚本是否漏排了新建的构建或归档目录。
+   - **子代理 2（本地项目群与 AI 工具）**：遍历 `workspace_roots` 与 `worktree_hubs`，检查各仓库未提交改动、已合并可退役的 Worktree、缺少 `合并前检查：` 的 `AGENTS.md`、缺失的 `CLAUDE.md`、以及散落的编译产物。
    - **子代理 3（GitHub 全账号远端）**：用 `gh` 盘点全部公开/私有仓库，筛出长期废弃或已合并的远端分支（如 `checkpoints/*`）、近期失败的 GitHub Actions、以及已完成历史使命可 `gh repo archive` 的仓库。
    - **子代理 4（NAS 与 PVE Homelab）**：当 `homelab.enabled` 为 `true` 时，只读检查 PVE 节点 `/boot/efi`、`pve-root`、`local-lvm` 水位、各 VM/LXC 磁盘占用与 `unused` 卷、Docker 容器健康状态（`unhealthy` / 重启循环）与镜像缓存、以及 NAS 各存储池与 `#recycle` 回收站占用。
    - **子代理内存及时回收**：四路子代理交卷并完成数据汇总后，在子代理默认保持 `idle` 驻留内存的宿主（如 Google Antigravity）中立即调用 `manage_subagents(Action: "kill_all")` 销毁已完工的子代理，避免多会话上下文长驻撑高宿主内存。
-   - 四域详细排查清单与 5 大跨层存储陷阱见 [四域巡检与跨层陷阱参考](references/domains-and-traps.md)。
+   - 四域详细排查清单与 6 大跨层存储陷阱见 [四域巡检与跨层陷阱参考](references/domains-and-traps.md)。
 
 ## 4. 生成交互式 HTML 水位模拟看板
 
@@ -70,34 +77,36 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py" \
 
 生成的 HTML 看板具备以下交互能力（详见 [看板与脚本契约](references/dashboard-and-cli.md)）：
 - **存储圆环总览**：样式参考 Apple 健康活动圆环的圆头粗环，灰色为清理后已用、沿弧绿青渐变为勾选将释放、蓝色为悬停项占比，配右侧四格容量数据与药丸形分段「空间构成」条；上方存储卷小圆环可切换单盘或全部存储卷；勾选或取消时圆环、水位条和数字以带轻回弹的弹簧动效实时变化。
+- **APP 卸载双模式切换器**：在久未使用 APP 卡片详情内直接切换「**一键全部删除（含残留）**」与「**保留用户数据（仅删 App 与缓存）**」，卡片体积、顶部存储圆环释放预计、影响路径列表与导出指令中的 `--uninstall-mode` 参数实时联动。
 - **按领域分页的勾选工作台**：侧栏切换 Mac、本地项目、GitHub、NAS 与白名单，按风险等级分组、按动作类型筛选，顶部水位条实时显示对所在存储卷的影响。
 - **距上次巡检基线变化**：直接展示各盘水位涨跌与增长最快的 Top 目录。
-- **浏览器本地记忆（`localStorage`）与单项微调备注框**：刷新页面不丢勾选；每项旁均可填写微调说明（如「只留最近 2 个版本」「移到 NAS 别直接删」）。
-- **一键复制执行指令**：将用户勾选的 ID、填写的单项微调备注、以及新加入白名单的条目一键打包成结构化 Markdown 指令回传给代理。
+- **浏览器本地记忆（`localStorage`）与单项微调备注框**：刷新页面不丢勾选与卸载模式；每项旁均可填写微调说明（如「只留最近 2 个版本」「移到 NAS 别直接删」）。
+- **一键复制执行指令**：将用户勾选的 ID、所选卸载模式（`--uninstall-mode keep-data` / `purge-all`）、填写的单项微调备注、以及新加入白名单的条目一键打包成结构化 Markdown 指令回传给代理。
 
 ## 5. 动手前「二次并发安全复查」、活跃整树豁免与分级外置隔离区
 
 收到用户确认或从 HTML 看板复制回传的勾选清单后，按以下铁律执行：
 
-1. **强制运行 `preflight` 二次并发安全复查（含活跃工作树整树连带豁免）**：
-   由于用户在网页上勾选到真正执行之间，可能有其他 AI 会话（Claude Code / Codex / Antigravity / OpenCode）刚启动了构建或正在使用某棵工作树中的构建/测试产物（如 `distribution/artifacts`、`target`），动手前必须运行：
+1. **强制运行 `preflight` 二次并发安全复查（含活跃工作树整树连带豁免与卸载模式解析）**：
+   由于用户在网页上勾选到真正执行之间，可能有其他 AI 会话（Claude Code / Codex / Antigravity / OpenCode）刚启动了构建或正在使用某棵工作树中的构建/测试产物（如 `distribution/artifacts`、`target`），动手前必须运行（若含 APP 卸载项，传入用户选择的 `--uninstall-mode keep-data` 或 `purge-all`）：
    ```bash
    python3 "${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py" preflight \
      --config "${CLAUDE_SKILL_DIR}/config/topology.local.json" \
      --targets work/full-stack/current-snapshot.json \
      --ids "<用户勾选的逗号分隔ID>" \
+     --uninstall-mode purge-all \
      --output work/full-stack/preflight.json --overwrite
    ```
    - **活跃工作树整树豁免**：只要目标路径本身或其所在的父级 Git 工作树/仓库命中 `BLOCKED_WHITELISTED`、`BLOCKED_RECENT_ACTIVITY`（工作树在 `worktree_protect_minutes` 默认 48 小时内有文件或 `.git` 变动）、`BLOCKED_ACTIVE_WORKTREE`（Codex `thread_history_1.sqlite` 近期会话引用）、`BLOCKED_OPEN_HANDLES` 或 `BLOCKED_DIRTY_WORKTREE`，**整棵工作树（含内部的 `target`、`node_modules`、`distribution/artifacts` 等忽略目录）一律自动锁定跳过，绝不清理或移动**。
    - 用户在卡片备注框里写了微调要求的（如「留最新 3 个版本」），严格按备注缩小操作范围。
-2. **分级处置：全局纯缓存直删 vs. 闲置项目产物移入「外置盘隔离区（Quarantine）」**：
-   - **全局纯缓存**（如 Homebrew 下载缓存、pip/npm 全局缓存、Xcode `Unavailable` 模拟器）：通过 `preflight` 后可直接清理，第一时间释放 Mac 空间。
-   - **闲置项目目录、旧 Worktree、测试载荷与 `artifacts`**：**严禁直接 `rm -rf`，也不放入本机废纸篓占本机空间**；优先通过 `quarantine` 子命令移入外置盘隔离区（如 `/Volumes/<外置盘>/.Cleanup_Quarantine/<批次>/`，未挂载外置盘时退回 `~/.Cleanup_Quarantine/<批次>/`），并自动生成 `manifest.json` 与一键还原脚本 `restore.sh`：
+2. **分级处置：全局纯缓存直删 vs. 闲置项目产物/卸载应用移入「外置盘隔离区（Quarantine）」**：
+   - **全局纯缓存**（如 Homebrew 下载缓存、pip/npm/uv 全局缓存、Xcode `DerivedData` 与 `Unavailable` 模拟器）：通过 `preflight` 后可直接清理，第一时间释放 Mac 空间。
+   - **闲置项目目录、旧 Worktree、测试载荷、`artifacts`、已卸载残留（`app_orphan`）与待卸载 APP（`app_uninstall`）**：**严禁直接 `rm -rf`，也不放入本机废纸篓占本机空间**；优先通过 `quarantine` 子命令移入外置盘隔离区（如 `/Volumes/<外置盘>/.Cleanup_Quarantine/<批次>/`，未挂载外置盘时退回 `~/.Cleanup_Quarantine/<批次>/`），支持按 `--uninstall-mode keep-data` 仅移走 `.app` 本体与缓存而保留 `Application Support`/`Containers` 用户数据，并自动生成 `manifest.json` 与一键还原脚本 `restore.sh`：
      ```bash
      python3 "${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py" quarantine \
        --config "${CLAUDE_SKILL_DIR}/config/topology.local.json" \
-       --targets work/full-stack/current-snapshot.json \
-       --ids "<项目类候选ID>" \
+       --preflight work/full-stack/preflight.json \
+       --uninstall-mode keep-data \
        --output work/full-stack/quarantine-manifest.json --overwrite
      ```
    - 待用户确认各并行任务运行正常后（或下次巡检确认清空隔离区时），再彻底清除隔离区批次。
