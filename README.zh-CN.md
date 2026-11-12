@@ -18,7 +18,7 @@
 **`full-stack-maintenance`** 是面向主流 AI 编程助手的总管级全栈维护技能：支持跨 **Mac 本机与备份管线**、**本地多仓库工作区与 Worktree**、**GitHub 全账号远端仓库** 以及 **NAS / Proxmox VE / Docker 家庭服务器** 四大域执行并行只读巡检，自动对比上次巡检基线（「这几天是谁偷偷占了空间」），生成带**实时水位模拟器的单文件交互式 HTML 看板**，并在执行前强制运行**二次并发安全复查（`preflight`）**，保护正在并行工作的其他 AI 会话。
 
 > [!NOTE]
-> **零第三方依赖 · 脚本 100% 只读：** 附带的 Python 3.10+ 脚本（`full_stack_tool.py` 与 `render_dashboard.py`）仅使用标准库，只负责采集证据、基线对比、看板渲染与执行前并发安全校验，绝不自行删除文件、卸载软件或改动服务。
+> **零第三方依赖 · 脚本带护栏：** 附带的 Python 3.10+ 脚本（`full_stack_tool.py` 与 `render_dashboard.py`）仅使用标准库，只负责采集证据、基线对比、看板渲染与执行前并发安全校验，绝不自行删除文件、卸载软件或改动服务。唯一会移动文件的 `quarantine` 子命令只处理 `--ids` 点名且复查通过的路径，移入可还原的隔离区批次，并一律拒绝 Git 数据、治理文档、启动项、更新与固件建议和 worktree。
 
 ---
 
@@ -75,8 +75,8 @@ flowchart LR
 
 | 巡检领域 | 联动复用的单域技能 / 工具 | `full-stack-maintenance` 补充的跨层能力 |
 | :--- | :--- | :--- |
-| **💻 Mac、应用与外设** | [`mac-maintenance`](https://github.com/Sorasukiawa/mac-maintenance) | **全量 APP 常用/不常用与体积盘点及双模式卸载**（保留用户数据 vs 一键全删含残留）；跨 8 类 `~/Library` 目录的**深度卸载残留扫描与同源聚合**；**无用启动项检查**；**全部 APP 与开发依赖环境更新检查**；**外设与存储固件/健康度检查**（硬盘/SD 卡/扩展坞/键鼠）；**全局纯缓存扫描**；检测**备份脚本漏排穿透**与回收 APFS 快照 |
-| **📂 本地多仓库与 AI** | [`repo-cleanup`](https://github.com/Sorasukiawa/repo-cleanup) · [`codex-maintenance`](https://github.com/Sorasukiawa/codex-maintenance) | 跨工作区批量扫描 `.git/objects/pack` 膨胀、汇总多宿主 Worktree（`.claude/worktrees`、`.worktrees`、Orca、Codex），并检查 `AGENTS.md` 合入前检查声明 |
+| **💻 Mac、应用与外设** | [`mac-maintenance`](https://github.com/Sorasukiawa/mac-maintenance) | **全量 APP 常用/不常用与体积盘点及双模式卸载**（默认保留用户数据；一键全删含残留需明确选择）；跨 8 类 `~/Library` 目录的**深度卸载残留扫描与同源聚合**；**无用启动项检查**；**全部 APP 与开发依赖环境更新检查**；**外设与存储固件/健康度检查**（硬盘/SD 卡/扩展坞/键鼠）；**全局纯缓存扫描**；检测**备份脚本漏排穿透**与排查 APFS 快照锁死 |
+| **📂 本地多仓库与 AI** | [`repo-cleanup`](https://github.com/Sorasukiawa/repo-cleanup) · [`codex-maintenance`](https://github.com/Sorasukiawa/codex-maintenance) | 跨工作区批量扫描 `.git/objects/pack` 膨胀、用 `git worktree list` 汇总各宿主的 worktree（退役交给 `repo-cleanup`），并检查 `AGENTS.md`（没有再看 `CLAUDE.md`）的「合入前检查：」声明 |
 | **🐙 GitHub 全账号远端** | `gh repo list` · `gh run list` | 全量盘点公开/私有仓库、清理 `checkpoints/*` 等陈旧分支、甄别 CI 失败真因（偶发竞态 vs 真实报错）、识别可归档仓库 |
 | **🏠 NAS 与家庭服务器** | 只读 SSH 与挂载卷探针 | 检查 Proxmox `/boot/efi` 旧内核水位、`local-lvm` 未挂载孤儿盘与演练克隆机、LXC `pct fstrim`、Docker 构建缓存与容器健康度，以及 NAS SMB `#recycle` 二次截留 |
 
@@ -88,7 +88,7 @@ flowchart LR
 
 | Agent 宿主 | 调用方式 | 并行子代理与看板适配行为 |
 | :--- | :--- | :--- |
-| **Claude Code** | `/full-stack-maintenance` | 通过 `allowed-tools` 预授只读扫描权限（盘点不弹窗）；并行派发 4 个 `Task` 子代理；生成并打开本地 `.html` 看板 |
+| **Claude Code** | `/full-stack-maintenance` | 通过 `allowed-tools` 预授只读扫描权限（盘点不弹窗）；并行派发 4 个 `Agent` 子代理；生成并打开本地 `.html` 看板 |
 | **OpenAI Codex** | `$full-stack-maintenance` | 自动加载 `agents/openai.yaml` 卡片与默认提示词；支持并行子代理与本地浏览器预览 |
 | **Google Antigravity** | 自然语言或 `$full-stack-maintenance` | 并行调用 4 路 `invoke_subagent` 分身；直接将交互式 HTML 看板输出为会话 Artifact |
 | **OpenCode** | `/full-stack-maintenance` 或自然语言 | 调用 `task` 子代理或顺序执行四域只读扫描，生成单文件 `.html` 看板 |
@@ -135,10 +135,10 @@ git clone https://github.com/Sorasukiawa/full-stack-maintenance.git "$HOME/.agen
 | # | 跨层陷阱 | 典型症状 | 本技能的根因诊断与回收方案 |
 | :-: | :--- | :--- | :--- |
 | **1** | **备份排除规则穿透** | 本地新建或改名了构建/归档目录（如 `*-builds`、`*-preservation`、`Artifacts`），穿透了备份脚本的死路径排除，把几十 GB 编译产物切片传上 iCloud 或 NAS | `scan-local` 自动对照 `backup_pipelines` 检查本地大型构建目录是否被排除通配符与脚本覆盖，提前拦截漏排 |
-| **2** | **APFS 本地快照锁死** | 在 Mac 上删了 50+ GiB 缓存，`du` 确实少了，但 `df -h` 可用空间只涨了不到 1 GiB | 检查 `tmutil listlocalsnapshots /`，通过 `tmutil thinlocalsnapshots /System/Volumes/Data 100000000000 4` 立即释放被历史快照锁住的物理块 |
+| **2** | **APFS 本地快照锁死** | 在 Mac 上删了 50+ GiB 缓存，`du` 确实少了，但 `df -h` 可用空间只涨了不到 1 GiB | 只读检查 `tmutil listlocalsnapshots /`；`tmutil thinlocalsnapshots` 会丢掉本地备份，列为 C 级候选，用户拍板后才执行 |
 | **3** | **iCloud 占位分块回下风暴** | 对 iCloud Drive 下几十万个加密备份分块逐一运行解密校验，把原本已 Evict（仅在云端）的历史分块重新下载回本机塞爆磁盘 | 校验前先检查 `st_blocks > 0` 或云端驻留状态，且状态探针仅对正在上传的文件查进度，杜绝回下风暴与 Spotlight IPC 超时 |
-| **4** | **PVE LXC 薄池未回收** | 在 LXC 容器内删掉十几个 GB 的旧备份，容器内 `df -h` 降了，但宿主机 `local-lvm` 的 `Data%` 分毫未动 | 容器内清理后在 PVE 宿主机执行 `pct fstrim <ctid>` 下发 Discard，并盘点 `unused*` 孤儿卷与停机演练克隆机 |
-| **5** | **NAS SMB `#recycle` 截留** | 在 Mac 挂载的 `/Volumes/Data` 或 `/Volumes/Scratch` 上删掉几十 GB 文件，NAS 存储池可用空间完全没变 | 清理挂载卷时同步审计并清空各共享根目录下的 `#recycle` 回收站目录 |
+| **4** | **PVE LXC 薄池未回收** | 在 LXC 容器内删掉十几个 GB 的旧备份，容器内 `df -h` 降了，但宿主机 `local-lvm` 的 `Data%` 分毫未动 | 把 PVE 宿主机上的 `pct fstrim <ctid>` 列为 C 级候选等用户确认，并盘点 `unused*` 孤儿卷与停机演练克隆机（同为 C 级） |
+| **5** | **NAS SMB `#recycle` 截留** | 在 Mac 挂载的 `/Volumes/<NAS共享>` 上删掉几十 GB 文件，NAS 存储池可用空间完全没变 | 审计 `#recycle` 占用；只清本批次删掉的条目，列为 C 级候选等用户确认，不整目录清空 |
 
 ---
 
@@ -151,31 +151,31 @@ cp -n config/topology.example.json config/topology.local.json
 ```
 
 ```bash
-mkdir -p work/full-stack
+mkdir -p state
 
 # 1. 本机只读扫描（孤儿应用残留、.git Pack 膨胀、可重建构建产物、备份排除穿透检测）
 python3 scripts/full_stack_tool.py scan-local \
   --config config/topology.local.json \
-  --output work/full-stack/current-snapshot.json --overwrite
+  --output state/current-snapshot.json --overwrite
 
 # 2. 与上次巡检基线对比（找出这几天是谁偷偷占了空间）
 python3 scripts/full_stack_tool.py diff \
-  --before work/full-stack/baseline-snapshot.json \
-  --after work/full-stack/current-snapshot.json \
-  --output work/full-stack/diff.json --overwrite
+  --before state/baseline-snapshot.json \
+  --after state/current-snapshot.json \
+  --output state/diff.json --overwrite
 
 # 3. 渲染单文件交互式 HTML 水位模拟看板
 python3 scripts/render_dashboard.py \
-  --input work/full-stack/current-snapshot.json \
-  --diff work/full-stack/diff.json \
-  --output work/full-stack/inspection-dashboard.html --overwrite
+  --input state/current-snapshot.json \
+  --diff state/diff.json \
+  --output state/inspection-dashboard.html --overwrite
 
 # 4. 动手前二次并发安全复查（检查白名单、符号链接、60分钟内修改与 lsof 占用）
 python3 scripts/full_stack_tool.py preflight \
   --config config/topology.local.json \
-  --targets work/full-stack/current-snapshot.json \
+  --targets state/current-snapshot.json \
   --ids "build-example-target" \
-  --output work/full-stack/preflight.json --overwrite
+  --output state/preflight.json --overwrite
 ```
 
 完整 JSON 结构与 `preflight` 状态码说明见 [references/dashboard-and-cli.md](references/dashboard-and-cli.md)。

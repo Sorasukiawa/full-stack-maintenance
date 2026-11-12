@@ -9,11 +9,11 @@
 无论在哪个宿主中运行，先按以下顺序定位本技能的根目录 `SKILL_ROOT`：
 
 1. **Claude Code 插件或内置变量**：若环境变量或模板上下文提供 `${CLAUDE_SKILL_DIR}`，直接使用它；
-2. **通用 Agent Skills 目录**：`~/.agents/skills/full-stack-maintenance`（推荐作为跨宿主统一入口，其他宿主通过软链接指向此处）；
-3. **各宿主专属目录**：
-   - OpenAI Codex：`~/.codex/skills/full-stack-maintenance`
+2. **按实际安装位置找**（同一份技能常被链接到多个宿主目录，用 `readlink -f`（macOS 也可用 `realpath`）解析到真实目录后再用，个人配置和 `state/` 都在真实目录里）：
+   - OpenAI Codex：`~/.codex/skills/full-stack-maintenance`（常见的多宿主共用安装里这是真实目录，其他位置是指向它的链接）
+   - 通用 Agent Skills 目录：`~/.agents/skills/full-stack-maintenance`（OpenCode、Cursor 等宿主读取；可以是指向上面真实目录的链接）
    - Claude Code（独立安装）：`~/.claude/skills/full-stack-maintenance`
-   - Google Antigravity：`~/.gemini/antigravity/skills/full-stack-maintenance`
+   - Google Antigravity：自带技能目录是 `~/.gemini/antigravity/skills/`，另外也读 `~/.agents/skills` 里列入白名单的技能；它的 worktree 放在 `~/.gemini/antigravity/worktrees/`（盘点 worktree 时会看到，不是技能目录）
    - OpenCode：`~/.config/opencode/skills/full-stack-maintenance`
    - 项目级目录：`<workspace>/.agents/skills/full-stack-maintenance` 或 `<workspace>/.claude/skills/full-stack-maintenance`
 
@@ -38,8 +38,8 @@
 
 ### 策略 A：支持原生并行子代理的宿主（推荐）
 - **Google Antigravity**：在同一轮调用 4 次 `invoke_subagent`（`TypeName: "research"` 或 `"self"`），分别负责 **Mac 与备份**、**本地多仓库与 Worktree**、**GitHub 全账号远端**、**NAS 与 PVE Homelab**。无需轮询等待，4 个子代理完成后会自动唤醒主会话汇总。
-  - **坑与内存回收**：Antigravity 的子代理完成后默认停留在 `idle` 状态等待后续消息，不会自动退出；若巡检 + 执行累计派生 7~8 个子代理，会把 `language_server` 内存撑高数 GB。**在每阶段收齐子代理 JSON 报告后，必须立即调用 `manage_subagents(Action: "kill_all")` 销毁已完工的子代理释放内存**（日志与产物仍会自动保留）。
-- **Claude Code**：在同一轮并行发起 4 个 `Task`（`subagent_type: "Explore"` 或 `"general-purpose"`），要求每个子代理只做只读盘点并返回结构化 JSON 候选列表（`Task` 返回后自动销毁上下文）。
+  - **坑与内存回收（仅 Antigravity）**：Antigravity 的子代理完成后默认停留在 `idle` 状态等待后续消息，不会自动退出；若巡检 + 执行累计派生 7~8 个子代理，会把 `language_server` 内存撑高数 GB。**在每阶段收齐子代理 JSON 报告后，立即调用 `manage_subagents(Action: "kill_all")` 销毁已完工的子代理释放内存**（日志与产物仍会自动保留）。`manage_subagents` 是 Antigravity 专有工具，其他宿主没有。
+- **Claude Code**：在同一轮并行调用 4 次 `Agent` 工具（`subagent_type: "Explore"` 或 `"general-purpose"`），要求每个子代理只做只读盘点并返回结构化 JSON 候选列表（子代理结束后自动释放上下文，不需要额外回收）。
 - **OpenAI Codex / OpenCode**：若当前环境开启了并行 subagent / `task` 工具，按同样方式分 4 路只读派发，并在汇总后关闭临时子会话。
 
 ### 策略 B：不支持子代理的宿主（Cursor / Windsurf / Cline 或受限环境）
@@ -56,7 +56,7 @@
 1. **Google Antigravity**：
    - 将看板直接渲染到当前会话的 Artifact 目录：`<appDataDir>/brain/<conversation-id>/inspection-dashboard.html`，并在回复中提供 `[inspection-dashboard.html](file:///...)` 链接，用户可在内置预览或浏览器中直接勾选。
 2. **Claude Code / OpenAI Codex / OpenCode / Cursor**：
-   - 将看板输出到工作区或临时维护目录（如 `work/full-stack/inspection-dashboard.html` 或 `/tmp/full-stack-dashboard-<date>.html`）；
+   - 将看板输出到技能目录下被 Git 忽略的 `state/`（如 `$SKILL_ROOT/state/inspection-dashboard.html`）；
    - 若用户要求「打开给我看看」或当前在桌面端环境，可在 macOS 上运行 `open "<html_path>"`（Linux 用 `xdg-open`，Windows 用 `Start-Process`）在默认浏览器中唤起看板，同时在回复中附上完整路径。
 3. **Orca 终端环境（含 `ORCA_PANE_KEY`）**：
    - 可配合 `orca-browser` 技能在 Orca 内置浏览器面板中直接打开生成的本地 HTML 看板供用户交互勾选。

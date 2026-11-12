@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Read-only local scanner, baseline snapshot differ, and pre-flight concurrency guard.
+"""Read-only local scanner, baseline snapshot differ, pre-flight concurrency guard,
+and quarantine stager.
 
 Uses only the Python 3.10+ standard library. Never deletes files, uninstalls apps,
-or modifies system services.
+or modifies system services. The only mutating subcommand is `quarantine`, which
+moves explicitly selected (`--ids`), preflight-safe paths into a quarantine batch
+with a restore script; Git data, governance docs, launch items, update/firmware
+advisories and worktrees are always refused.
 """
 
 from __future__ import annotations
@@ -84,6 +88,30 @@ BUILD_DIR_PATTERNS = (
     "dist",
     ".next",
 )
+
+# Candidates that are advisories or in-place fixes: never moved into quarantine.
+NON_MOVABLE_CATEGORIES = {
+    "git_pack_bloat": "Git pack 是仓库对象库，移走会损坏仓库；需要瘦身时在无并发写入时运行普通 `git gc`。",
+    "governance_doc": "治理文档（AGENTS.md / CLAUDE.md 一类）只能就地修改，不能搬进隔离区。",
+    "launch_item": "启动项需用户确认后用 launchctl 卸载，不在隔离区批量搬移。",
+    "app_update": "应用更新检查只给出升级建议，没有可搬移的文件。",
+    "env_update": "开发环境更新检查只给出升级建议，没有可搬移的文件。",
+    "peripheral_firmware": "外设与固件健康项只给出处理建议，没有可搬移的文件。",
+    "backup_exclusion_drift": "备份排除规则漂移要改备份脚本的排除规则，不是搬移目录。",
+}
+NON_MOVABLE_ACTION_TYPES = {"optimize", "update", "upgrade"}
+GOVERNANCE_DOC_NAMES = {"agents.md", "claude.md", "gemini.md", "review.md", "contributing.md", "readme.md"}
+WORKTREE_REFUSAL = "worktree 类候选交给 repo-cleanup 技能按退役流程处理，不进隔离区。"
+NON_FS_REFUSAL = "不是本机文件系统路径（远端或领域工具动作），不能搬进隔离区。"
+LOCAL_QUARANTINE_FALLBACK = "~/.Cleanup_Quarantine"
+
+# Same pre-merge declaration format that git-ship parses (scripts/git_ship.py CHECK_DECL_RE).
+PREMERGE_DECL_FILES = ("AGENTS.md", "CLAUDE.md")
+PREMERGE_DECL_RE = re.compile(
+    r"^\s*(?:(?:[-*+]|\d+[.)])\s+|>\s*)?(?:\*\*)?合入前检查(?:\*\*)?\s*[:：]\s*(?:\*\*\s*)?(?P<value>.+?)\s*$"
+)
+PREMERGE_NONE_RE = re.compile(r"^(无(需(检查)?)?|不需要(检查)?|none)(?!\w)", re.I)
+PREMERGE_NOTE_START = "（(。；;."
 
 
 class ConfigError(Exception):
@@ -571,14 +599,95 @@ def scan_app_orphans(
 
 
 CACHE_ROOT_NAMES = {"caches", "saved application state", "logs", "httpstorages", "webkit"}
+MDLS_BIN = "/usr/bin/mdls"
+
+
+def _parse_mdls_date(raw: str) -> int:
+    """Parse an mdls date such as '2026-10-13 04:38:32 +0000'; '(null)' or junk returns 0."""
+    s = (raw or "").strip()
+    if not s or s == "(null)":
+        return 0
+    try:
+        return int(datetime.strptime(s, "%Y-%m-%d %H:%M:%S %z").timestamp())
+    except ValueError:
+        return 0
+
+
+def collect_app_last_opened(
+    app_paths: list[str],
+    config: dict[str, Any],
+    run_probes: bool,
+) -> dict[str, int]:
+    """Return {app_path: unix_ts} from Spotlight kMDItemLastUsedDate; apps without a value are omitted.
+
+    `probe_fixtures.app_last_used` ({app_path: "YYYY-MM-DD HH:MM:SS +0000" | unix_ts}) replaces
+    the live mdls probe for deterministic tests. Live probing only runs on host scans.
+    """
+    fixtures = config.get("probe_fixtures", {})
+    if isinstance(fixtures, dict) and isinstance(fixtures.get("app_last_used"), dict):
+        out_fix: dict[str, int] = {}
+        for raw_path, value in fixtures["app_last_used"].items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                ts = int(value)
+            else:
+                ts = _parse_mdls_date(str(value))
+            if ts > 0:
+                out_fix[str(expand_path(str(raw_path)))] = ts
+        return out_fix
+    if not run_probes or not app_paths or not os.path.exists(MDLS_BIN):
+        return {}
+
+    out: dict[str, int] = {}
+    try:
+        proc = subprocess.run(
+            [MDLS_BIN, "-raw", "-name", "kMDItemLastUsedDate", *app_paths],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        values = proc.stdout.decode("utf-8", errors="replace").split("\0") if proc.returncode == 0 else []
+    except Exception:
+        values = []
+    if len(values) == len(app_paths):
+        for p, v in zip(app_paths, values):
+            ts = _parse_mdls_date(v)
+            if ts:
+                out[p] = ts
+        return out
+
+    # Batch output did not line up one value per app: query one by one within a time budget.
+    deadline = time.monotonic() + 30.0
+    for p in app_paths:
+        if time.monotonic() > deadline:
+            break
+        try:
+            single = subprocess.run(
+                [MDLS_BIN, "-raw", "-name", "kMDItemLastUsedDate", p],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+        except Exception:
+            continue
+        ts = _parse_mdls_date(single.stdout) if single.returncode == 0 else 0
+        if ts:
+            out[p] = ts
+    return out
 
 
 def scan_apps_inventory_and_uninstall(
     config: dict[str, Any],
     wl_index: dict[str, Any],
     installed: dict[str, Any] | None = None,
+    run_probes: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
-    """Inventory all installed apps (size, data, cache, usage frequency) and emit app_uninstall candidates for unused apps."""
+    """Inventory installed apps (size, data, cache, usage) and emit app_uninstall candidates for unused apps.
+
+    "Last used" is the later of Spotlight's kMDItemLastUsedDate (when available) and the newest
+    file change in the app bundle and its Library data/cache dirs. Without a Spotlight value the
+    basis is file changes only, and titles say "无文件改动" instead of "未打开".
+    """
     app_roots = config.get("app_roots", ["/Applications", "~/Applications"])
     library_roots = _effective_library_roots(config)
     thresholds = config.get("thresholds", {})
@@ -607,6 +716,8 @@ def scan_apps_inventory_and_uninstall(
     inventory_out: list[dict[str, Any]] = []
     candidates: list[dict[str, Any]] = []
     dir_sizes: dict[str, int] = {}
+    existing_app_paths = [str(Path(a["path"])) for a in installed.get("apps", []) if Path(a["path"]).exists()]
+    last_opened_by_path = collect_app_last_opened(existing_app_paths, config, run_probes)
 
     for app in installed.get("apps", []):
         app_path = Path(app["path"])
@@ -616,9 +727,9 @@ def scan_apps_inventory_and_uninstall(
         dir_sizes[str(app_path)] = app_bytes
         try:
             st = os.stat(app_path, follow_symlinks=False)
-            last_used_ts = max(app_mtime, int(st.st_mtime))
+            last_modified_ts = max(app_mtime, int(st.st_mtime))
         except OSError:
-            last_used_ts = app_mtime
+            last_modified_ts = app_mtime
 
         data_bytes = 0
         cache_bytes = 0
@@ -629,8 +740,8 @@ def scan_apps_inventory_and_uninstall(
             if match_library_entry_to_app(le["name"], app):
                 sz, _, mtime = bounded_dir_size(le["path"])
                 dir_sizes[str(le["path"])] = sz
-                if mtime > last_used_ts:
-                    last_used_ts = mtime
+                if mtime > last_modified_ts:
+                    last_modified_ts = mtime
                 if le["is_cache"]:
                     cache_bytes += sz
                     cache_paths.append(str(le["path"]))
@@ -638,9 +749,29 @@ def scan_apps_inventory_and_uninstall(
                     data_bytes += sz
                     data_paths.append(str(le["path"]))
 
+        # Conservative: an app counts as used if it was either opened (Spotlight) or changed recently.
+        last_opened_ts = last_opened_by_path.get(str(app_path)) or last_opened_by_path.get(
+            str(app_path.resolve(strict=False)), 0
+        )
+        last_used_basis = "spotlight" if last_opened_ts else "file_mtime"
+        last_used_ts = max(last_opened_ts, last_modified_ts)
         total_bytes = app_bytes + data_bytes + cache_bytes
         days_since_used = max(0.0, (now_ts - last_used_ts) / 86400.0) if last_used_ts > 0 else 0.0
         usage_status = "infrequent" if days_since_used >= unused_days_threshold else "frequent"
+        days_int = int(days_since_used)
+        if last_used_basis == "spotlight":
+            idle_label = f"约 {days_int} 天未打开、无文件改动"
+            badge = f"{days_int} 天未打开"
+            basis_note = (
+                f"Spotlight kMDItemLastUsedDate 记录最近打开于 {datetime.fromtimestamp(last_opened_ts, timezone.utc):%Y-%m-%d}，"
+                f"应用与数据目录最近改动于 {datetime.fromtimestamp(last_modified_ts, timezone.utc):%Y-%m-%d}"
+                if last_modified_ts > 0
+                else f"Spotlight kMDItemLastUsedDate 记录最近打开于 {datetime.fromtimestamp(last_opened_ts, timezone.utc):%Y-%m-%d}"
+            )
+        else:
+            idle_label = f"约 {days_int} 天无文件改动"
+            badge = f"{days_int} 天无改动"
+            basis_note = "未取到 Spotlight 最近打开时间，按应用本体与数据、缓存目录的文件修改时间估算"
 
         whitelisted, wl_note = check_path_whitelisted(app_path, wl_index)
         if not whitelisted and normalize_token(app["name"]) in wl_index["app_tokens"]:
@@ -667,6 +798,9 @@ def scan_apps_inventory_and_uninstall(
             "cache_paths": cache_paths,
             "all_paths": purge_all_paths,
             "last_used_ts": last_used_ts,
+            "last_opened_ts": last_opened_ts,
+            "last_modified_ts": last_modified_ts,
+            "last_used_basis": last_used_basis,
             "days_since_used": round(days_since_used, 1),
             "usage_status": usage_status,
             "whitelisted": whitelisted,
@@ -682,9 +816,11 @@ def scan_apps_inventory_and_uninstall(
                     "category": "app_uninstall",
                     "action_type": "cleanup",
                     "tier": "C",
-                    "title": f"不常用应用卸载：{app['name']}（约 {int(days_since_used)} 天未用）",
+                    "title": f"不常用应用卸载：{app['name']}（{idle_label}）",
                     "path": str(app_path),
-                    "paths": purge_all_paths,
+                    # Default mode is keep_data: only the .app bundle and caches, user data stays.
+                    "selected_uninstall_mode": "keep_data",
+                    "paths": keep_data_paths,
                     "app_only_paths": keep_data_paths,
                     "all_uninstall_paths": purge_all_paths,
                     "size_bytes": total_bytes,
@@ -693,7 +829,8 @@ def scan_apps_inventory_and_uninstall(
                     "cache_bytes": cache_bytes,
                     "size_truncated": app_trunc,
                     "latest_mtime": last_used_ts,
-                    "metric_badge": f"{int(days_since_used)} 天未用",
+                    "last_used_basis": last_used_basis,
+                    "metric_badge": badge,
                     "gauge_id": "mac-data",
                     "whitelisted": whitelisted,
                     "whitelist_note": wl_note,
@@ -711,8 +848,9 @@ def scan_apps_inventory_and_uninstall(
                     },
                     "evidence": (
                         f"应用本体 {app_bytes / (1024**2):.1f} MiB + 用户数据 {data_bytes / (1024**2):.1f} MiB + "
-                        f"缓存与状态 {cache_bytes / (1024**2):.1f} MiB（共 {total_bytes / (1024**2):.1f} MiB），"
-                        f"最近活动距今约 {int(days_since_used)} 天。支持选择「保留用户数据」或「一键全部删除（含全部残留）」。"
+                        f"缓存与状态 {cache_bytes / (1024**2):.1f} MiB（共 {total_bytes / (1024**2):.1f} MiB）；"
+                        f"{basis_note}，按较晚者计{idle_label}。默认「保留用户数据」只移走应用本体与缓存；"
+                        "「一键全部删除（含全部残留）」需用户明确选择。"
                     ),
                 }
             )
@@ -1653,6 +1791,41 @@ def iter_git_repos(workspace_roots: list[str], max_depth: int = 3) -> list[Path]
     return repos
 
 
+def parse_premerge_decl(text: str) -> tuple[str | None, str | None]:
+    """Mirror git-ship: ("command", cmd), ("none", None), ("invalid", line) or (None, None) when absent."""
+    for line in text.splitlines():
+        m = PREMERGE_DECL_RE.match(line)
+        if not m:
+            continue
+        value = m.group("value")
+        lead = re.match(r"`([^`]+)`\s*(?P<rest>.*)$", value)
+        if lead and lead.group(1).strip() and (not lead.group("rest") or lead.group("rest")[0] in PREMERGE_NOTE_START):
+            return "command", lead.group(1).strip()
+        if "`" not in value and PREMERGE_NONE_RE.match(value):
+            return "none", None
+        return "invalid", line.strip()
+    return None, None
+
+
+def premerge_decl_for_repo(repo: Path) -> tuple[str | None, str | None, str | None]:
+    """Read AGENTS.md first, then CLAUDE.md. Returns (kind, value, file_name); file_name is None if neither exists."""
+    first_existing: str | None = None
+    for name in PREMERGE_DECL_FILES:
+        doc = repo / name
+        if not doc.is_file():
+            continue
+        if first_existing is None:
+            first_existing = name
+        try:
+            text = doc.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        kind, value = parse_premerge_decl(text)
+        if kind:
+            return kind, value, name
+    return None, None, first_existing
+
+
 def matches_any_glob(name: str, globs: list[str]) -> bool:
     for pattern in globs:
         if fnmatch.fnmatch(name, pattern) or fnmatch.fnmatch(name.lower(), pattern.lower()):
@@ -1702,36 +1875,48 @@ def scan_workspaces_and_backups(
                             "whitelist_note": wl_repo_note,
                             "evidence": (
                                 f"{repo.name} 的 .git/objects/pack 达 {pack_bytes / (1024**2):.1f} MiB；"
-                                "可在无并发操作时执行 git gc --prune=now 或检查是否误提交过大二进制文件。"
+                                "可在无并发操作时执行普通 `git gc`（不加 --prune=now，保留别的会话可能还在用的松散对象），"
+                                "或检查是否误提交过大二进制文件。"
                             ),
                         }
                     )
 
-        # 2. Check AGENTS.md / CLAUDE.md pre-merge check governance
-        agents_md = repo / "AGENTS.md"
-        if agents_md.is_file():
+        # 2. Check AGENTS.md (then CLAUDE.md) pre-merge check declaration, same rule as git-ship
+        decl_kind, decl_value, decl_file = premerge_decl_for_repo(repo)
+        if decl_file is not None and decl_kind not in ("command", "none"):
+            doc_path = repo / decl_file
+            invalid = decl_kind == "invalid"
             try:
-                text = agents_md.read_text(encoding="utf-8", errors="replace")
-                if "合入前检查：" not in text and "合入前检查:" not in text:
-                    candidates.append(
-                        {
-                            "id": f"doc-premerge-{repo_slug}",
-                            "domain": "projects",
-                            "category": "governance_doc",
-                            "tier": "B",
-                            "title": f"补充合入前检查声明：{repo.name}/AGENTS.md",
-                            "path": str(agents_md),
-                            "size_bytes": 0,
-                            "size_truncated": False,
-                            "latest_mtime": int(agents_md.stat().st_mtime),
-                            "gauge_id": "",
-                            "whitelisted": whitelisted_repo,
-                            "whitelist_note": wl_repo_note,
-                            "evidence": "AGENTS.md 缺少「合入前检查：`命令`」或「合入前检查：无」约定行。",
-                        }
-                    )
+                doc_mtime = int(doc_path.stat().st_mtime)
             except OSError:
-                pass
+                doc_mtime = 0
+            candidates.append(
+                {
+                    "id": f"doc-premerge-{repo_slug}",
+                    "domain": "projects",
+                    "category": "governance_doc",
+                    "action_type": "optimize",
+                    "tier": "B",
+                    "title": (
+                        f"修正合入前检查写法：{repo.name}/{decl_file}"
+                        if invalid
+                        else f"补充合入前检查声明：{repo.name}/{decl_file}"
+                    ),
+                    "path": str(doc_path),
+                    "size_bytes": 0,
+                    "size_truncated": False,
+                    "latest_mtime": doc_mtime,
+                    "gauge_id": "",
+                    "whitelisted": whitelisted_repo,
+                    "whitelist_note": wl_repo_note,
+                    "evidence": (
+                        f"{decl_file} 里的合入前检查写法 git-ship 认不出：{decl_value}；"
+                        "写成行首「合入前检查：`命令`」（多条命令用 && 连成一条）或「合入前检查：无」。"
+                        if invalid
+                        else "AGENTS.md 和 CLAUDE.md 都没有行首的「合入前检查：`命令`」或「合入前检查：无」约定行。"
+                    ),
+                }
+            )
 
     # 3. Scan top-level and repo-level build/preservation directories & backup exclusion drift
     for raw_root in workspace_roots:
@@ -1885,7 +2070,7 @@ def cmd_scan_local(args: argparse.Namespace) -> int:
     gauges = collect_storage_gauges(config)
     orphan_candidates, orphan_sizes = scan_app_orphans(config, wl_index, installed=installed)
     app_inventory, uninstall_candidates, app_sizes = scan_apps_inventory_and_uninstall(
-        config, wl_index, installed=installed
+        config, wl_index, installed=installed, run_probes=run_probes
     )
     cache_candidates, cache_sizes = scan_global_caches(config, wl_index)
     launch_candidates = scan_launch_items(config, wl_index, installed=installed)
@@ -2067,12 +2252,16 @@ def find_enclosing_git_root(target: Path) -> Path | None:
     return None
 
 
-def check_codex_sqlite_activity(
+def check_codex_session_activity(
     repo_root: Path,
     cutoff_ts: float,
     sessions_dir: Path | None = None,
 ) -> tuple[bool, str]:
-    """Check if recent Codex session rollouts in ~/.codex/sessions reference repo_root after cutoff_ts."""
+    """Check if recent Codex session rollouts (~/.codex/sessions/**/*.jsonl) reference repo_root after cutoff_ts.
+
+    Only Codex sessions are read. Claude Code, Antigravity and OpenCode sessions are not
+    inspected; those are covered indirectly by recent-mtime, dirty-status and lsof checks.
+    """
     sess_root = sessions_dir or (Path.home() / ".codex" / "sessions")
     if not sess_root.is_dir():
         return False, ""
@@ -2159,13 +2348,16 @@ def is_remote_or_non_fs_spec(raw_path: str, item: dict[str, Any]) -> bool:
 
 
 def resolve_item_paths(item: dict[str, Any], cli_uninstall_mode: str | None = None) -> tuple[list[str], str | None]:
-    """Resolve target paths for a candidate item, honoring keep_data / purge_all uninstall modes when present."""
+    """Resolve target paths for a candidate item, honoring keep_data / purge_all uninstall modes when present.
+
+    Without an explicit mode the default is keep_data (user data stays); purge_all must be chosen explicitly.
+    """
     modes = item.get("uninstall_modes")
     if isinstance(modes, dict) and modes:
-        raw_mode = cli_uninstall_mode or item.get("selected_uninstall_mode") or "purge_all"
+        raw_mode = cli_uninstall_mode or item.get("selected_uninstall_mode") or "keep_data"
         norm_mode = str(raw_mode).strip().lower().replace("-", "_")
         if norm_mode not in modes:
-            norm_mode = "purge_all" if "purge_all" in modes else next(iter(modes.keys()))
+            norm_mode = "keep_data" if "keep_data" in modes else next(iter(modes.keys()))
         mode_obj = modes.get(norm_mode, {})
         if isinstance(mode_obj, dict) and isinstance(mode_obj.get("paths"), list) and mode_obj["paths"]:
             return [str(p) for p in mode_obj["paths"]], norm_mode
@@ -2251,7 +2443,7 @@ def evaluate_single_target(
                 ),
             }
 
-        codex_active, codex_reason = check_codex_sqlite_activity(enclosing_repo, wt_cutoff)
+        codex_active, codex_reason = check_codex_session_activity(enclosing_repo, wt_cutoff)
         if codex_active:
             return {
                 "path": str(target),
@@ -2289,40 +2481,197 @@ def evaluate_single_target(
     }
 
 
-def resolve_quarantine_root(config: dict[str, Any], explicit_dir: str | None = None) -> Path:
-    """Select external drive quarantine root first (to free Mac space immediately), falling back to ~/.Cleanup_Quarantine."""
-    if explicit_dir:
-        return expand_path(explicit_dir)
+def quarantine_item_refusal(item: dict[str, Any]) -> str:
+    """Return why a candidate may never be moved into quarantine (category / action level), or ""."""
+    cat = str(item.get("category") or "").strip().lower()
+    kind = str(item.get("kind") or "").strip().lower()
+    if "worktree" in cat or kind == "worktree":
+        return WORKTREE_REFUSAL
+    if cat in NON_MOVABLE_CATEGORIES:
+        return NON_MOVABLE_CATEGORIES[cat]
+    action = str(item.get("action_type") or "").strip().lower()
+    if action in NON_MOVABLE_ACTION_TYPES:
+        return f"动作类型为 {action}（优化或更新建议），没有可搬移的文件。"
+    return ""
+
+
+def quarantine_path_refusal(target: Path) -> str:
+    """Return why a concrete path may never be moved into quarantine, or ""."""
+    abs_target = Path(os.path.abspath(target))
+    if ".git" in abs_target.parts or ".git" in target.resolve(strict=False).parts:
+        return "路径在 Git 内部目录（.git）里，移走会损坏仓库。"
+    if abs_target.name.lower() in GOVERNANCE_DOC_NAMES:
+        return NON_MOVABLE_CATEGORIES["governance_doc"]
+    if abs_target.suffix.lower() == ".plist" and abs_target.parent.name in ("LaunchAgents", "LaunchDaemons"):
+        return NON_MOVABLE_CATEGORIES["launch_item"]
+    try:
+        if abs_target.is_dir() and (abs_target / ".git").exists():
+            return WORKTREE_REFUSAL
+    except OSError:
+        pass
+    return ""
+
+
+def quarantine_refusal_for(item: dict[str, Any], raw_paths: list[str]) -> str:
+    """Item-level refusal shared by preflight (quarantine_allowed) and quarantine: any refused path refuses the item."""
+    reason = quarantine_item_refusal(item)
+    if reason:
+        return reason
+    if not raw_paths:
+        return "候选项没有可搬移的路径。"
+    for raw in raw_paths:
+        if is_remote_or_non_fs_spec(str(raw), item):
+            return NON_FS_REFUSAL
+        path_reason = quarantine_path_refusal(Path(os.path.expanduser(str(raw))))
+        if path_reason:
+            return f"{raw}：{path_reason}"
+    return ""
+
+
+def external_mount_root(path: Path) -> Path | None:
+    """Return /Volumes/<name> for paths under /Volumes, else None."""
+    parts = path.parts
+    if len(parts) >= 3 and parts[0] == "/" and parts[1] == "Volumes":
+        return Path("/", "Volumes", parts[2])
+    return None
+
+
+def read_volume_uuid(mount_root: Path) -> str:
+    """Read VolumeUUID via `diskutil info -plist <mount point>`; "" when unavailable."""
+    try:
+        proc = subprocess.run(
+            ["/usr/sbin/diskutil", "info", "-plist", str(mount_root)],
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+    except Exception:
+        return ""
+    if proc.returncode != 0 or not proc.stdout:
+        return ""
+    try:
+        info = plistlib.loads(proc.stdout)
+    except Exception:
+        return ""
+    if not isinstance(info, dict):
+        return ""
+    return str(info.get("VolumeUUID") or "").strip()
+
+
+def _quarantine_root_entries(config: dict[str, Any]) -> list[dict[str, str]]:
+    """Parse quarantine.root_dirs: strings or {"path": ..., "volume_uuid": ...}; malformed entries fail closed."""
     q_cfg = config.get("quarantine", {})
-    candidates = q_cfg.get("root_dirs") if isinstance(q_cfg, dict) else None
-    if not isinstance(candidates, list) or not candidates:
-        candidates = []
-        volumes_dir = Path("/Volumes")
-        if volumes_dir.is_dir():
-            try:
-                for vol in sorted(volumes_dir.iterdir()):
-                    if vol.is_dir() and not vol.is_symlink() and vol.name not in ("Macintosh HD", "Macintosh HD - Data", "Recovery", "Preboot", "VM", "Update"):
-                        candidates.append(str(vol / ".Cleanup_Quarantine"))
-            except OSError:
-                pass
-        candidates.append("~/.Cleanup_Quarantine")
-    for raw in candidates:
-        p = expand_path(raw)
-        if str(p).startswith("/Volumes/"):
-            parts = p.parts
-            if len(parts) >= 3:
-                mount_root = Path("/") / parts[1] / parts[2]
-                if mount_root.is_dir() and os.access(mount_root, os.W_OK):
-                    return p
+    if q_cfg is None:
+        return []
+    if not isinstance(q_cfg, dict):
+        raise ConfigError("Invalid 'quarantine' object in configuration")
+    raw = q_cfg.get("root_dirs", [])
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ConfigError("Invalid 'quarantine.root_dirs': must be a list")
+    entries: list[dict[str, str]] = []
+    for entry in raw:
+        if isinstance(entry, str) and entry.strip():
+            entries.append({"path": entry.strip(), "volume_uuid": ""})
+        elif isinstance(entry, dict) and isinstance(entry.get("path"), str) and entry["path"].strip():
+            uuid = entry.get("volume_uuid", "")
+            if uuid is not None and not isinstance(uuid, str):
+                raise ConfigError("Invalid 'quarantine.root_dirs[].volume_uuid': must be a string")
+            entries.append({"path": entry["path"].strip(), "volume_uuid": (uuid or "").strip()})
         else:
-            return p
-    return expand_path("~/.Cleanup_Quarantine")
+            raise ConfigError(
+                "Invalid 'quarantine.root_dirs' entry: use a path string or {\"path\": ..., \"volume_uuid\": ...}"
+            )
+    return entries
+
+
+def check_quarantine_root(raw_path: str, volume_uuid: str = "") -> tuple[Path, str]:
+    """Return (root_path, rejection_reason). An empty reason means the root is usable.
+
+    Roots under /Volumes/<name> must be a real mount point (os.path.ismount), writable, and,
+    when volume_uuid is configured, match `diskutil info -plist` VolumeUUID. Other paths are
+    treated as local directories.
+    """
+    abs_path = Path(os.path.abspath(os.path.expanduser(raw_path)))
+    mount_root = external_mount_root(abs_path)
+    if mount_root is None:
+        return expand_path(raw_path), ""
+    if mount_root.is_symlink():
+        return abs_path, f"{mount_root} 是符号链接，不是外置盘挂载点。"
+    if not os.path.ismount(mount_root):
+        return abs_path, f"{mount_root} 没有挂载（不存在，或只是 /Volumes 下的普通目录），不当作外置盘。"
+    if not os.access(mount_root, os.W_OK):
+        return abs_path, f"{mount_root} 已挂载但当前用户不可写。"
+    if volume_uuid:
+        actual = read_volume_uuid(mount_root)
+        if not actual:
+            return abs_path, f"读不到 {mount_root} 的 VolumeUUID（diskutil info 失败），无法核对是不是配置的那块盘。"
+        if actual.upper() != volume_uuid.upper():
+            return abs_path, f"{mount_root} 的 VolumeUUID 是 {actual}，和配置的 {volume_uuid} 不一致（可能是同名的另一块盘）。"
+    return abs_path, ""
+
+
+def resolve_quarantine_root(config: dict[str, Any], explicit_dir: str | None = None) -> tuple[Path, dict[str, Any]]:
+    """Pick the first usable configured quarantine root; never scans /Volumes on its own.
+
+    Returns (root, info) where info carries per-root checks and, when falling back to the local
+    ~/.Cleanup_Quarantine, the reason for the fallback.
+    """
+    if explicit_dir:
+        root, why = check_quarantine_root(explicit_dir)
+        if why:
+            raise ConfigError(f"--quarantine-dir {explicit_dir} is not usable: {why}")
+        return root, {
+            "source": "cli",
+            "external": external_mount_root(root) is not None,
+            "checks": [{"path": str(root), "accepted": True, "reason": "命令行显式指定"}],
+            "fallback_reason": "",
+        }
+
+    entries = _quarantine_root_entries(config)
+    fallback = expand_path(LOCAL_QUARANTINE_FALLBACK)
+    if not entries:
+        return fallback, {
+            "source": "fallback",
+            "external": False,
+            "checks": [],
+            "fallback_reason": "配置里没有 quarantine.root_dirs；不自动遍历 /Volumes（会误把备份卷、NAS 共享当外置盘），使用本机 ~/.Cleanup_Quarantine。",
+        }
+
+    checks: list[dict[str, Any]] = []
+    for entry in entries:
+        root, why = check_quarantine_root(entry["path"], entry.get("volume_uuid", ""))
+        checks.append({"path": str(root), "accepted": not why, "reason": why or "可用"})
+        if why:
+            continue
+        is_external = external_mount_root(root) is not None
+        rejected = [c["reason"] for c in checks if not c["accepted"]]
+        return root, {
+            "source": "config",
+            "external": is_external,
+            "checks": checks,
+            "fallback_reason": ("前面的外置隔离根不可用：" + "；".join(r.rstrip("。") for r in rejected)) if rejected else "",
+        }
+
+    return fallback, {
+        "source": "fallback",
+        "external": False,
+        "checks": checks,
+        "fallback_reason": "配置的隔离根都不可用，退回本机 ~/.Cleanup_Quarantine："
+        + "；".join(c["reason"].rstrip("。") for c in checks),
+    }
 
 
 def cmd_quarantine(args: argparse.Namespace) -> int:
-    """Move safe project/worktree/artifact targets into a Quarantine batch with manifest.json and restore.sh."""
+    """Move explicitly selected, preflight-safe paths into a Quarantine batch with manifest.json and restore.sh."""
     config = load_topology(args.config)
     wl_index = build_whitelist_index(config)
+
+    selected_ids = [x.strip() for x in str(args.ids or "").split(",") if x.strip()]
+    if not selected_ids:
+        raise ConfigError("--ids must list at least one candidate ID; quarantine never defaults to all candidates")
+    selected_set = set(selected_ids)
 
     thresholds = config.get("thresholds", {})
     recent_minutes = (
@@ -2344,24 +2693,39 @@ def cmd_quarantine(args: argparse.Namespace) -> int:
         raise ConfigError(f"Failed to read targets/plan file {args.targets}: {exc}") from exc
 
     raw_items = plan_data.get("targets") or plan_data.get("candidates") or []
-    selected_ids = (
-        {x.strip() for x in args.ids.split(",") if x.strip()} if args.ids else None
-    )
     cli_uninstall_mode = getattr(args, "uninstall_mode", None)
 
-    q_root = resolve_quarantine_root(config, args.quarantine_dir)
+    q_root, q_info = resolve_quarantine_root(config, args.quarantine_dir)
     batch_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
     batch_dir = q_root / batch_id
     files_dir = batch_dir / "files"
 
     staged_items: list[dict[str, Any]] = []
     blocked_items: list[dict[str, Any]] = []
+    refused_items: list[dict[str, Any]] = []
+    skipped_items: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
 
     for item in raw_items:
-        item_id = item.get("id", "unknown")
-        if selected_ids is not None and item_id not in selected_ids:
+        item_id = str(item.get("id", "unknown"))
+        if item_id not in selected_set:
             continue
+        seen_ids.add(item_id)
         paths_to_check, active_mode = resolve_item_paths(item, cli_uninstall_mode=cli_uninstall_mode)
+
+        refusal = quarantine_refusal_for(item, paths_to_check)
+        if refusal:
+            refused_items.append(
+                {
+                    "id": item_id,
+                    "path": str(item.get("path") or (paths_to_check[0] if paths_to_check else "")),
+                    "category": item.get("category", ""),
+                    "status": "REFUSED_NOT_MOVABLE",
+                    "reason": refusal,
+                }
+            )
+            continue
+
         for raw_p in paths_to_check:
             res = evaluate_single_target(
                 str(raw_p),
@@ -2373,11 +2737,24 @@ def cmd_quarantine(args: argparse.Namespace) -> int:
                 worktree_cutoff_ts=wt_cutoff_ts,
                 worktree_protect_minutes=worktree_protect_minutes,
             )
-            if res["status"] != "SAFE_TO_EXECUTE" or is_remote_or_non_fs_spec(str(raw_p), item):
+            if res["status"] == "MISSING_ALREADY_DONE":
+                skipped_items.append({"id": item_id, **res})
+                continue
+            if res["status"] != "SAFE_TO_EXECUTE":
                 blocked_items.append({"id": item_id, **res})
                 continue
 
             src_path = Path(res["path"]).resolve(strict=False)
+            if src_path == q_root or src_path in q_root.parents:
+                blocked_items.append(
+                    {
+                        "id": item_id,
+                        "path": str(src_path),
+                        "status": "REFUSED_NOT_MOVABLE",
+                        "reason": "目标包含隔离区本身，不能把目录移进它自己的子目录。",
+                    }
+                )
+                continue
             rel_dest = str(src_path).lstrip("/")
             dst_path = files_dir / rel_dest
             size_bytes, _, _ = bounded_dir_size(src_path, max_entries=10000, max_seconds=2.0)
@@ -2405,12 +2782,21 @@ def cmd_quarantine(args: argparse.Namespace) -> int:
         "created_at": utc_now_iso(),
         "dry_run": bool(args.dry_run),
         "quarantine_root": str(q_root),
+        "quarantine_root_external": bool(q_info.get("external")),
+        "quarantine_root_checks": q_info.get("checks", []),
+        "quarantine_root_fallback_reason": q_info.get("fallback_reason", ""),
         "batch_dir": str(batch_dir),
         "restore_script": str(restore_script_path),
+        "requested_ids": selected_ids,
+        "unknown_ids": [i for i in selected_ids if i not in seen_ids],
         "staged_count": len(staged_items),
         "blocked_count": len(blocked_items),
+        "refused_count": len(refused_items),
+        "skipped_count": len(skipped_items),
         "staged_items": staged_items,
         "blocked_items": blocked_items,
+        "refused_items": refused_items,
+        "skipped_items": skipped_items,
     }
 
     if staged_items and not args.dry_run:
@@ -2436,6 +2822,13 @@ def cmd_quarantine(args: argparse.Namespace) -> int:
         json.dump(manifest_payload, sys.stdout, ensure_ascii=False, indent=2)
         sys.stdout.write("\n")
     return 0
+
+
+def annotate_quarantine_eligibility(entry: dict[str, Any], move_refusal: str) -> None:
+    """Tell the caller up front whether `quarantine` would ever move this item, using the same rule."""
+    entry["quarantine_allowed"] = not move_refusal
+    if move_refusal:
+        entry["quarantine_refusal"] = move_refusal
 
 
 def cmd_preflight(args: argparse.Namespace) -> int:
@@ -2476,6 +2869,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
             continue
 
         resolved_paths, active_mode = resolve_item_paths(item, cli_uninstall_mode=cli_uninstall_mode)
+        move_refusal = quarantine_refusal_for(item, resolved_paths)
         if len(resolved_paths) > 1 or active_mode is not None or (isinstance(item.get("paths"), list) and item.get("paths")):
             sub_results = [
                 evaluate_single_target(
@@ -2536,6 +2930,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
                 if active_mode:
                     entry_res["uninstall_mode"] = active_mode
                 results.append(entry_res)
+            annotate_quarantine_eligibility(results[-1], move_refusal)
             continue
 
         raw_path = resolved_paths[0] if resolved_paths else str(item.get("path") or "")
@@ -2559,6 +2954,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
                 "reason": single["reason"],
             }
         )
+        annotate_quarantine_eligibility(results[-1], move_refusal)
 
     payload = {
         "schema": SCHEMA_VERSION,
@@ -2606,7 +3002,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--uninstall-mode",
         choices=["purge-all", "keep-data", "purge_all", "keep_data"],
         default=None,
-        help="Override uninstall mode for app_uninstall targets (purge-all or keep-data)",
+        help="Uninstall mode for app_uninstall targets: keep-data (default, user data stays) or purge-all",
     )
     p_pre.add_argument("--recent-minutes", type=float, default=None, help="Override recent activity window in minutes")
     p_pre.add_argument("--skip-lsof", action="store_true", help="Skip lsof invocation (for fast fixture tests)")
@@ -2615,16 +3011,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_quar = sub.add_parser(
         "quarantine",
-        help="Stage idle project/worktree/artifact/uninstall targets into external/local Quarantine with manifest.json + restore.sh.",
+        help=(
+            "Move explicitly selected, preflight-safe build artifacts, app leftovers or app bundles into a "
+            "Quarantine batch with manifest.json + restore.sh (Git data, governance docs, launch items, "
+            "update/firmware advisories and worktrees are refused)."
+        ),
     )
     p_quar.add_argument("--config", required=True, help="Path to topology.json or topology.local.json")
     p_quar.add_argument("--targets", required=True, help="Path to snapshot or targets JSON")
-    p_quar.add_argument("--ids", help="Comma-separated candidate IDs to quarantine (default: all)")
+    p_quar.add_argument(
+        "--ids",
+        required=True,
+        help="Comma-separated candidate IDs to quarantine (required; use IDs that preflight reported as SAFE_TO_EXECUTE)",
+    )
     p_quar.add_argument(
         "--uninstall-mode",
         choices=["purge-all", "keep-data", "purge_all", "keep_data"],
         default=None,
-        help="Override uninstall mode for app_uninstall targets (purge-all or keep-data)",
+        help="Uninstall mode for app_uninstall targets: keep-data (default, user data stays) or purge-all",
     )
     p_quar.add_argument("--quarantine-dir", help="Explicit quarantine root directory")
     p_quar.add_argument("--recent-minutes", type=float, default=None, help="Override recent activity window in minutes")

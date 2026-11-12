@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import plistlib
@@ -7,6 +8,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
@@ -89,7 +91,6 @@ class FullStackMaintenanceTests(unittest.TestCase):
         config_data = {
             "version": 1,
             "workspace_roots": [str(ws_dir)],
-            "worktree_hubs": [],
             "app_roots": [str(apps_dir)],
             "library_roots": [str(lib_support)],
             "thresholds": {
@@ -145,6 +146,339 @@ class FullStackMaintenanceTests(unittest.TestCase):
         self.assertIn("doc-premerge-demo-project", by_id)
         self.assertIn("build-demo-project-demo-preservation", by_id)
         self.assertIn("drift-test-backup-demo-project-demo-preservation", by_id)
+        self.assertNotIn("git gc --prune=now", by_id["git-pack-demo-project"]["evidence"])
+        self.assertIn("普通 `git gc`", by_id["git-pack-demo-project"]["evidence"])
+
+        # Git pack, governance doc and backup-drift candidates are refused by quarantine, never moved
+        q_dir = self.root / "quarantine_refuse"
+        manifest_out = self.root / "q_refuse.json"
+        rc_q = full_stack_tool.main(
+            [
+                "quarantine",
+                "--config",
+                str(config_path),
+                "--targets",
+                str(out_path),
+                "--ids",
+                "git-pack-demo-project,doc-premerge-demo-project,drift-test-backup-demo-project-demo-preservation",
+                "--quarantine-dir",
+                str(q_dir),
+                "--skip-lsof",
+                "--output",
+                str(manifest_out),
+            ]
+        )
+        self.assertEqual(rc_q, 0)
+        manifest = json.loads(manifest_out.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["staged_count"], 0)
+        refused = {r["id"]: r for r in manifest["refused_items"]}
+        self.assertEqual(
+            set(refused),
+            {"git-pack-demo-project", "doc-premerge-demo-project", "drift-test-backup-demo-project-demo-preservation"},
+        )
+        self.assertTrue(all(r["status"] == "REFUSED_NOT_MOVABLE" and r["reason"] for r in refused.values()))
+        self.assertTrue((pack_dir / "pack-123.pack").is_file())
+        self.assertTrue((repo_dir / "AGENTS.md").is_file())
+        self.assertTrue((pres_dir / "artifact.bin").is_file())
+        self.assertFalse(q_dir.exists())
+
+    def test_premerge_declaration_matches_git_ship_rules(self) -> None:
+        parse = full_stack_tool.parse_premerge_decl
+        self.assertEqual(parse("- 合入前检查：`make test`（单测）\n"), ("command", "make test"))
+        self.assertEqual(parse("**合入前检查**: `npm run check`\n"), ("command", "npm run check"))
+        self.assertEqual(parse("合入前检查：无\n"), ("none", None))
+        self.assertEqual(parse("- 合并前检查：`make test`\n"), (None, None))
+        self.assertEqual(parse("说明见 合入前检查：`make test`\n"), (None, None))
+        self.assertEqual(parse("- 合入前检查：`a` 和 `b`\n")[0], "invalid")
+
+        only_claude = self.root / "only-claude"
+        only_claude.mkdir()
+        (only_claude / "AGENTS.md").write_text("# rules\n", encoding="utf-8")
+        (only_claude / "CLAUDE.md").write_text("- 合入前检查：`make check`\n", encoding="utf-8")
+        self.assertEqual(
+            full_stack_tool.premerge_decl_for_repo(only_claude), ("command", "make check", "CLAUDE.md")
+        )
+
+        missing = self.root / "missing-decl"
+        missing.mkdir()
+        (missing / "AGENTS.md").write_text("提到合入前检查：但不在行首的写法\n", encoding="utf-8")
+        self.assertEqual(full_stack_tool.premerge_decl_for_repo(missing), (None, None, "AGENTS.md"))
+
+        no_docs = self.root / "no-docs"
+        no_docs.mkdir()
+        self.assertEqual(full_stack_tool.premerge_decl_for_repo(no_docs), (None, None, None))
+
+    def test_quarantine_requires_ids(self) -> None:
+        config_path = self.root / "topology.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "whitelist": {"paths": [], "repos": [], "app_names": [], "guest_ids": [], "notes": {}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        idle = self.root / "idle"
+        idle.mkdir()
+        targets_path = self.root / "targets.json"
+        targets_path.write_text(json.dumps({"candidates": [{"id": "idle", "path": str(idle)}]}), encoding="utf-8")
+        base = ["quarantine", "--config", str(config_path), "--targets", str(targets_path), "--dry-run"]
+
+        with mock.patch("sys.stderr", new_callable=io.StringIO):
+            with self.assertRaises(SystemExit) as ctx:
+                full_stack_tool.main(base)
+        self.assertEqual(ctx.exception.code, 2)
+        with mock.patch("sys.stderr", new_callable=io.StringIO):
+            self.assertEqual(full_stack_tool.main([*base, "--ids", " , "]), 2)
+        self.assertTrue(idle.is_dir())
+
+    def test_quarantine_refuses_git_governance_launch_update_and_worktree_paths(self) -> None:
+        old_ts = time.time() - 7200
+
+        def age(*paths: Path) -> None:
+            for root_p in paths:
+                for dirpath, dirnames, filenames in os.walk(root_p):
+                    for n in dirnames + filenames:
+                        os.utime(Path(dirpath) / n, (old_ts, old_ts), follow_symlinks=False)
+                os.utime(root_p, (old_ts, old_ts), follow_symlinks=False)
+
+        clean_repo = self.root / "clean_repo"
+        clean_repo.mkdir()
+        subprocess.run(["git", "-C", str(clean_repo), "init", "-q"], check=True)
+        pack_dir = clean_repo / ".git" / "objects" / "pack"
+        pack_dir.mkdir(parents=True, exist_ok=True)
+        (pack_dir / "pack-1.pack").write_bytes(b"p")
+
+        plain_dir = self.root / "plain_project"
+        plain_dir.mkdir()
+        agents_md = plain_dir / "AGENTS.md"
+        agents_md.write_text("# rules\n", encoding="utf-8")
+
+        launch_dir = self.root / "LaunchAgents"
+        launch_dir.mkdir()
+        plist = launch_dir / "com.example.helper.plist"
+        plist.write_bytes(b"<plist/>")
+
+        stale_wt = self.root / "stale_worktree_copy"
+        stale_wt.mkdir()
+        (stale_wt / "file.txt").write_text("x", encoding="utf-8")
+
+        idle = self.root / "idle_build"
+        idle.mkdir()
+        (idle / "out.o").write_bytes(b"o")
+        age(clean_repo, plain_dir, launch_dir, stale_wt, idle)
+
+        config_path = self.root / "topology.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "thresholds": {"recent_activity_minutes": 60, "worktree_protect_minutes": 60},
+                    "whitelist": {"paths": [], "repos": [], "app_names": [], "guest_ids": [], "notes": {}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        refused_ids = [
+            "raw-pack",
+            "raw-agents",
+            "repo-root",
+            "launch",
+            "launch-raw",
+            "app-upd",
+            "env-upd",
+            "firmware",
+            "wt-category",
+            "remote",
+        ]
+        candidates = [
+            {"id": "raw-pack", "path": str(pack_dir)},
+            {"id": "raw-agents", "path": str(agents_md)},
+            {"id": "repo-root", "path": str(clean_repo)},
+            {"id": "launch", "category": "launch_item", "action_type": "cleanup", "path": str(plist)},
+            {"id": "launch-raw", "path": str(plist)},
+            {"id": "app-upd", "category": "app_update", "path": str(idle)},
+            {"id": "env-upd", "category": "env_update", "path": str(idle)},
+            {"id": "firmware", "category": "peripheral_firmware", "path": str(idle)},
+            {"id": "wt-category", "category": "stale_worktree", "path": str(stale_wt)},
+            {"id": "remote", "domain": "nas", "path": "pve:local-lvm"},
+            {"id": "idle", "category": "build_artifact", "path": str(idle)},
+        ]
+        targets_path = self.root / "targets.json"
+        targets_path.write_text(json.dumps({"candidates": candidates}), encoding="utf-8")
+        all_ids = ",".join([*refused_ids, "idle", "not-in-plan"])
+
+        pre_out = self.root / "preflight.json"
+        rc_pre = full_stack_tool.main(
+            [
+                "preflight",
+                "--config",
+                str(config_path),
+                "--targets",
+                str(targets_path),
+                "--ids",
+                all_ids,
+                "--skip-lsof",
+                "--output",
+                str(pre_out),
+            ]
+        )
+        self.assertEqual(rc_pre, 0)
+        pre = {r["id"]: r for r in json.loads(pre_out.read_text(encoding="utf-8"))["results"]}
+
+        q_dir = self.root / "quarantine_store"
+        q_out = self.root / "quarantine.json"
+        rc_q = full_stack_tool.main(
+            [
+                "quarantine",
+                "--config",
+                str(config_path),
+                "--targets",
+                str(targets_path),
+                "--ids",
+                all_ids,
+                "--quarantine-dir",
+                str(q_dir),
+                "--skip-lsof",
+                "--output",
+                str(q_out),
+            ]
+        )
+        self.assertEqual(rc_q, 0)
+        manifest = json.loads(q_out.read_text(encoding="utf-8"))
+        refused = {r["id"]: r for r in manifest["refused_items"]}
+        self.assertEqual(set(refused), set(refused_ids))
+        for rid in refused_ids:
+            self.assertEqual(refused[rid]["status"], "REFUSED_NOT_MOVABLE")
+            self.assertTrue(refused[rid]["reason"])
+            # preflight reports the same verdict before anything moves
+            self.assertFalse(pre[rid]["quarantine_allowed"], rid)
+            self.assertTrue(pre[rid]["quarantine_refusal"], rid)
+        self.assertIn("repo-cleanup", refused["repo-root"]["reason"])
+        self.assertIn("repo-cleanup", refused["wt-category"]["reason"])
+        self.assertIn(".git", refused["raw-pack"]["reason"])
+        self.assertTrue(pre["idle"]["quarantine_allowed"])
+        self.assertEqual(manifest["unknown_ids"], ["not-in-plan"])
+
+        self.assertTrue((pack_dir / "pack-1.pack").is_file())
+        self.assertTrue(agents_md.is_file())
+        self.assertTrue(plist.is_file())
+        self.assertTrue((clean_repo / ".git").is_dir())
+        self.assertTrue((stale_wt / "file.txt").is_file())
+        self.assertEqual([s["id"] for s in manifest["staged_items"]], ["idle"])
+        self.assertFalse(idle.exists())
+
+    def test_quarantine_root_requires_real_mount_and_matching_uuid(self) -> None:
+        fake_home = self.root / "home"
+        fake_home.mkdir()
+        disk = "/Volumes/FSMTestDisk"
+        real_access = os.access
+
+        def fake_access(path, mode, *a, **kw):
+            if str(path).startswith(disk):
+                return True
+            return real_access(path, mode, *a, **kw)
+
+        with mock.patch.dict(os.environ, {"HOME": str(fake_home)}):
+            fallback = (fake_home / ".Cleanup_Quarantine").resolve()
+
+            # No configured roots: never scan /Volumes, fall back locally with a reason
+            root, info = full_stack_tool.resolve_quarantine_root({"version": 1})
+            self.assertEqual(root, fallback)
+            self.assertIn("不自动遍历 /Volumes", info["fallback_reason"])
+
+            # Configured external root that is not mounted (does not exist): fall back, explain why
+            cfg = {"quarantine": {"root_dirs": ["/Volumes/FSMTestNotMounted-4c1e/.Cleanup_Quarantine"]}}
+            root, info = full_stack_tool.resolve_quarantine_root(cfg)
+            self.assertEqual(root, fallback)
+            self.assertFalse(info["external"])
+            self.assertIn("没有挂载", info["fallback_reason"])
+
+            with mock.patch.object(
+                full_stack_tool.os.path, "ismount", side_effect=lambda p: str(p) == disk
+            ), mock.patch.object(full_stack_tool.os, "access", side_effect=fake_access):
+                uuid_cfg = {
+                    "quarantine": {
+                        "root_dirs": [
+                            {"path": f"{disk}/.Cleanup_Quarantine", "volume_uuid": "BBBB-2222"},
+                            "~/.Cleanup_Quarantine",
+                        ]
+                    }
+                }
+                with mock.patch.object(full_stack_tool, "read_volume_uuid", return_value="AAAA-1111"):
+                    root, info = full_stack_tool.resolve_quarantine_root(uuid_cfg)
+                self.assertEqual(root, fallback)
+                self.assertIn("不一致", info["fallback_reason"])
+                self.assertEqual([c["accepted"] for c in info["checks"]], [False, True])
+
+                with mock.patch.object(full_stack_tool, "read_volume_uuid", return_value="bbbb-2222"):
+                    root, info = full_stack_tool.resolve_quarantine_root(uuid_cfg)
+                self.assertEqual(root, Path(f"{disk}/.Cleanup_Quarantine"))
+                self.assertTrue(info["external"])
+                self.assertEqual(info["fallback_reason"], "")
+
+                with mock.patch.object(full_stack_tool, "read_volume_uuid", return_value="") as uuid_probe:
+                    root, info = full_stack_tool.resolve_quarantine_root(uuid_cfg)
+                self.assertEqual(root, fallback)
+                self.assertIn("VolumeUUID", info["fallback_reason"])
+                uuid_probe.assert_called_once()
+
+                with mock.patch.object(full_stack_tool, "read_volume_uuid") as uuid_probe:
+                    root, _ = full_stack_tool.resolve_quarantine_root(
+                        {"quarantine": {"root_dirs": [f"{disk}/.Cleanup_Quarantine"]}}
+                    )
+                self.assertEqual(root, Path(f"{disk}/.Cleanup_Quarantine"))
+                uuid_probe.assert_not_called()
+
+            with self.assertRaises(full_stack_tool.ConfigError):
+                full_stack_tool.resolve_quarantine_root({}, "/Volumes/FSMTestNotMounted-4c1e/.Q")
+            with self.assertRaises(full_stack_tool.ConfigError):
+                full_stack_tool.resolve_quarantine_root({"quarantine": {"root_dirs": [42]}})
+
+            # End to end in --dry-run: unmounted root -> local fallback reported in the manifest, nothing written
+            idle = self.root / "idle"
+            idle.mkdir()
+            (idle / "a.bin").write_bytes(b"a")
+            old_ts = time.time() - 7200
+            os.utime(idle / "a.bin", (old_ts, old_ts))
+            os.utime(idle, (old_ts, old_ts))
+            config_path = self.root / "topology.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "quarantine": cfg["quarantine"],
+                        "whitelist": {"paths": [], "repos": [], "app_names": [], "guest_ids": [], "notes": {}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            targets_path = self.root / "targets.json"
+            targets_path.write_text(json.dumps({"candidates": [{"id": "idle", "path": str(idle)}]}), encoding="utf-8")
+            q_out = self.root / "q.json"
+            rc = full_stack_tool.main(
+                [
+                    "quarantine",
+                    "--config",
+                    str(config_path),
+                    "--targets",
+                    str(targets_path),
+                    "--ids",
+                    "idle",
+                    "--skip-lsof",
+                    "--dry-run",
+                    "--output",
+                    str(q_out),
+                ]
+            )
+            self.assertEqual(rc, 0)
+            manifest = json.loads(q_out.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["quarantine_root"], str(fallback))
+            self.assertIn("没有挂载", manifest["quarantine_root_fallback_reason"])
+            self.assertEqual(manifest["staged_count"], 1)
+            self.assertTrue((idle / "a.bin").is_file())
+            self.assertFalse(fallback.exists())
 
     def test_diff_and_render_dashboard(self) -> None:
         before_path = self.root / "before.json"
@@ -515,6 +849,8 @@ class FullStackMaintenanceTests(unittest.TestCase):
                 str(config_path),
                 "--targets",
                 str(targets_path),
+                "--ids",
+                "nested-in-dirty-wt,nested-in-active-wt,idle-eligible",
                 "--quarantine-dir",
                 str(q_dir),
                 "--skip-lsof",
@@ -539,6 +875,129 @@ class FullStackMaintenanceTests(unittest.TestCase):
         self.assertTrue(restore_sh.is_file())
         subprocess.run(["bash", str(restore_sh)], check=True)
         self.assertTrue((idle_proj / "result.json").is_file())
+
+    def test_uninstall_defaults_to_keep_data_and_reports_last_used_basis(self) -> None:
+        now_ts = time.time()
+        old_ts = now_ts - (200 * 86400)
+        apps_dir = self.root / "Applications"
+        lib_support = self.root / "Library" / "Application Support"
+        lib_caches = self.root / "Library" / "Caches"
+
+        def make_app(name: str, bundle_id: str) -> tuple[Path, Path, Path]:
+            app = apps_dir / f"{name}.app"
+            self._write_plist(app / "Contents" / "Info.plist", {"CFBundleIdentifier": bundle_id, "CFBundleName": name})
+            (app / "Contents" / "MacOS").mkdir(parents=True, exist_ok=True)
+            (app / "Contents" / "MacOS" / "bin").write_bytes(b"b" * (2 * 1024 * 1024))
+            data = lib_support / bundle_id
+            data.mkdir(parents=True)
+            (data / "user.db").write_bytes(b"d" * (1024 * 1024))
+            cache = lib_caches / bundle_id
+            cache.mkdir(parents=True)
+            (cache / "c.bin").write_bytes(b"c" * (1024 * 1024))
+            for root_p in (app, data, cache):
+                for dirpath, dirnames, filenames in os.walk(root_p):
+                    for n in dirnames + filenames:
+                        os.utime(Path(dirpath) / n, (old_ts, old_ts), follow_symlinks=False)
+                os.utime(root_p, (old_ts, old_ts))
+            return app, data, cache
+
+        idle_app, idle_data, idle_cache = make_app("IdleTool", "com.example.IdleTool")
+        opened_app, _, _ = make_app("OpenedRecently", "com.example.OpenedRecently")
+        spot_app, _, _ = make_app("SpotlightOld", "com.example.SpotlightOld")
+
+        config_path = self.root / "topology.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "app_roots": [str(apps_dir)],
+                    "library_roots": [str(lib_support), str(lib_caches)],
+                    "thresholds": {"min_app_size_mb": 1, "unused_app_days": 90, "recent_activity_minutes": 60},
+                    "probe_fixtures": {
+                        "app_last_used": {
+                            # Spotlight says opened 5 days ago: counts as used even though files are old
+                            str(opened_app): int(now_ts - 5 * 86400),
+                            str(spot_app): time.strftime("%Y-%m-%d %H:%M:%S +0000", time.gmtime(old_ts)),
+                        }
+                    },
+                    "whitelist": {"paths": [], "repos": [], "app_names": [], "guest_ids": [], "notes": {}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        snap_out = self.root / "snapshot.json"
+        self.assertEqual(full_stack_tool.main(["scan-local", "--config", str(config_path), "--output", str(snap_out)]), 0)
+        snap = json.loads(snap_out.read_text(encoding="utf-8"))
+        by_id = {c["id"]: c for c in snap["candidates"]}
+        inv = {a["name"]: a for a in snap["app_inventory"]["apps"]}
+
+        self.assertEqual(inv["OpenedRecently"]["usage_status"], "frequent")
+        self.assertEqual(inv["OpenedRecently"]["last_used_basis"], "spotlight")
+        self.assertNotIn("app-uninstall-com-example-openedrecently", by_id)
+
+        spot = by_id["app-uninstall-com-example-spotlightold"]
+        self.assertEqual(spot["last_used_basis"], "spotlight")
+        self.assertIn("天未打开", spot["title"])
+        self.assertIn("kMDItemLastUsedDate", spot["evidence"])
+
+        idle = by_id["app-uninstall-com-example-idletool"]
+        self.assertEqual(idle["last_used_basis"], "file_mtime")
+        self.assertIn("天无文件改动", idle["title"])
+        self.assertNotIn("未打开", idle["title"])
+        self.assertEqual(idle["selected_uninstall_mode"], "keep_data")
+        self.assertEqual(idle["paths"], idle["uninstall_modes"]["keep_data"]["paths"])
+
+        self.assertEqual(full_stack_tool._parse_mdls_date("(null)"), 0)
+        self.assertEqual(full_stack_tool._parse_mdls_date("2026-10-13 04:38:32 +0000"), 1791866312)
+
+        # Without --uninstall-mode, preflight and quarantine both resolve keep_data: user data stays
+        pre_out = self.root / "preflight.json"
+        rc_pre = full_stack_tool.main(
+            [
+                "preflight",
+                "--config",
+                str(config_path),
+                "--targets",
+                str(snap_out),
+                "--ids",
+                "app-uninstall-com-example-idletool",
+                "--skip-lsof",
+                "--output",
+                str(pre_out),
+            ]
+        )
+        self.assertEqual(rc_pre, 0)
+        pre = json.loads(pre_out.read_text(encoding="utf-8"))["results"][0]
+        self.assertEqual(pre["uninstall_mode"], "keep_data")
+        self.assertNotIn(str(idle_data.resolve()), pre["safe_paths"])
+
+        q_out = self.root / "q.json"
+        rc_q = full_stack_tool.main(
+            [
+                "quarantine",
+                "--config",
+                str(config_path),
+                "--targets",
+                str(snap_out),
+                "--ids",
+                "app-uninstall-com-example-idletool",
+                "--quarantine-dir",
+                str(self.root / "q"),
+                "--skip-lsof",
+                "--output",
+                str(q_out),
+            ]
+        )
+        self.assertEqual(rc_q, 0)
+        manifest = json.loads(q_out.read_text(encoding="utf-8"))
+        self.assertEqual({s["uninstall_mode"] for s in manifest["staged_items"]}, {"keep_data"})
+        self.assertFalse(idle_app.exists())
+        self.assertFalse(idle_cache.exists())
+        self.assertTrue((idle_data / "user.db").is_file())
+
+        html_out = self.root / "dashboard.html"
+        self.assertEqual(render_dashboard.main(["--input", str(snap_out), "--output", str(html_out)]), 0)
+        self.assertIn('return "keep_data";', html_out.read_text(encoding="utf-8"))
 
     def test_mac_extended_inspections_and_dual_mode_uninstall(self) -> None:
         now_ts = time.time()
@@ -634,7 +1093,6 @@ class FullStackMaintenanceTests(unittest.TestCase):
         config_data = {
             "version": 1,
             "workspace_roots": [],
-            "worktree_hubs": [],
             "app_roots": [str(apps_dir)],
             "library_roots": [
                 str(lib_support),

@@ -48,12 +48,12 @@ npx skills add Sorasukiawa/full-stack-maintenance --skill full-stack-maintenance
 
 ```bash
 cp -n config/topology.example.json config/topology.local.json
-mkdir -p work/full-stack
+mkdir -p state
 
-python3 scripts/full_stack_tool.py scan-local --config config/topology.local.json --output work/full-stack/current-snapshot.json --overwrite
-python3 scripts/full_stack_tool.py diff --before work/full-stack/baseline-snapshot.json --after work/full-stack/current-snapshot.json --output work/full-stack/diff.json --overwrite
-python3 scripts/render_dashboard.py --input work/full-stack/current-snapshot.json --diff work/full-stack/diff.json --output work/full-stack/inspection-dashboard.html --overwrite
-python3 scripts/full_stack_tool.py preflight --config config/topology.local.json --targets work/full-stack/current-snapshot.json --ids "build-example-target" --output work/full-stack/preflight.json --overwrite
+python3 scripts/full_stack_tool.py scan-local --config config/topology.local.json --output state/current-snapshot.json --overwrite
+python3 scripts/full_stack_tool.py diff --before state/baseline-snapshot.json --after state/current-snapshot.json --output state/diff.json --overwrite
+python3 scripts/render_dashboard.py --input state/current-snapshot.json --diff state/diff.json --output state/inspection-dashboard.html --overwrite
+python3 scripts/full_stack_tool.py preflight --config config/topology.local.json --targets state/current-snapshot.json --ids "build-example-target" --output state/preflight.json --overwrite
 ```
 
 ## 🧪 驗證與測試

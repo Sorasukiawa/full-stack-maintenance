@@ -9,3 +9,8 @@ __pycache__/
 *.log
 .env
 .env.*
+
+# 基线快照、看板和 preflight / quarantine 结果（见 SKILL.md「巡检产物放在哪」）
+/state/
+# 本仓库开发用的 git worktree
+/.worktrees/

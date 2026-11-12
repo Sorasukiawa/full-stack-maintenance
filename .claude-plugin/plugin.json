@@ -1,7 +1,7 @@
 {
   "name": "full-stack-maintenance",
   "displayName": "Full-Stack Maintenance & Dashboard",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Cross-domain read-only audit, baseline diff, interactive HTML waterline simulator dashboard, and pre-flight concurrency check across macOS, local multi-repo workspaces, GitHub, and NAS/Proxmox homelabs.",
   "author": {
     "name": "Sorasukiawa",
