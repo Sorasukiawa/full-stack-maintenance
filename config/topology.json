@@ -1,7 +1,6 @@
 {
   "version": 1,
   "workspace_roots": [],
-  "worktree_hubs": [],
   "app_roots": [
     "/Applications",
     "~/Applications"
@@ -41,10 +40,8 @@
   },
   "quarantine": {
     "root_dirs": [
-      "/Volumes/ExternalSSD/.Cleanup_Quarantine",
       "~/.Cleanup_Quarantine"
-    ],
-    "retention_days": 7
+    ]
   },
   "storage_gauges": [
     {

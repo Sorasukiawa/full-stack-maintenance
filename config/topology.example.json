@@ -3,10 +3,6 @@
   "workspace_roots": [
     "~/Projects"
   ],
-  "worktree_hubs": [
-    "~/orca/workspaces",
-    "~/.codex/worktrees"
-  ],
   "app_roots": [
     "/Applications",
     "~/Applications"
@@ -46,10 +42,12 @@
   },
   "quarantine": {
     "root_dirs": [
-      "/Volumes/ExternalSSD/.Cleanup_Quarantine",
+      {
+        "path": "/Volumes/ExternalSSD/.Cleanup_Quarantine",
+        "volume_uuid": "00000000-0000-0000-0000-000000000000"
+      },
       "~/.Cleanup_Quarantine"
-    ],
-    "retention_days": 7
+    ]
   },
   "storage_gauges": [
     {
@@ -61,7 +59,7 @@
     {
       "id": "nas-nvme",
       "label": "NAS NVMe Pool",
-      "mount_path": "/Volumes/Scratch",
+      "mount_path": "/Volumes/NAS-Fast",
       "warn_used_pct": 85.0,
       "min_free_gib": 450.0
     }
@@ -89,7 +87,7 @@
   "homelab": {
     "enabled": true,
     "pve_ssh_host": "pve-example",
-    "nas_mounts": ["/Volumes/Data", "/Volumes/Scratch"],
+    "nas_mounts": ["/Volumes/NAS-Share", "/Volumes/NAS-Fast"],
     "docker_hosts": ["docker-vm-example"]
   },
   "whitelist": {

@@ -1492,7 +1492,7 @@ function uninstallModeOf(c) {
   const saved = state.uninstallModes && state.uninstallModes[c.id];
   if (saved && c.uninstall_modes[saved]) return saved;
   if (c.selected_uninstall_mode && c.uninstall_modes[c.selected_uninstall_mode]) return c.selected_uninstall_mode;
-  return "purge_all";
+  return "keep_data";
 }
 function sizeOf(c) {
   if (c && c.uninstall_modes) {

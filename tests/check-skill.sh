@@ -54,7 +54,7 @@ from pathlib import Path
 
 source = Path(sys.argv[1])
 shutil.copytree(source, sys.argv[2], symlinks=True,
-                ignore=lambda path, names: ['.git', 'CLAUDE.md', 'work', 'topology.local.json'] if Path(path) == source or Path(path).name == 'config' else [])
+                ignore=lambda path, names: ['.git', 'CLAUDE.md', 'work', 'state', '.worktrees', 'topology.local.json'] if Path(path) == source or Path(path).name == 'config' else [])
 PY
   then
     for target_pair in "$validation_root:marketplace" "$validation_root/.claude-plugin/plugin.json:plugin"; do

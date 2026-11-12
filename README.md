@@ -18,7 +18,7 @@
 **`full-stack-maintenance`** is a multi-agent orchestrator skill that runs **4-domain parallel read-only health & storage audits** across **macOS**, **local multi-repository workspaces**, **GitHub repositories**, and **NAS / Proxmox VE / Docker homelabs**. It diffs current usage against your last baseline snapshot, renders a **zero-dependency interactive HTML waterline simulator dashboard**, and enforces a **pre-flight concurrency guard (`preflight`)** before executing any approved cleanup so concurrent AI coding sessions are never disrupted.
 
 > [!NOTE]
-> **Zero-Dependency & Strictly Read-Only Scripts:** The bundled Python 3.10+ scripts (`full_stack_tool.py` and `render_dashboard.py`) use only the Python standard library and never delete files, uninstall apps, or restart services on their own.
+> **Zero-Dependency & Guarded Scripts:** The bundled Python 3.10+ scripts (`full_stack_tool.py` and `render_dashboard.py`) use only the Python standard library and never delete files, uninstall apps, or restart services on their own. The only mutating subcommand, `quarantine`, moves explicitly selected (`--ids`), preflight-safe paths into a restorable quarantine batch and refuses Git data, governance docs, launch items, update/firmware advisories, and worktrees.
 
 ---
 
@@ -75,8 +75,8 @@ Instead of duplicating single-domain rules, `full-stack-maintenance` coordinates
 
 | Domain | Coordinated Skill / Tool | Cross-Layer Capabilities Added by `full-stack-maintenance` |
 | :--- | :--- | :--- |
-| **💻 Mac, Apps & Peripherals** | [`mac-maintenance`](https://github.com/Sorasukiawa/mac-maintenance) | **Full app usage/size inventory & dual-mode uninstaller** (`keep_data` vs `purge_all`); **deep uninstalled leftover correlation** across 8 `~/Library` directories; **broken/crashing LaunchAgents check**; **all Mac apps & dev environment updates**; **peripheral & storage firmware/SMART/link-speed/battery checks**; **reproducible global cache scan**; **backup exclusion drift** & APFS snapshot reclaim |
-| **📂 Multi-Repo & AI** | [`repo-cleanup`](https://github.com/Sorasukiawa/repo-cleanup) · [`codex-maintenance`](https://github.com/Sorasukiawa/codex-maintenance) | Workspace-wide `.git/objects/pack` bloat scanner, multi-host worktree inventory (`.claude/worktrees`, `.worktrees`, Orca, Codex), and `AGENTS.md` pre-merge check verification |
+| **💻 Mac, Apps & Peripherals** | [`mac-maintenance`](https://github.com/Sorasukiawa/mac-maintenance) | **Full app usage/size inventory & dual-mode uninstaller** (default `keep_data` keeps user data; `purge_all` only on explicit choice); **deep uninstalled leftover correlation** across 8 `~/Library` directories; **broken/crashing LaunchAgents check**; **all Mac apps & dev environment updates**; **peripheral & storage firmware/SMART/link-speed/battery checks**; **reproducible global cache scan**; **backup exclusion drift** & APFS snapshot lock checks |
+| **📂 Multi-Repo & AI** | [`repo-cleanup`](https://github.com/Sorasukiawa/repo-cleanup) · [`codex-maintenance`](https://github.com/Sorasukiawa/codex-maintenance) | Workspace-wide `.git/objects/pack` bloat scanner, `git worktree list` inventory across hosts (retirement is handed to `repo-cleanup`), and `AGENTS.md` / `CLAUDE.md` pre-merge check (`合入前检查：`) verification |
 | **🐙 GitHub Remote** | `gh repo list` · `gh run list` | Account-wide audit of public/private repos, stale `checkpoints/*` branches, CI failure root-cause triage (flake vs real regression), and repo archive candidates |
 | **🏠 NAS & Homelab** | Read-only SSH & SMB mounts | Proxmox `/boot/efi` kernel bloat, `local-lvm` unused disks & test clones, LXC `pct fstrim`, Docker build cache & container health (`unhealthy` / restart loops), and NAS SMB `#recycle` capture |
 
@@ -88,7 +88,7 @@ Instead of duplicating single-domain rules, `full-stack-maintenance` coordinates
 
 | Agent Host | Invocation | Subagent & Dashboard Adaptation |
 | :--- | :--- | :--- |
-| **Claude Code** | `/full-stack-maintenance` | Pre-approves read-only scans via `allowed-tools`; spawns 4 parallel `Task` subagents; opens or links local `.html` dashboard |
+| **Claude Code** | `/full-stack-maintenance` | Pre-approves read-only scans via `allowed-tools`; spawns 4 parallel `Agent` subagents; opens or links local `.html` dashboard |
 | **OpenAI Codex** | `$full-stack-maintenance` | Loads UI card from `agents/openai.yaml`; supports parallel subagents & local browser preview |
 | **Google Antigravity** | Natural prompt or `$full-stack-maintenance` | Spawns 4 parallel `invoke_subagent` workers; renders dashboard directly as a clickable conversation Artifact |
 | **OpenCode** | `/full-stack-maintenance` or natural prompt | Dispatches parallel `task` workers or sequential scan; outputs single-file `.html` |
@@ -135,10 +135,10 @@ git clone https://github.com/Sorasukiawa/full-stack-maintenance.git "$HOME/.agen
 | # | Cross-Layer Trap | Typical Symptom | How `full-stack-maintenance` Solves It |
 | :-: | :--- | :--- | :--- |
 | **1** | **Backup Exclusion Drift** | Renaming or creating a new build/preservation folder (`*-builds`, `*-preservation`, `Artifacts`) bypasses hardcoded backup ignore lists and uploads tens of GBs to iCloud or NAS | `scan-local` cross-checks heavy project directories against `backup_pipelines` exclusion globs and script contents before they bloat remote backups |
-| **2** | **APFS Local Snapshot Lock** | Deleting 50+ GiB of caches on macOS increases `df -h` free space by less than 1 GiB | Checks `tmutil listlocalsnapshots /` and reclaims locked blocks via `tmutil thinlocalsnapshots /System/Volumes/Data 100000000000 4` |
+| **2** | **APFS Local Snapshot Lock** | Deleting 50+ GiB of caches on macOS increases `df -h` free space by less than 1 GiB | Checks `tmutil listlocalsnapshots /` read-only and lists `tmutil thinlocalsnapshots` as a C-tier candidate that runs only after the user approves (it discards local backups) |
 | **3** | **iCloud Dataless Re-Download Storm** | Running `open()` or hash verification across evicted iCloud backup chunks triggers `bird` to download tens of GBs back onto the local SSD | Inspects `st_blocks > 0` / ubiquitous download status before reading local chunks, and limits `NSMetadataItem` progress queries to active uploads |
-| **4** | **Proxmox LXC Thin-Pool Lag** | Deleting files inside an LXC container lowers container `df -h`, but Proxmox `local-lvm` `Data%` stays near 85%+ | Follows guest cleanup with `pct fstrim <ctid>` on the PVE host and audits `unused*` volumes & stopped DR test clones |
-| **5** | **NAS SMB `#recycle` Capture** | Deleting large archives over an SMB mount (`/Volumes/Data` or `/Volumes/Scratch`) moves them into `#recycle` without freeing Btrfs/NVMe pool space | Audits and purges `#recycle` directories across mounted NAS shares alongside primary cleanup |
+| **4** | **Proxmox LXC Thin-Pool Lag** | Deleting files inside an LXC container lowers container `df -h`, but Proxmox `local-lvm` `Data%` stays near 85%+ | Lists `pct fstrim <ctid>` on the PVE host as a C-tier candidate for user approval, and audits `unused*` volumes & stopped DR test clones (also C-tier) |
+| **5** | **NAS SMB `#recycle` Capture** | Deleting large archives over an SMB mount (`/Volumes/<share>`) moves them into `#recycle` without freeing Btrfs/NVMe pool space | Audits `#recycle` usage; removing only this batch's deleted entries is a C-tier candidate that waits for user approval (never a blanket purge) |
 
 ---
 
@@ -151,31 +151,31 @@ cp -n config/topology.example.json config/topology.local.json
 ```
 
 ```bash
-mkdir -p work/full-stack
+mkdir -p state
 
 # 1. Read-only local scan (orphans, .git pack bloat, build artifacts, backup exclusion drift)
 python3 scripts/full_stack_tool.py scan-local \
   --config config/topology.local.json \
-  --output work/full-stack/current-snapshot.json --overwrite
+  --output state/current-snapshot.json --overwrite
 
 # 2. Diff against your previous baseline snapshot ("what grew since the last check")
 python3 scripts/full_stack_tool.py diff \
-  --before work/full-stack/baseline-snapshot.json \
-  --after work/full-stack/current-snapshot.json \
-  --output work/full-stack/diff.json --overwrite
+  --before state/baseline-snapshot.json \
+  --after state/current-snapshot.json \
+  --output state/diff.json --overwrite
 
 # 3. Render the single-file interactive HTML waterline dashboard
 python3 scripts/render_dashboard.py \
-  --input work/full-stack/current-snapshot.json \
-  --diff work/full-stack/diff.json \
-  --output work/full-stack/inspection-dashboard.html --overwrite
+  --input state/current-snapshot.json \
+  --diff state/diff.json \
+  --output state/inspection-dashboard.html --overwrite
 
 # 4. Run pre-flight concurrency verification before executing checked items
 python3 scripts/full_stack_tool.py preflight \
   --config config/topology.local.json \
-  --targets work/full-stack/current-snapshot.json \
+  --targets state/current-snapshot.json \
   --ids "build-example-target" \
-  --output work/full-stack/preflight.json --overwrite
+  --output state/preflight.json --overwrite
 ```
 
 See [references/dashboard-and-cli.md](references/dashboard-and-cli.md) for the full JSON schema and `preflight` status codes (`SAFE_TO_EXECUTE`, `BLOCKED_WHITELISTED`, `BLOCKED_RECENT_ACTIVITY`, `BLOCKED_OPEN_HANDLES`, `BLOCKED_DIRTY_WORKTREE`, `BLOCKED_SYMLINK_ROOT`).
@@ -190,7 +190,7 @@ See [references/dashboard-and-cli.md](references/dashboard-and-cli.md) for the f
 | [`.claude-plugin/`](.claude-plugin/plugin.json) | Claude Code plugin and marketplace manifests |
 | [`agents/openai.yaml`](agents/openai.yaml) | OpenAI Codex interface display name, summary, and default prompt |
 | [`config/topology.example.json`](config/topology.example.json) | Sanitized template for workspace roots, storage gauges, backup pipelines, homelab hosts, and whitelist |
-| [`scripts/full_stack_tool.py`](scripts/full_stack_tool.py) | Standard-library CLI for `scan-local`, `diff`, and `preflight` |
+| [`scripts/full_stack_tool.py`](scripts/full_stack_tool.py) | Standard-library CLI for `scan-local`, `diff`, `preflight`, and guarded `quarantine` |
 | [`scripts/render_dashboard.py`](scripts/render_dashboard.py) | Zero-dependency single-file interactive HTML dashboard generator |
 | [`references/domains-and-traps.md`](references/domains-and-traps.md) | 4-domain audit checklist and the 5 cross-layer storage trap playbooks |
 | [`references/dashboard-and-cli.md`](references/dashboard-and-cli.md) | CLI contract, JSON schemas, and status code definitions |

@@ -2,6 +2,18 @@
 
 版本号写在 `SKILL.md` 的 `metadata.version` 和 `.claude-plugin/plugin.json` 的 `version`，与本文件最上面的条目保持一致（`tests/check-skill.sh` 会自动检查）。
 
+## 1.4.0 — 2026-11-12
+
+按一次安全体检的结论收紧执行阶段，并让文档和脚本行为对齐。
+
+- **`quarantine` 不再默认全量搬移**：`--ids` 改为必填；移动前对每个路径重跑与 `preflight` 相同的检查，只移判为安全的路径。Git pack 与 `.git` 内部路径、治理文档（`AGENTS.md` 一类）、启动项、各类更新检查、固件、备份规则漂移和 worktree 类候选一律拒绝，写进 `refused_items` 并说明原因；`preflight` 结果新增 `quarantine_allowed` / `quarantine_refusal`，两边用同一套判断。文档里不存在的 `--preflight` 参数和 `purge-quarantine` 子命令已删掉，示例改成真实可运行的命令。
+- **隔离区外置盘核对真实挂载**：不再自动遍历 `/Volumes`（会把 Time Machine 备份卷、NAS 共享当外置盘）。配置的 `/Volumes/<盘名>` 根必须 `os.path.ismount` 为真且可写；`quarantine.root_dirs` 条目可写成 `{"path": ..., "volume_uuid": ...}`，用 `diskutil info -plist` 比对 `VolumeUUID`。不满足时退回 `~/.Cleanup_Quarantine/`，并在 `quarantine_root_fallback_reason` 写明原因。默认配置只保留本机隔离区。
+- **APP 卸载默认 `keep_data`**：命令行、候选项（`selected_uninstall_mode`）和看板默认都只移走 `.app` 与缓存，`purge_all` 需明确选择。「最近使用」真正读取 Spotlight `kMDItemLastUsedDate`（`mdls`），取不到时退回文件修改时间，`last_used_basis` 与标题写明「N 天未打开」或「N 天无文件改动」。
+- **合入前检查按 git-ship 规则识别**：`scan-local` 用与 `git-ship` 相同的行首正则判断「合入前检查：`命令`」/「合入前检查：无」，`AGENTS.md` 没写时再看 `CLAUDE.md`，写法认不出时单独提示；文档里的「合并前检查」改正。
+- **会动备份和家里服务的回收改为 C 级**：`tmutil thinlocalsnapshots`、`pct fstrim`、NAS `#recycle` 清理（只针对本批次删除的条目，不整目录清空）、删除备份历史分块、`docker image prune -a`、卸载旧内核、PVE 演练克隆机和 Xcode `Unavailable` 模拟器（先按 `temporary-environments` 所有权登记核对）都只进看板等用户拍板。Git pack 建议改为普通 `git gc`；删掉 `git worktree move` 收拢建议；远端分支没合入的先推到 `archive/<原分支名>` 再删。
+- **文档如实描述**：活跃会话保护只读 Codex 会话记录；worktree 类候选转交 `repo-cleanup`；`manage_subagents` 限定 Antigravity，Claude Code 的子代理工具写作 `Agent`；补充与 `mac-maintenance`、`git-ship`、`repo-cleanup`、`temporary-environments` 的分工；修正多宿主安装路径；删掉脚本不读的 `worktree_hubs`、`retention_days`、`worktree_active_hours`。
+- **巡检产物统一放 `state/`**：快照、基线、看板和执行结果写在技能目录下的 `state/`（已加入 `.gitignore`）；公开文件里的 NAS 共享名和本机工作树路径换成占位名。
+
 ## 1.3.0 — 2026-11-07
 
 - **Mac 全量 APP 体积/常用度统计与双模式智能卸载（`app_uninstall` + `app_inventory`）**：扫描 `/Applications` 与 `~/Applications`，结合 Spotlight `kMDItemLastUsedDate` 区分常用 APP 与久未使用 APP（默认 `>= 90` 天未用且 `>= 50 MiB`），分别统计 `.app` 本体体积（`app_bytes`）、用户数据体积（`data_bytes`）与缓存体积（`cache_bytes`）。在交互看板与 `preflight` / `quarantine` CLI 中支持「**一键全部删除（`purge_all`，含卸载残留）**」与「**保留用户数据（`keep_data`，仅删 App 本体与缓存）**」双模式实时切换与隔离暂存。
