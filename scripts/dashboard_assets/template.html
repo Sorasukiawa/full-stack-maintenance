@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>__TITLE__</title>
+<style>
+__INLINE_STYLES__
+</style>
+</head>
+<body>
+<div class="backdrop" aria-hidden="true"></div>
+<div class="app">
+  <aside class="sidebar" aria-label="侧栏">
+    <div class="brand">
+      <span class="brand-icon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7a5 5 0 1 0 5 5"/><path d="M12 12h9"/></svg></span>
+      <div class="brand-text">
+        <div class="brand-name">全栈巡检</div>
+        <div class="brand-sub" id="brand-time" data-raw="__GENERATED_AT__">__GENERATED_AT__</div>
+      </div>
+    </div>
+    <nav class="nav" id="nav" aria-label="页面导航">
+      <span class="nav-pill" id="nav-pill" aria-hidden="true"></span>
+      <button type="button" class="nav-item" data-view="overview"><span class="app-icon sm tint-rainbow" data-icon="gauge"></span>概览</button>
+      <div class="nav-label">待审批</div>
+      <button type="button" class="nav-item" data-view="all"><span class="app-icon sm tint-indigo" data-icon="list"></span>全部建议<span class="nav-count" id="cnt-all"></span></button>
+      <button type="button" class="nav-item" data-view="mac"><span class="app-icon sm tint-blue" data-icon="laptop"></span>Mac 与备份<span class="nav-count" id="cnt-mac"></span></button>
+      <button type="button" class="nav-item" data-view="projects"><span class="app-icon sm tint-purple" data-icon="folder"></span>本地项目<span class="nav-count" id="cnt-projects"></span></button>
+      <button type="button" class="nav-item" data-view="github"><span class="app-icon sm tint-graphite" data-icon="branch"></span>GitHub<span class="nav-count" id="cnt-github"></span></button>
+      <button type="button" class="nav-item" data-view="nas"><span class="app-icon sm tint-teal" data-icon="server"></span>NAS 与 PVE<span class="nav-count" id="cnt-nas"></span></button>
+      <div class="nav-label">保护</div>
+      <button type="button" class="nav-item" data-view="whitelisted"><span class="app-icon sm tint-orange" data-icon="shield"></span>白名单<span class="nav-count" id="cnt-whitelisted"></span></button>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="seg theme-switch" id="theme-seg" role="radiogroup" aria-label="外观">
+        <span class="seg-glider" aria-hidden="true"></span>
+        <button type="button" role="radio" data-value="light" title="浅色模式">
+          <svg class="theme-ico sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M4.93 4.93l1.56 1.56M17.51 17.51l1.56 1.56M2.5 12h2.2M19.3 12h2.2M4.93 19.07l1.56-1.56M17.51 6.49l1.56-1.56"/></svg>
+          <span>浅色</span>
+        </button>
+        <button type="button" role="radio" data-value="dark" title="深色模式">
+          <svg class="theme-ico moon" viewBox="0 0 24 24" aria-hidden="true"><path class="moon-body" d="M20.2 14.4A8.2 8.2 0 0 1 9.6 3.8a8.2 8.2 0 1 0 10.6 10.6Z"/><path class="star" d="M18.5 4.3v3.2M16.9 5.9h3.2"/></svg>
+          <span>深色</span>
+        </button>
+        <button type="button" role="radio" data-value="auto" title="跟随系统外观">
+          <svg class="theme-ico auto" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16Z"/></svg>
+          <span>自动</span>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <!-- 概览：大圆环 + 存储卷 + 运行环境与外设 + 基线变化 + 本次清单 -->
+    <div class="page" id="ring-overview-page">
+      <header class="page-head">
+        <h1 class="large-title">__HEADING__</h1>
+        <p class="page-sub" id="overview-sub"></p>
+      </header>
+
+      <div class="volume-strip" id="mini-rings-strip" role="tablist" aria-label="存储卷"></div>
+
+      <section class="hero glass enter" id="hero" style="--i:2">
+        <div class="ring-stage">
+          <canvas class="ring-canvas" id="ring-canvas" width="320" height="320" role="img" aria-label="存储卷容量圆环：灰色为清理后已用，绿色为将释放，蓝色为悬停项"></canvas>
+          <div class="ring-center">
+            <span class="ring-kicker" id="ring-center-kicker">预计可释放</span>
+            <div class="ring-num" id="ring-num"><span class="n" id="ring-center-num">0</span><span class="u" id="ring-center-unit">GiB</span></div>
+            <span class="ring-water" id="ring-center-water"></span>
+          </div>
+        </div>
+        <div class="hero-info">
+          <div class="hero-title-row">
+            <h2 class="hero-title" id="ring-active-title">存储卷</h2>
+            <span class="status-pill" id="ring-active-badge"></span>
+          </div>
+          <p class="hero-mount" id="ring-active-mount"></p>
+          <p class="hero-sentence" id="ring-active-desc"></p>
+          <dl class="stat-grid">
+            <div class="stat"><dt><i class="dot ring-used"></i>清理后已用</dt><dd id="rkpi-retained">0</dd></div>
+            <div class="stat"><dt><i class="dot ring-clean"></i>将释放</dt><dd class="free" id="rkpi-cleaned">0</dd></div>
+            <div class="stat"><dt><i class="dot ring-free"></i>清理后可用</dt><dd id="rkpi-free-after">0</dd></div>
+            <div class="stat"><dt><i class="dot" style="--dot: var(--label-3)"></i>总容量</dt><dd id="rkpi-total">0</dd></div>
+          </dl>
+          <div class="comp" id="composition"></div>
+        </div>
+      </section>
+      <div class="empty glass grouped" id="hero-empty" hidden><b>这份快照没有存储卷数据</b>下面的清单仍然可以勾选和导出。</div>
+
+      <section class="section" id="env-periph-section" hidden>
+        <div class="grouped glass fold-panel" id="env-periph-panel">
+          <button type="button" class="cell fold-trigger" id="env-periph-toggle" aria-expanded="false" aria-controls="env-periph-body">
+            <span class="app-icon tint-teal" data-icon="laptop"></span>
+            <span class="cell-text">
+              <span class="cell-title"><span class="cell-title-text">运行环境与外设概览</span><span class="chip info">只读</span></span>
+              <span class="cell-sub" id="env-periph-summary"></span>
+            </span>
+            <span class="cell-right"><span class="chev" data-icon="chevron"></span></span>
+          </button>
+          <div class="fold-body" id="env-periph-body" hidden>
+            <div class="fold-body-inner" id="env-periph-content"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="diff-section" hidden>
+        <div class="section-head">
+          <h2 class="section-title">距上次巡检基线变化</h2>
+          <span class="section-note" id="diff-time"></span>
+        </div>
+        <div class="diff-chips" id="diff-chips"></div>
+        <div class="diff-grid">
+          <div class="grouped glass" id="diff-gauges"></div>
+          <div class="grouped glass" id="diff-growth"></div>
+        </div>
+      </section>
+
+      <div id="ring-detailed-lists"></div>
+    </div>
+
+    <!-- 勾选与微调工作台 -->
+    <div class="page" id="workbench-page" hidden>
+      <header class="page-head">
+        <h1 class="large-title" id="list-title">全部建议</h1>
+        <p class="page-sub" id="list-sub"></p>
+      </header>
+
+      <section class="impact glass" id="impact-card">
+        <div class="impact-head">
+          <div>
+            <h3 class="impact-title" id="impact-title">存储卷</h3>
+            <p class="impact-sub" id="impact-sub"></p>
+          </div>
+          <label class="popup">
+            <span class="visually-hidden">切换存储卷</span>
+            <select id="impact-pool"></select>
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
+          </label>
+        </div>
+        <div class="sbar lg" aria-hidden="true">
+          <i class="sbar-used" id="seg-retained"></i><i class="sbar-focus" id="seg-reclaim-item"></i><i class="sbar-clean" id="seg-reclaim-mid"></i>
+        </div>
+        <div class="comp-legend" id="impact-legend"></div>
+      </section>
+
+      <div class="toolbar">
+        <div class="seg" id="action-seg" role="radiogroup" aria-label="按动作筛选">
+          <span class="seg-glider" aria-hidden="true"></span>
+          <button type="button" role="radio" data-value="all">全部 <span class="count" id="acnt-all"></span></button>
+          <button type="button" role="radio" data-value="cleanup">空间清理 <span class="count" id="acnt-cleanup"></span></button>
+          <button type="button" role="radio" data-value="organize">结构整理 <span class="count" id="acnt-organize"></span></button>
+          <button type="button" role="radio" data-value="optimize">性能优化 <span class="count" id="acnt-optimize"></span></button>
+          <button type="button" role="radio" data-value="update">版本更新 <span class="count" id="acnt-update"></span></button>
+        </div>
+        <div class="toolbar-right">
+          <label class="popup">
+            <span class="visually-hidden">排序方式</span>
+            <select id="sort-select">
+              <option value="default">默认顺序</option>
+              <option value="size">按释放空间</option>
+              <option value="pool">按存储卷</option>
+              <option value="opt">优化和更新优先</option>
+            </select>
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
+          </label>
+          <button type="button" class="btn" id="select-visible-btn">全选本页</button>
+        </div>
+      </div>
+
+      <div id="candidate-list"></div>
+    </div>
+  </main>
+</div>
+
+<div class="dock" id="dock" role="region" aria-label="已选项目">
+  <div class="dock-stat" id="dock-stat">
+    <span class="dock-count">已选 <b id="selected-count">0</b> 项</span>
+    <span class="dock-bytes">预计释放 <b id="selected-gib">0 GiB</b></span>
+  </div>
+  <button type="button" class="btn" id="quick-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="quick-menu">
+    <span class="label">快速选择</span><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14l5-5 5 5"/></svg>
+  </button>
+  <button type="button" class="btn btn-primary btn-large" id="export-btn">生成执行指令</button>
+</div>
+
+<div class="menu quick-menu" id="quick-menu" role="menu" aria-label="快速选择" hidden>
+  <div class="qm-section-label">分类勾选（可独立开关）</div>
+  <button type="button" class="qm-row" role="menuitemcheckbox" aria-checked="false" data-quick="tierA">
+    <span class="qm-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path class="qm-tick" d="M6.5 12.5l3.8 3.8 7.2-8.3"/><path class="qm-dash" d="M7 12h10"/></svg></span>
+    <span class="qm-body">
+      <span class="qm-title"><span class="chip tier-a">A 级</span><span>可安全重建</span><span class="qm-meta" id="qm-meta-tierA"></span></span>
+      <small>缓存与构建产物，删了能自动恢复</small>
+    </span>
+  </button>
+  <button type="button" class="qm-row" role="menuitemcheckbox" aria-checked="false" data-quick="tierB">
+    <span class="qm-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path class="qm-tick" d="M6.5 12.5l3.8 3.8 7.2-8.3"/><path class="qm-dash" d="M7 12h10"/></svg></span>
+    <span class="qm-body">
+      <span class="qm-title"><span class="chip tier-b">B 级</span><span>建议整理</span><span class="qm-meta" id="qm-meta-tierB"></span></span>
+      <small>休眠模拟器、过期归档与重复安装包</small>
+    </span>
+  </button>
+  <button type="button" class="qm-row" role="menuitemcheckbox" aria-checked="false" data-quick="tierC">
+    <span class="qm-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path class="qm-tick" d="M6.5 12.5l3.8 3.8 7.2-8.3"/><path class="qm-dash" d="M7 12h10"/></svg></span>
+    <span class="qm-body">
+      <span class="qm-title"><span class="chip tier-c">C 级</span><span>需要你拍板</span><span class="qm-meta" id="qm-meta-tierC"></span></span>
+      <small>历史整盘备份、SDK 与需确认数据</small>
+    </span>
+  </button>
+  <button type="button" class="qm-row" role="menuitemcheckbox" aria-checked="false" data-quick="opt">
+    <span class="qm-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path class="qm-tick" d="M6.5 12.5l3.8 3.8 7.2-8.3"/><path class="qm-dash" d="M7 12h10"/></svg></span>
+    <span class="qm-body">
+      <span class="qm-title"><span class="chip">维护</span><span>优化、整理和更新</span><span class="qm-meta" id="qm-meta-opt"></span></span>
+      <small>不改变磁盘占用的维护与修复项</small>
+    </span>
+  </button>
+  <hr>
+  <div class="qm-actions">
+    <button type="button" class="qm-act" role="menuitem" data-quick="all" id="qm-select-all">全选全部</button>
+    <button type="button" class="qm-act" role="menuitem" data-quick="clear" id="qm-clear-all">清空选择</button>
+  </div>
+  <hr>
+  <button type="button" role="menuitem" data-quick="reset" id="reset-item">恢复初始勾选<small>同时清掉备注和白名单改动</small></button>
+</div>
+
+<div class="sheet-backdrop" id="prompt-modal" hidden>
+  <div class="sheet" id="prompt-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <div class="sheet-head">
+      <span class="app-icon tint-blue" data-icon="doc"></span>
+      <div>
+        <h2 id="sheet-title">执行指令已生成</h2>
+        <p id="sheet-status">粘贴回对话框，Agent 会先跑 preflight 复查再动手。</p>
+      </div>
+    </div>
+    <textarea id="prompt-textarea" readonly aria-label="执行指令文本"></textarea>
+    <footer>
+      <button type="button" class="btn" id="sheet-close">完成</button>
+      <button type="button" class="btn btn-primary" id="copy-confirm-btn">复制指令</button>
+    </footer>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+__INLINE_SCRIPT__
+</script>
+</body>
+</html>
