@@ -13,7 +13,7 @@
    - OpenAI Codex：`~/.codex/skills/full-stack-maintenance`（常见的多宿主共用安装里这是真实目录，其他位置是指向它的链接）
    - 通用 Agent Skills 目录：`~/.agents/skills/full-stack-maintenance`（OpenCode、Cursor 等宿主读取；可以是指向上面真实目录的链接）
    - Claude Code（独立安装）：`~/.claude/skills/full-stack-maintenance`
-   - Google Antigravity：自带技能目录是 `~/.gemini/antigravity/skills/`，另外也读 `~/.agents/skills` 里列入白名单的技能；它的 worktree 放在 `~/.gemini/antigravity/worktrees/`（盘点 worktree 时会看到，不是技能目录）
+   - Google Antigravity：自带技能目录是 `~/.gemini/antigravity/skills/`（或 `~/.gemini/antigravity-cli/`），另外也读 `~/.agents/skills` 里列入白名单的技能；它的会话脑图与日志位于 `~/.gemini/antigravity-cli/brain/`，worktree 放在 `~/.gemini/antigravity/worktrees/`（若在 Orca 中运行则位于 `~/orca/workspaces/`，盘点 worktree 时只做统计，不把它们当成技能目录）
    - OpenCode：`~/.config/opencode/skills/full-stack-maintenance`
    - 项目级目录：`<workspace>/.agents/skills/full-stack-maintenance` 或 `<workspace>/.claude/skills/full-stack-maintenance`
 
@@ -49,14 +49,33 @@
 
 ---
 
-## 4. 交互式 HTML 看板的存放与打开方式
+## 4. 巡检产物与交互式 HTML 看板的统一存放及打开方式
 
-生成单文件 `inspection-dashboard.html` 时，按宿主特性选择最佳展示路径：
+所有宿主（含 Claude Code、OpenAI Codex、Google Antigravity、OpenCode、Cursor、Windsurf 与 Orca）**统一将全部巡检产物写入技能根目录下被 Git 忽略的 `$SKILL_ROOT/state/`**：
+- 快照与基线：`$SKILL_ROOT/state/current-snapshot.json`、`$SKILL_ROOT/state/baseline-snapshot.json`、`$SKILL_ROOT/state/diff.json`
+- 单文件交互式看板：`$SKILL_ROOT/state/inspection-dashboard.html`
+- 执行前复核与隔离结果：`$SKILL_ROOT/state/preflight.json`、`$SKILL_ROOT/state/quarantine-plan.json`、`$SKILL_ROOT/state/quarantine-result.json`
+
+打开与展示看板时按宿主环境适配：
 
 1. **Google Antigravity**：
-   - 将看板直接渲染到当前会话的 Artifact 目录：`<appDataDir>/brain/<conversation-id>/inspection-dashboard.html`，并在回复中提供 `[inspection-dashboard.html](file:///...)` 链接，用户可在内置预览或浏览器中直接勾选。
-2. **Claude Code / OpenAI Codex / OpenCode / Cursor**：
-   - 将看板输出到技能目录下被 Git 忽略的 `state/`（如 `$SKILL_ROOT/state/inspection-dashboard.html`）；
-   - 若用户要求「打开给我看看」或当前在桌面端环境，可在 macOS 上运行 `open "<html_path>"`（Linux 用 `xdg-open`，Windows 用 `Start-Process`）在默认浏览器中唤起看板，同时在回复中附上完整路径。
+   - 看板 HTML **同样固定输出到 `$SKILL_ROOT/state/inspection-dashboard.html`**（不要写到 `<appDataDir>/brain/<conversation-id>/`：Antigravity 的会话 Artifact 仅渲染 `.md` Markdown 文档，把 `.html` 放进 Artifact 目录既无法作为 Markdown 渲染，也违背巡检产物统一放 `$SKILL_ROOT/state/` 的约定）；
+   - 在回复中直接提供标准 `[inspection-dashboard.html](file:///.../state/inspection-dashboard.html)` 链接供用户点击打开；仅当需要额外沉淀结构化 Markdown 巡检报告 Artifact 时，才将 `.md` 文档写入 `<appDataDir>/brain/<conversation-id>/`。
+2. **Claude Code / OpenAI Codex / OpenCode / Cursor / Windsurf**：
+   - 看板生成在 `$SKILL_ROOT/state/inspection-dashboard.html`；
+   - 若用户要求「打开给我看看」或当前处于桌面端环境，可在 macOS 上运行 `open "$SKILL_ROOT/state/inspection-dashboard.html"`（Linux 用 `xdg-open`，Windows 用 `Start-Process`）在默认浏览器中唤起看板，同时在回复中附上完整路径或 `file://` 链接。
 3. **Orca 终端环境（含 `ORCA_PANE_KEY`）**：
-   - 可配合 `orca-browser` 技能在 Orca 内置浏览器面板中直接打开生成的本地 HTML 看板供用户交互勾选。
+   - 产物依然写入 `$SKILL_ROOT/state/inspection-dashboard.html`；可配合 `orca-browser` 技能在 Orca 内置浏览器面板中直接打开该本地 HTML 看板供用户交互勾选。
+
+---
+
+## 5. 多代理宿主并发会话与 Worktree 活跃保护范围
+
+多个 AI 客户端常在同一台机器上并行修改同一批仓库。`full_stack_tool.py` 在 `preflight` 与 `quarantine` 阶段执行**活跃工作树级联豁免**（默认保护窗口 `worktree_protect_minutes: 2880`，即 48 小时；普通目录近期修改窗口 `recent_activity_minutes: 60`），活跃保护信号覆盖以下多宿主会话与工作树目录：
+
+- **OpenAI Codex**：会话记录 `~/.codex/sessions/`（及工作树 `~/.codex/worktrees/`）
+- **Claude Code**：项目会话记录 `~/.claude/projects/`（及仓库内 `.claude/worktrees/`）
+- **Google Antigravity**：会话上下文目录 `~/.gemini/antigravity-cli/brain/`（及 `~/.gemini/antigravity/worktrees/`）
+- **Orca 多工作树环境**：集中工作树目录 `~/orca/workspaces/`
+
+只要目标路径或其所属的 linked worktree 在保护窗口内命中上述任一宿主的活跃会话引用、`.git`/文件近期修改、未提交改动（`git status --porcelain`）或进程打开句柄（`lsof`），整棵工作树及其关联构建/产物目录（如 `target`、`node_modules`、`distribution/artifacts`）一律锁定跳过，绝不跨会话误删或搬移。
