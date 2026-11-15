@@ -30,8 +30,8 @@ metadata:
 
 1. **优先读取个人配置**：定位技能根目录（Claude Code 插件中为 `${CLAUDE_SKILL_DIR}`，其他宿主见 [多 Agent 宿主适配指南](references/multi-agent-hosts.md)）后，检查是否存在 Git 忽略的 `config/topology.local.json`；存在则显式传给 `--config`，否则使用通用默认配置 [topology.json](config/topology.json)（可参考 [topology.example.json](config/topology.example.json) 创建）。
 2. **Fail-Closed 保护**：配置文件语法错误、版本不匹配、`whitelist` 结构非法或 `quarantine.root_dirs` 条目写错时，脚本返回退出码 `2` 并立即中止，绝不降级成「无白名单全量放行」。
-3. **持久化白名单免打扰**：命中 `whitelist.paths`、`whitelist.repos`、`whitelist.app_names` 或 `whitelist.guest_ids` 的条目，在 JSON 与 HTML 看板中自动归入折叠的「🛡️ 已豁免白名单」分页，默认不勾选，且在 `preflight` 阶段强制拦截。用户在看板中点击「🛡️ 长期豁免」并回传指令后，将新增豁免项写回 `config/topology.local.json`。
-4. **巡检产物放在哪**：快照、对比、看板、`preflight` 与 `quarantine` 结果以及下次对比用的基线，统一放技能目录下被 Git 忽略的 `state/`（下文写作 `${CLAUDE_SKILL_DIR}/state/`，其他宿主换成 `$SKILL_ROOT/state/`）。脚本只写 `--output` 指定的位置，不自己挑目录。
+3. **持久化白名单免打扰**：命中 `whitelist.paths`、`whitelist.apps`（兼容旧键名 `whitelist.app_names`）、`whitelist.repos` 或 `whitelist.guest_ids` 四类白名单的条目，在扫描阶段与 HTML 看板中自动归入侧栏「白名单」分页（默认不勾选），并在 `preflight` 与 `quarantine` 复核阶段以 `BLOCKED_WHITELISTED` 强制拦截。用户在看板中点击「加入白名单」并回传指令后，将新增豁免项写回 `config/topology.local.json`。
+4. **巡检产物放在哪**：所有宿主（含 Claude Code、Codex、Google Antigravity、OpenCode、Cursor、Orca）统一将快照、对比、HTML 看板（`state/inspection-dashboard.html`）、`preflight` 与 `quarantine` 结果以及下次对比用的基线，放在技能目录下被 Git 忽略的 `state/`（下文写作 `${CLAUDE_SKILL_DIR}/state/`，其他宿主换成 `$SKILL_ROOT/state/`；Antigravity 中直接用 `file://` 链接指向 `$SKILL_ROOT/state/inspection-dashboard.html`，不把 `.html` 写进仅渲染 `.md` 的会话 Artifact 目录）。脚本只写 `--output` 指定的位置，不自己挑目录。
 
 ## 3. 四域并行只读巡检流程
 
@@ -78,36 +78,36 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py" \
 ```
 
 生成的 HTML 看板具备以下交互能力（详见 [看板与脚本契约](references/dashboard-and-cli.md)）：
-- **存储圆环总览**：样式参考 Apple 健康活动圆环的圆头粗环，灰色为清理后已用、沿弧绿青渐变为勾选将释放、蓝色为悬停项占比，配右侧四格容量数据与药丸形分段「空间构成」条；上方存储卷小圆环可切换单盘或全部存储卷；勾选或取消时圆环、水位条和数字以带轻回弹的弹簧动效实时变化。
-- **APP 卸载双模式切换器**：在久未使用 APP 卡片详情内切换「**保留用户数据（仅删 App 与缓存）**」（默认）与「**一键全部删除（含残留）**」，卡片体积、顶部存储圆环释放预计、影响路径列表与导出指令中的 `--uninstall-mode` 参数实时联动。
+- **存储圆环总览**：样式参考 Apple 健康活动圆环的圆头粗环，灰色为清理后已用、沿弧绿青渐变为勾选将释放（按可选 `reclaimable_bytes` 统计真实释放字节，`optimize` / `organize` / `update` 类条目 `reclaimable_bytes` 为 `0`，仅展示参考体量）、蓝色为悬停项占比，配右侧四格容量数据与药丸形分段「空间构成」条；上方存储卷小圆环可切换单盘或全部存储卷（未挂载/不可达存储池 `status: "unavailable"` 以离线状态展示）；勾选或取消时圆环、水位条和数字以带轻回弹的弹簧动效实时变化。
+- **APP 卸载双模式切换器**：在久未使用 APP 卡片详情内切换「**保留用户数据（仅删 App 与缓存）**」（默认）与「**一键全部删除（含残留）**」，卡片体积、顶部存储圆环释放预计、影响路径列表与导出指令中的卸载模式参数（`--uninstall-mode` 或按条目 `id:keep-data` / `id:purge-all`）实时联动。
 - **按领域分页的勾选工作台**：侧栏切换 Mac、本地项目、GitHub、NAS 与白名单，按风险等级分组、按动作类型筛选，顶部水位条实时显示对所在存储卷的影响。
 - **距上次巡检基线变化**：直接展示各盘水位涨跌与增长最快的 Top 目录。
 - **浏览器本地记忆（`localStorage`）与单项微调备注框**：刷新页面不丢勾选与卸载模式；每项旁均可填写微调说明（如「只留最近 2 个版本」「移到 NAS 别直接删」）。
-- **一键复制执行指令**：将用户勾选的 ID、所选卸载模式（`--uninstall-mode keep-data` / `purge-all`）、填写的单项微调备注、以及新加入白名单的条目一键打包成结构化 Markdown 指令回传给代理。
+- **一键复制执行指令**：将用户勾选的 ID、所选卸载模式（支持全局 `--uninstall-mode keep-data` / `purge-all` 及按条目 `id:keep-data` / `id:purge-all`）、填写的单项微调备注、以及新加入白名单的条目一键打包成结构化 Markdown 指令回传给代理。
 
 ## 5. 动手前「二次并发安全复查」、活跃整树豁免与分级外置隔离区
 
 收到用户确认或从 HTML 看板复制回传的勾选清单后，按以下铁律执行：
 
 1. **强制运行 `preflight` 二次并发安全复查**：
-   用户在网页上勾选到真正执行之间，可能有别的 AI 会话刚启动了构建或正在使用某棵工作树里的构建/测试产物（如 `distribution/artifacts`、`target`），动手前必须运行（卸载模式默认 `keep-data`，只有用户在看板或对话里明确选了「一键全部删除」才传 `purge-all`）：
+   用户在网页上勾选到真正执行之间，可能有别的 AI 会话刚启动了构建或正在使用某棵工作树里的构建/测试产物（如 `distribution/artifacts`、`target`），动手前必须运行（卸载模式默认 `keep-data`，只有用户在看板或对话里明确选了「一键全部删除」才用 `purge-all`；`--ids` 也支持按条目写 `id:keep-data` / `id:purge-all`）：
    ```bash
    python3 "${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py" preflight \
      --config "${CLAUDE_SKILL_DIR}/config/topology.local.json" \
      --targets "${CLAUDE_SKILL_DIR}/state/current-snapshot.json" \
-     --ids "<用户勾选的逗号分隔ID>" \
+     --ids "<用户勾选的逗号分隔ID，支持 id:keep-data / id:purge-all>" \
      --uninstall-mode keep-data \
      --output "${CLAUDE_SKILL_DIR}/state/preflight.json" --overwrite
    ```
-   - **活跃工作树整树豁免**：只要目标路径本身或其所在的父级 Git 工作树/仓库命中 `BLOCKED_WHITELISTED`、`BLOCKED_RECENT_ACTIVITY`（工作树在 `worktree_protect_minutes` 默认 48 小时内有文件或 `.git` 变动）、`BLOCKED_ACTIVE_WORKTREE`、`BLOCKED_OPEN_HANDLES` 或 `BLOCKED_DIRTY_WORKTREE`，**整棵工作树（含内部的 `target`、`node_modules`、`distribution/artifacts` 等忽略目录）一律跳过，绝不清理或移动**。
-   - **会话识别的边界**：`BLOCKED_ACTIVE_WORKTREE` 只读 Codex 的会话记录（`~/.codex/sessions/**/*.jsonl` 里近期提到该工作树路径）；Claude Code、Antigravity、OpenCode 的会话目前不读，只能靠最近改动时间、未提交改动和 `lsof` 打开句柄间接保护。
+   - **活跃工作树整树豁免**：只要目标路径本身或其所在的父级 Git 工作树/仓库命中 `BLOCKED_WHITELISTED`、`BLOCKED_RECENT_ACTIVITY`（常规目录默认 60 分钟，工作树在 `worktree_protect_minutes` 默认 48 小时内有文件或 `.git` 变动）、`BLOCKED_ACTIVE_WORKTREE`、`BLOCKED_OPEN_HANDLES` 或 `BLOCKED_DIRTY_WORKTREE`，**整棵工作树（含内部的 `target`、`node_modules`、`distribution/artifacts` 等忽略目录）一律跳过，绝不清理或移动**。
+   - **多宿主活跃会话保护范围**：涵盖 Codex（`~/.codex/sessions`）、Claude Code（`~/.claude/projects`）、Antigravity（`~/.gemini/antigravity-cli/brain`）以及 Orca 多工作树目录（`~/orca/workspaces/`），并结合近期改动时间、未提交改动和 `lsof` 打开句柄多重兜底。
    - 每条结果带 `quarantine_allowed`：为 `false` 时附 `quarantine_refusal` 说明为什么这一项永远不会被移进隔离区。
    - 用户在卡片备注框里写了微调要求的（如「留最新 3 个版本」），严格按备注缩小操作范围。
 2. **分级处置**：
    - **A 级全局纯缓存**（Homebrew 下载缓存、pip/npm/uv 全局缓存、Xcode `DerivedData`）：通过 `preflight` 后可直接清理，第一时间释放 Mac 空间。
    - **C 级、不批量删除**：Xcode `Unavailable` 模拟器先按 `$temporary-environments`（`~/.agents/skills/temporary-environments/SKILL.md`）的所有权登记核对，只回收登记为本工具创建且已可回收的设备，其余逐台列给用户拍板，不跑 `xcrun simctl delete unavailable`；PVE 灾难恢复演练克隆机（如 `*-dr-test`）、旧内核、`docker image prune -a`、远端分支删除和仓库归档同样只列候选，等用户逐项确认。
    - **worktree 类候选**：一律转交 `$repo-cleanup` 按退役流程处理（先确认无未提交改动、无未合入提交、无活跃会话），不进隔离区。
-   - **闲置项目构建产物、测试载荷、`artifacts`、卸载残留（`app_orphan`）与待卸载 APP（`app_uninstall`）**：**严禁直接 `rm -rf`，也不放入本机废纸篓**；用 `quarantine` 子命令移入隔离区。它必须带 `--ids`（不会默认全部），移动前对每个路径重跑与 `preflight` 相同的检查，只移判为安全的路径；Git pack 与 `.git` 内部路径、治理文档（`AGENTS.md` 一类）、启动项、各类更新检查、固件和 worktree 类候选一律拒绝，在 `refused_items` 里写明原因。先 `--dry-run` 看计划，再去掉 `--dry-run` 执行：
+   - **闲置项目构建产物、测试载荷、`artifacts`、卸载残留（`app_orphan`）与待卸载 APP（`app_uninstall`）**：**严禁直接 `rm -rf`，也不放入本机废纸篓**；用 `quarantine` 子命令移入隔离区。它必须带 `--ids`（支持按条目 `id:keep-data` / `id:purge-all`，不会默认全部），移动前对每个路径重跑与 `preflight` 相同的检查，只移判为安全的路径；Git pack 与 `.git` 内部路径、治理文档（`AGENTS.md` 一类）、启动项、各类更新检查、固件和 worktree 类候选一律拒绝，在 `refused_items` 里写明原因。先 `--dry-run` 看计划，再去掉 `--dry-run` 执行：
      ```bash
      python3 "${CLAUDE_SKILL_DIR}/scripts/full_stack_tool.py" quarantine \
        --config "${CLAUDE_SKILL_DIR}/config/topology.local.json" \
@@ -117,7 +117,7 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py" \
        --dry-run \
        --output "${CLAUDE_SKILL_DIR}/state/quarantine-plan.json" --overwrite
      ```
-   - **隔离区位置**：只用配置里 `quarantine.root_dirs` 列出的根，不自动遍历 `/Volumes`。`/Volumes/<盘名>` 下的根必须是真实挂载点（`os.path.ismount`）且可写；写了 `volume_uuid` 的还要和 `diskutil info -plist <挂载点>` 的 `VolumeUUID` 一致。都不满足时退回本机 `~/.Cleanup_Quarantine/`，输出里的 `quarantine_root_fallback_reason` 写明原因。每个批次自动生成 `manifest.json` 与一键还原脚本 `restore.sh`。
+   - **外置盘就地隔离与隔离区位置**：外置卷（如 `/Volumes/ExternalSSD`）上的待隔离文件直接就地移入**该外置卷自身的 `.Trash-quarantine` 目录**，绝不跨卷拷回内置系统盘撑爆内置 SSD；内置盘路径只用配置里 `quarantine.root_dirs` 列出的根（不自动遍历 `/Volumes`；`/Volumes/<盘名>` 下的根必须是真实挂载点 `os.path.ismount` 且可写，写了 `volume_uuid` 的还要与 `diskutil info -plist` 的 `VolumeUUID` 一致），都不满足时退回本机 `~/.Cleanup_Quarantine/`，输出里的 `quarantine_root_fallback_reason` 写明原因。每个批次自动生成 `manifest.json` 与安全防覆盖的 `restore.sh`（即使部分路径遇系统权限错误，已搬移路径仍确保写出清单与还原脚本）。
    - **清空隔离区**：脚本不提供删除命令。待用户确认各并行任务运行正常后，列出要清的批次、内容和体积，用户同意后再删批次目录。
 3. **分域执行与物理释放核验**：
    - 删除或移入隔离区后必须核对 `df -h` 真实可用空间变化，不能只看 `du` 目录减少量。
@@ -125,5 +125,5 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/render_dashboard.py" \
 4. **收尾更新看板与基线**：
    - 仅 Google Antigravity：若执行阶段派出了子代理，收齐结果后调用 `manage_subagents(Action: "kill_all")` 回收；
    - 将已完成条目的 `status` 标为 `"done"`，重新渲染 HTML 看板供用户留存；
-   - 若用户标记了新的「🛡️ 长期豁免」项，将其写入 `config/topology.local.json`；
+   - 若用户点击「加入白名单」标记了新的长期豁免项，将其写入 `config/topology.local.json`；
    - 重新运行 `scan-local`，把清理后的快照保存为新的 `${CLAUDE_SKILL_DIR}/state/baseline-snapshot.json`，供下次巡检对比。
