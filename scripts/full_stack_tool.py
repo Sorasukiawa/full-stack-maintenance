@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
 import plistlib
@@ -23,6 +24,7 @@ import sqlite3
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -75,6 +77,121 @@ COMMON_SHARED_TOOL_TOKENS = {
     "typescript",
 }
 
+# High-frequency generic words excluded from installed-app vendor_tokens so orphan leftovers are not masked.
+GENERIC_APP_VENDOR_STOPWORDS = {
+    "com",
+    "org",
+    "net",
+    "io",
+    "co",
+    "me",
+    "tv",
+    "us",
+    "uk",
+    "de",
+    "fr",
+    "jp",
+    "cn",
+    "app",
+    "apps",
+    "application",
+    "mac",
+    "macos",
+    "osx",
+    "darwin",
+    "apple",
+    "group",
+    "pro",
+    "plus",
+    "lite",
+    "mini",
+    "max",
+    "ultra",
+    "free",
+    "beta",
+    "alpha",
+    "lts",
+    "studio",
+    "helper",
+    "agent",
+    "daemon",
+    "service",
+    "services",
+    "client",
+    "server",
+    "desktop",
+    "mobile",
+    "web",
+    "native",
+    "player",
+    "viewer",
+    "reader",
+    "editor",
+    "writer",
+    "maker",
+    "builder",
+    "cloud",
+    "drive",
+    "sync",
+    "box",
+    "backup",
+    "storage",
+    "pdf",
+    "doc",
+    "docs",
+    "note",
+    "notes",
+    "mail",
+    "chat",
+    "video",
+    "audio",
+    "music",
+    "photo",
+    "media",
+    "dev",
+    "devel",
+    "tools",
+    "tool",
+    "toolkit",
+    "util",
+    "utils",
+    "utility",
+    "utilities",
+    "manager",
+    "launcher",
+    "updater",
+    "installer",
+    "uninstaller",
+    "cleaner",
+    "monitor",
+    "suite",
+    "hub",
+    "center",
+    "central",
+    "core",
+    "base",
+    "main",
+    "host",
+    "runner",
+    "worker",
+    "extension",
+    "plugin",
+    "widget",
+    "menubar",
+    "status",
+    "tray",
+    "panel",
+    "bar",
+    "browser",
+    "terminal",
+    "code",
+    "work",
+    "office",
+    "home",
+    "team",
+    "one",
+}
+
 BUILD_DIR_PATTERNS = (
     "target",
     "build",
@@ -88,6 +205,14 @@ BUILD_DIR_PATTERNS = (
     "dist",
     ".next",
 )
+
+# Signed release archives and verification preservation dirs require manual confirmation (tier C, unchecked).
+MANUAL_CONFIRM_BUILD_PATTERNS = (
+    "*-builds",
+    "*-preservation",
+)
+
+VALID_UNINSTALL_MODES = {"keep_data", "purge_all"}
 
 # Candidates that are advisories or in-place fixes: never moved into quarantine.
 NON_MOVABLE_CATEGORIES = {
@@ -141,7 +266,11 @@ def load_topology(config_path: str | Path) -> dict[str, Any]:
     except Exception as exc:
         raise ConfigError(f"Failed to parse configuration JSON at {path}: {exc}") from exc
 
-    if not isinstance(data, dict) or data.get("version") != SCHEMA_VERSION:
+    if (
+        not isinstance(data, dict)
+        or isinstance(data.get("version"), bool)
+        or data.get("version") != SCHEMA_VERSION
+    ):
         raise ConfigError(
             f"Unsupported or missing configuration version in {path} (expected {SCHEMA_VERSION})"
         )
@@ -150,10 +279,19 @@ def load_topology(config_path: str | Path) -> dict[str, Any]:
     if not isinstance(whitelist, dict):
         raise ConfigError(f"Missing or invalid 'whitelist' object in {path}")
 
-    for list_key in ("paths", "repos", "app_names", "guest_ids"):
+    for list_key in ("paths", "repos", "app_names"):
         val = whitelist.get(list_key, [])
         if not isinstance(val, list) or not all(isinstance(x, str) and x.strip() for x in val):
             raise ConfigError(f"Invalid 'whitelist.{list_key}' in {path}: must be a list of non-empty strings")
+
+    guest_val = whitelist.get("guest_ids", [])
+    if not isinstance(guest_val, list) or not all(
+        (isinstance(x, str) and x.strip()) or (isinstance(x, int) and not isinstance(x, bool) and x >= 0)
+        for x in guest_val
+    ):
+        raise ConfigError(
+            f"Invalid 'whitelist.guest_ids' in {path}: must be a list of non-empty strings or non-negative integers"
+        )
 
     notes = whitelist.get("notes", {})
     if not isinstance(notes, dict) or not all(
@@ -161,7 +299,50 @@ def load_topology(config_path: str | Path) -> dict[str, Any]:
     ):
         raise ConfigError(f"Invalid 'whitelist.notes' in {path}: must be a string-to-string map")
 
+    _quarantine_root_entries(data)
+
     return data
+
+
+def _normalize_repo_slug(raw: str) -> str:
+    """Normalize a repo reference ('Owner/Repo', HTTPS/SSH git URL, or plain repo name) to lowercase."""
+    s = raw.strip()
+    if not s:
+        return ""
+    if s.lower().endswith(".git"):
+        s = s[:-4]
+    s = s.rstrip("/")
+    # SSH SCP-like syntax: git@github.com:owner/repo
+    m_scp = re.match(r"^[^/@\s]+@[^:/\s]+:([^/\s]+/[^/\s]+)$", s)
+    if m_scp:
+        return m_scp.group(1).lower()
+    # URL syntax: https://github.com/owner/repo or ssh://git@host/owner/repo
+    m_url = re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://[^/]+/(.+)$", s)
+    if m_url:
+        tail = [seg for seg in m_url.group(1).split("/") if seg]
+        if len(tail) >= 2:
+            return f"{tail[-2]}/{tail[-1]}".lower()
+    if s.lower().startswith("github:"):
+        s = s[7:].strip("/")
+    parts = [seg.strip() for seg in s.split("/") if seg.strip()]
+    if len(parts) >= 2:
+        return f"{parts[-2]}/{parts[-1]}".lower()
+    return parts[0].lower() if parts else ""
+
+
+def _normalize_guest_token(raw: Any) -> set[str]:
+    """Normalize a numeric or string guest/container identifier into canonical comparison tokens."""
+    s = str(raw if raw is not None else "").strip().lower()
+    if not s:
+        return set()
+    tokens = {s}
+    m = re.match(r"^(?:pve:)?(?:vm|ct|lxc|qemu)[-_/:]?(\d+)$", s)
+    if m:
+        num = m.group(1)
+        tokens.update({num, f"vm-{num}", f"ct-{num}", f"lxc/{num}", f"qemu/{num}"})
+    elif s.isdigit():
+        tokens.update({f"vm-{s}", f"ct-{s}", f"lxc/{s}", f"qemu/{s}"})
+    return tokens
 
 
 def build_whitelist_index(config: dict[str, Any]) -> dict[str, Any]:
@@ -185,18 +366,284 @@ def build_whitelist_index(config: dict[str, Any]) -> dict[str, Any]:
             pass
 
     app_tokens = {normalize_token(name) for name in wl.get("app_names", []) if normalize_token(name)}
-    repos = {r.strip().lower() for r in wl.get("repos", []) if r.strip()}
-    guest_ids = {str(g).strip() for g in wl.get("guest_ids", []) if str(g).strip()}
+
+    repos: set[str] = set()
+    notes_by_repo: dict[str, str] = {}
+    for raw_r in wl.get("repos", []):
+        slug = _normalize_repo_slug(str(raw_r))
+        if slug:
+            repos.add(slug)
+            note = raw_notes.get(str(raw_r)) or raw_notes.get(slug) or ""
+            if note:
+                notes_by_repo[slug] = note
+
+    guest_ids: set[str] = set()
+    guest_tokens: set[str] = set()
+    notes_by_guest: dict[str, str] = {}
+    for raw_g in wl.get("guest_ids", []):
+        g_str = str(raw_g).strip()
+        if g_str:
+            guest_ids.add(g_str.lower())
+            toks = _normalize_guest_token(g_str)
+            guest_tokens.update(toks)
+            note = raw_notes.get(g_str) or raw_notes.get(g_str.lower()) or ""
+            if note:
+                for t in toks:
+                    notes_by_guest[t] = note
 
     return {
         "paths": resolved_paths,
         "inode_keys": inode_keys,
         "notes_by_path": notes_by_path,
+        "notes_by_repo": notes_by_repo,
+        "notes_by_guest": notes_by_guest,
         "raw_notes": raw_notes,
         "app_tokens": app_tokens,
         "repos": repos,
         "guest_ids": guest_ids,
+        "guest_tokens": guest_tokens,
     }
+
+
+parse_whitelist_index = build_whitelist_index
+
+
+def _extract_git_remote_repos(repo_dir: Path) -> list[str]:
+    """Read .git/config (or linked worktree commondir config) without spawning git to find <owner>/<repo> slugs."""
+    git_marker = repo_dir / ".git"
+    config_files: list[Path] = []
+    try:
+        if git_marker.is_dir():
+            config_files.append(git_marker / "config")
+        elif git_marker.is_file():
+            raw = git_marker.read_text(encoding="utf-8", errors="replace").strip()
+            if raw.startswith("gitdir:"):
+                gitdir = (repo_dir / raw.split(":", 1)[1].strip()).resolve(strict=False)
+                config_files.append(gitdir / "config")
+                commondir_file = gitdir / "commondir"
+                if commondir_file.is_file():
+                    common_rel = commondir_file.read_text(encoding="utf-8", errors="replace").strip()
+                    if common_rel:
+                        common_dir = (gitdir / common_rel).resolve(strict=False)
+                        config_files.append(common_dir / "config")
+    except OSError:
+        return []
+
+    slugs: list[str] = []
+    for cfg in config_files:
+        if not cfg.is_file():
+            continue
+        try:
+            text = cfg.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            m = re.match(r"^\s*url\s*=\s*(.+?)\s*$", line)
+            if m:
+                slug = _normalize_repo_slug(m.group(1))
+                if "/" in slug and slug not in slugs:
+                    slugs.append(slug)
+    return slugs
+
+
+def check_repo_whitelisted(
+    repo_or_spec: str | Path | None,
+    wl_index: dict[str, Any],
+    item: dict[str, Any] | None = None,
+) -> tuple[bool, str]:
+    """Check whether a local workspace repo or remote GitHub repo candidate matches whitelist.repos."""
+    wl_repos: set[str] = wl_index.get("repos", set())
+    if not wl_repos:
+        return False, ""
+
+    notes_by_repo: dict[str, str] = wl_index.get("notes_by_repo", {})
+    qualified_slugs: set[str] = set()
+    plain_names: set[str] = set()
+    parent_qualified: set[str] = set()
+
+    if item:
+        for key in ("repo", "full_name", "repo_name", "repository"):
+            val = str(item.get(key) or "").strip()
+            if val:
+                slug = _normalize_repo_slug(val)
+                if "/" in slug:
+                    qualified_slugs.add(slug)
+                    plain_names.add(slug.split("/", 1)[1])
+                elif slug:
+                    plain_names.add(slug)
+        if str(item.get("domain") or "").lower() == "github":
+            for key in ("path_or_spec", "path", "spec"):
+                val = str(item.get(key) or "").strip()
+                if val and not val.startswith(("/", "~", ".")):
+                    slug = _normalize_repo_slug(val)
+                    if "/" in slug:
+                        qualified_slugs.add(slug)
+                        plain_names.add(slug.split("/", 1)[1])
+                    elif slug:
+                        plain_names.add(slug)
+
+    if repo_or_spec is not None:
+        raw_str = str(repo_or_spec).strip()
+        if raw_str:
+            is_local_like = isinstance(repo_or_spec, Path) or raw_str.startswith(("/", "~", "."))
+            if is_local_like:
+                p = expand_path(raw_str)
+                # Walk up to enclosing git repo if p is a nested build/pack/doc path inside a repo
+                curr = p
+                repo_root: Path | None = None
+                for cand_dir in (curr, *curr.parents):
+                    if cand_dir in (Path("/"), Path("/Users"), Path("/Volumes"), Path("/tmp"), Path("/private/tmp")):
+                        break
+                    try:
+                        if (cand_dir / ".git").exists():
+                            repo_root = cand_dir
+                            break
+                    except OSError:
+                        continue
+                if repo_root is not None:
+                    rname = repo_root.name.strip().lower()
+                    if rname:
+                        plain_names.add(rname)
+                    if repo_root.parent.name:
+                        parent_qualified.add(f"{repo_root.parent.name.strip().lower()}/{rname}")
+                    for rslug in _extract_git_remote_repos(repo_root):
+                        qualified_slugs.add(rslug)
+                        plain_names.add(rslug.split("/", 1)[1])
+            else:
+                # Only treat non-filesystem strings as repo specs when repo/github context applies
+                domain = str((item or {}).get("domain") or "").lower()
+                cat = str((item or {}).get("category") or "").lower()
+                if domain in ("github", "projects") or "repo" in cat or "git" in cat or "/" in raw_str:
+                    if ":" not in raw_str or raw_str.lower().startswith(("github:", "https://", "http://", "ssh://", "git@")):
+                        slug = _normalize_repo_slug(raw_str)
+                        if "/" in slug:
+                            qualified_slugs.add(slug)
+                            plain_names.add(slug.split("/", 1)[1])
+                        elif slug:
+                            plain_names.add(slug)
+
+    if not qualified_slugs and not plain_names:
+        return False, ""
+
+    for wl_entry in sorted(wl_repos):
+        if "/" in wl_entry:
+            if wl_entry in qualified_slugs or wl_entry in parent_qualified:
+                note = notes_by_repo.get(wl_entry, f"Protected by whitelist.repos ({wl_entry})")
+                return True, note
+            # Pure local repo without any configured git remote URL: allow matching the <repo> part
+            if not qualified_slugs:
+                _, wl_repo_only = wl_entry.split("/", 1)
+                if wl_repo_only in plain_names:
+                    note = notes_by_repo.get(wl_entry, f"Protected by whitelist.repos ({wl_entry})")
+                    return True, note
+        else:
+            if wl_entry in plain_names:
+                note = notes_by_repo.get(wl_entry, f"Protected by whitelist.repos ({wl_entry})")
+                return True, note
+
+    return False, ""
+
+
+def _is_guest_candidate_context(item: dict[str, Any] | None, raw_path: str) -> bool:
+    if item:
+        for k in ("guest_id", "vmid", "ctid", "container_id", "guest_name", "container_name"):
+            if item.get(k) is not None and str(item.get(k)).strip():
+                return True
+        domain = str(item.get("domain") or "").strip().lower()
+        if domain in ("nas", "homelab", "pve", "docker"):
+            return True
+        cat = str(item.get("category") or "").strip().lower()
+        if any(tok in cat for tok in ("guest", "vm", "lxc", "container", "docker", "pve", "nas")):
+            return True
+    s = raw_path.strip().lower()
+    if s and not s.startswith(("/", "~", ".")):
+        if s.startswith(("pve:", "docker:", "lxc/", "qemu/", "vm-", "ct-", "nas:")):
+            return True
+    return False
+
+
+def check_guest_whitelisted(
+    item: dict[str, Any] | None,
+    raw_path: str,
+    wl_index: dict[str, Any],
+) -> tuple[bool, str]:
+    """Check whether a remote VM/LXC/Docker/NAS candidate matches whitelist.guest_ids."""
+    wl_guest_ids: set[str] = wl_index.get("guest_ids", set())
+    wl_guest_tokens: set[str] = wl_index.get("guest_tokens", set())
+    if not wl_guest_ids or not _is_guest_candidate_context(item, raw_path):
+        return False, ""
+
+    notes_by_guest: dict[str, str] = wl_index.get("notes_by_guest", {})
+    cand_tokens: set[str] = set()
+
+    if item:
+        for id_key in ("guest_id", "vmid", "ctid", "container_id"):
+            val = item.get(id_key)
+            if val is not None and str(val).strip():
+                cand_tokens.update(_normalize_guest_token(val))
+        for name_key in ("name", "guest_name", "container_name"):
+            val = str(item.get(name_key) or "").strip()
+            if val:
+                cand_tokens.update(_normalize_guest_token(val))
+        title = str(item.get("title") or "").strip()
+        if title:
+            for m in re.finditer(r"(?<![a-z0-9])(?:vm|ct|lxc|qemu|#)\s*[-_/:]?(\d+)(?![a-z0-9])", title.lower()):
+                cand_tokens.update(_normalize_guest_token(m.group(1)))
+
+    specs_to_inspect = [raw_path]
+    if item:
+        for spec_key in ("path_or_spec", "path", "spec"):
+            v = str(item.get(spec_key) or "").strip()
+            if v and v not in specs_to_inspect:
+                specs_to_inspect.append(v)
+
+    for spec in specs_to_inspect:
+        s = spec.strip()
+        if not s:
+            continue
+        sl = s.lower()
+        cand_tokens.update(_normalize_guest_token(sl))
+        if ":" in sl and not sl.startswith(("/", "~")):
+            lhs, rhs_raw = sl.split(":", 1)
+            rhs = rhs_raw.strip("/")
+            if lhs in ("pve", "docker", "lxc", "qemu", "vm", "ct", "nas", "guest", "homelab") and rhs:
+                cand_tokens.update(_normalize_guest_token(rhs))
+                last_seg = rhs.rsplit("/", 1)[-1]
+                if last_seg:
+                    cand_tokens.update(_normalize_guest_token(last_seg))
+        elif "/" in sl and not sl.startswith(("/", "~")):
+            last_seg = sl.rsplit("/", 1)[-1]
+            if last_seg:
+                cand_tokens.update(_normalize_guest_token(last_seg))
+        for m in re.finditer(r"(?<![a-z0-9])(?:vm|ct|lxc|qemu)[-_/:]?(\d+)(?![a-z0-9])", sl):
+            cand_tokens.update(_normalize_guest_token(m.group(0)))
+            cand_tokens.update(_normalize_guest_token(m.group(1)))
+
+    matched = cand_tokens & wl_guest_tokens
+    if matched:
+        hit = sorted(matched)[0]
+        note = notes_by_guest.get(hit, f"Protected by whitelist.guest_ids ({hit})")
+        return True, note
+
+    return False, ""
+
+
+def apply_candidate_whitelist(cand: dict[str, Any], wl_index: dict[str, Any]) -> dict[str, Any]:
+    """Ensure repo and guest whitelist rules mark matching candidates whitelisted=True and default_checked=False."""
+    raw_spec = str(cand.get("path_or_spec") or cand.get("path") or "")
+    if not cand.get("whitelisted"):
+        repo_wl, repo_note = check_repo_whitelisted(raw_spec or None, wl_index, item=cand)
+        if repo_wl:
+            cand["whitelisted"] = True
+            cand["whitelist_note"] = repo_note
+    if not cand.get("whitelisted"):
+        guest_wl, guest_note = check_guest_whitelisted(cand, raw_spec, wl_index)
+        if guest_wl:
+            cand["whitelisted"] = True
+            cand["whitelist_note"] = guest_note
+    if cand.get("whitelisted"):
+        cand["default_checked"] = False
+    return cand
 
 
 def check_path_whitelisted(target: Path, wl_index: dict[str, Any]) -> tuple[bool, str]:
@@ -306,6 +753,23 @@ def is_host_scan_config(config: dict[str, Any]) -> bool:
     return False
 
 
+def _clean_app_name_words(raw_name: str) -> tuple[str, ...]:
+    s = raw_name.strip()
+    if s.lower().endswith(".app"):
+        s = s[:-4]
+    words = [w.lower() for w in re.split(r"[^a-zA-Z0-9]+", s) if w]
+    return tuple(words)
+
+
+def _is_meaningful_vendor_token(raw_word: str) -> bool:
+    nt = normalize_token(raw_word)
+    if len(nt) < 3 or nt.isdigit():
+        return False
+    if nt in GENERIC_APP_VENDOR_STOPWORDS or raw_word.strip().lower() in GENERIC_APP_VENDOR_STOPWORDS:
+        return False
+    return True
+
+
 def collect_installed_apps(app_roots: list[str]) -> dict[str, Any]:
     """Collect bundle IDs, normalized names, vendor tokens, and detailed metadata from installed .app bundles."""
     bundle_ids: set[str] = set()
@@ -345,9 +809,6 @@ def collect_installed_apps(app_roots: list[str]) -> dict[str, Any]:
             stem_norm = normalize_token(app_dir.stem)
             if stem_norm:
                 norm_names.add(stem_norm)
-            for word in re.split(r"[^a-zA-Z0-9]+", app_dir.stem):
-                if len(word) >= 3:
-                    vendor_tokens.add(word.lower())
 
             plist_path = app_dir / "Contents" / "Info.plist"
             if not plist_path.is_file():
@@ -357,21 +818,35 @@ def collect_installed_apps(app_roots: list[str]) -> dict[str, Any]:
             bid_orig = str(info.get("CFBundleIdentifier") or "").strip()
             bid = bid_orig.lower()
             app_norm_tokens: set[str] = {stem_norm} if stem_norm else set()
+            clean_name_tuples: set[tuple[str, ...]] = set()
+            stem_words = _clean_app_name_words(app_dir.stem)
+            if stem_words:
+                clean_name_tuples.add(stem_words)
+
             if bid:
                 bundle_ids.add(bid)
-                parts = [p for p in bid.split(".") if p not in ("com", "org", "net", "io", "app", "mac", "macos")]
-                for part in parts:
-                    if len(part) >= 3:
+                for part in bid.split(".")[:-1]:
+                    if _is_meaningful_vendor_token(part):
                         vendor_tokens.add(normalize_token(part))
 
             display_name = str(info.get("CFBundleDisplayName") or info.get("CFBundleName") or app_dir.stem).strip()
-            for key in ("CFBundleName", "CFBundleDisplayName", "CFBundleExecutable"):
+            for key in ("CFBundleName", "CFBundleDisplayName"):
                 val = str(info.get(key) or "").strip()
                 if val:
                     nt = normalize_token(val)
                     if nt:
                         norm_names.add(nt)
                         app_norm_tokens.add(nt)
+                    w_tuple = _clean_app_name_words(val)
+                    if w_tuple:
+                        clean_name_tuples.add(w_tuple)
+
+            exec_val = str(info.get("CFBundleExecutable") or "").strip()
+            if exec_val:
+                nt_exec = normalize_token(exec_val)
+                if nt_exec and nt_exec not in GENERIC_APP_VENDOR_STOPWORDS and len(nt_exec) >= 4:
+                    norm_names.add(nt_exec)
+                    app_norm_tokens.add(nt_exec)
 
             sparkle_feed = str(info.get("SUFeedURL") or "").strip()
             has_mas_receipt = (app_dir / "Contents" / "_MASReceipt" / "receipt").is_file()
@@ -391,10 +866,11 @@ def collect_installed_apps(app_roots: list[str]) -> dict[str, Any]:
                     "bundle_id_lower": bid,
                     "version": str(info.get("CFBundleShortVersionString") or "").strip(),
                     "build": str(info.get("CFBundleVersion") or "").strip(),
-                    "executable": str(info.get("CFBundleExecutable") or "").strip(),
+                    "executable": exec_val,
                     "sparkle_feed": sparkle_feed,
                     "install_source": install_source,
                     "norm_tokens": sorted(app_norm_tokens),
+                    "clean_name_tuples": sorted(clean_name_tuples),
                 }
             )
 
@@ -406,12 +882,120 @@ def collect_installed_apps(app_roots: list[str]) -> dict[str, Any]:
     }
 
 
-def is_entry_matched_to_installed_app(entry_name: str, installed: dict[str, Any]) -> bool:
+def _strip_library_entry_suffix(entry_name: str) -> str:
     lower = entry_name.strip().lower()
     for suffix in (".savedstate", ".binarycookies", ".plist"):
         if lower.endswith(suffix):
             lower = lower[: -len(suffix)]
             break
+    return lower
+
+
+APP_RUNTIME_SUFFIX_WORDS = {
+    "helper",
+    "agent",
+    "daemon",
+    "updater",
+    "crashreporter",
+    "renderer",
+    "gpu",
+    "plugin",
+    "shipit",
+    "cache",
+    "caches",
+    "data",
+    "support",
+    "log",
+    "logs",
+    "savedstate",
+}
+
+
+def _are_runtime_qualifier_words(words: list[str]) -> bool:
+    for w in words:
+        if w in APP_RUNTIME_SUFFIX_WORDS or re.match(r"^v?\d+$", w):
+            continue
+        return False
+    return True
+
+
+def match_library_entry_to_app(entry_name: str, app: dict[str, Any]) -> bool:
+    """Return True only when strong evidence ties a Library entry to the given app:
+    1. Exact or dot-segmented CFBundleIdentifier match (<bid>, <bid>.*, *.<bid>, group.<bid>, group.<bid>.*);
+    2. Full canonical app name matched on standalone word boundaries (for non-dotted folder names, never
+       claiming another vendor's dotted bundle/container ID or a sibling app like 'Notion Calendar').
+    """
+    lower = _strip_library_entry_suffix(entry_name)
+    if not lower:
+        return False
+
+    bid = str(app.get("bundle_id_lower") or app.get("bundle_id") or "").strip().lower()
+    if bid:
+        if (
+            lower == bid
+            or lower.startswith(f"{bid}.")
+            or lower.endswith(f".{bid}")
+            or f".{bid}." in lower
+        ):
+            return True
+
+    # Never let a third-party app claim Apple system containers/preferences by word coincidence
+    if lower.startswith(("com.apple.", "group.com.apple.")) and not bid.startswith("com.apple."):
+        return False
+
+    # Dotted directory names (reverse-DNS bundle IDs, Group Containers, TeamID.<bid>) are bundle identifiers:
+    # if the app has a CFBundleIdentifier and did not match step 1 above, never match by plain app name.
+    if "." in lower and bid:
+        return False
+
+    entry_words = [w for w in re.split(r"[^a-z0-9]+", lower) if w]
+    if not entry_words:
+        return False
+
+    raw_tuples = app.get("clean_name_tuples")
+    name_tuples: list[tuple[str, ...]] = []
+    if isinstance(raw_tuples, list) and raw_tuples:
+        for t in raw_tuples:
+            if isinstance(t, (list, tuple)) and t:
+                name_tuples.append(tuple(str(x).lower() for x in t if str(x)))
+    else:
+        for key in ("name", "stem", "display_name"):
+            val = str(app.get(key) or "").strip()
+            if val:
+                wt = _clean_app_name_words(val)
+                if wt and wt not in name_tuples:
+                    name_tuples.append(wt)
+
+    for name_words in name_tuples:
+        joined = "".join(name_words)
+        if not joined:
+            continue
+        # Single generic stopword or very short name (<4 chars) only matches if it is the entire entry name
+        if len(joined) < 4 or (len(name_words) == 1 and joined in GENERIC_APP_VENDOR_STOPWORDS):
+            if len(joined) >= 2 and entry_words == list(name_words):
+                return True
+            continue
+
+        n_len = len(name_words)
+        if entry_words == list(name_words):
+            return True
+        if len(entry_words) > n_len and entry_words[:n_len] == list(name_words):
+            if _are_runtime_qualifier_words(entry_words[n_len:]):
+                return True
+
+        # Multi-word app name (e.g. "Super Studio") matching a single joined word ("SuperStudio"),
+        # still anchored on word boundaries so "MySuperStudioExtra" does not match.
+        if n_len >= 2:
+            if entry_words == [joined]:
+                return True
+            if len(entry_words) > 1 and entry_words[0] == joined and _are_runtime_qualifier_words(entry_words[1:]):
+                return True
+
+    return False
+
+
+def is_entry_matched_to_installed_app(entry_name: str, installed: dict[str, Any]) -> bool:
+    lower = _strip_library_entry_suffix(entry_name)
     if any(lower.startswith(prefix.lower()) for prefix in SYSTEM_LIBRARY_IGNORE_PREFIXES):
         return True
 
@@ -419,47 +1003,34 @@ def is_entry_matched_to_installed_app(entry_name: str, installed: dict[str, Any]
     if not norm:
         return True
 
-    if lower in installed["bundle_ids"] or norm in installed["norm_names"]:
+    bundle_ids: set[str] = installed.get("bundle_ids", set())
+    norm_names: set[str] = installed.get("norm_names", set())
+
+    if lower in bundle_ids or norm in norm_names:
         return True
 
-    for bid in installed["bundle_ids"]:
-        if lower.startswith(bid + ".") or bid.startswith(lower + "."):
-            return True
-        if normalize_token(bid) == norm:
+    for bid in bundle_ids:
+        if (
+            lower.startswith(f"{bid}.")
+            or lower.endswith(f".{bid}")
+            or lower == f"group.{bid}"
+            or lower.startswith(f"group.{bid}.")
+            or bid.startswith(f"{lower}.")
+        ):
             return True
 
-    # Check if normalized name contains or matches any installed app norm_name (>= 4 chars)
-    for app_norm in installed["norm_names"]:
-        if len(app_norm) >= 4 and (app_norm in norm or norm in app_norm):
+    apps_list = installed.get("apps", [])
+    for app in apps_list:
+        if match_library_entry_to_app(entry_name, app):
             return True
 
-    # Check bundle ID vendor segments (e.g. com.vendor.AppName)
+    # Check non-generic bundle ID / vendor segments (e.g. com.google.Chrome -> google, Adobe -> adobe)
     parts = [normalize_token(p) for p in re.split(r"[.\-_ ]+", lower) if p]
+    vendor_tokens: set[str] = installed.get("vendor_tokens", set())
     for p in parts:
-        if p in installed["vendor_tokens"]:
+        if p and p in vendor_tokens:
             return True
 
-    return False
-
-
-def match_library_entry_to_app(entry_name: str, app: dict[str, Any]) -> bool:
-    """Return True if a Library directory/file name belongs to the given installed app."""
-    lower = entry_name.strip().lower()
-    for suffix in (".savedstate", ".binarycookies", ".plist"):
-        if lower.endswith(suffix):
-            lower = lower[: -len(suffix)]
-            break
-    bid = app.get("bundle_id_lower", "")
-    if bid and (lower == bid or lower.startswith(bid + ".") or lower.endswith("." + bid)):
-        return True
-    norm = normalize_token(lower)
-    if not norm:
-        return False
-    if bid and normalize_token(bid) == norm:
-        return True
-    for tok in app.get("norm_tokens", []):
-        if len(tok) >= 4 and (tok == norm or (len(tok) >= 5 and tok in norm)):
-            return True
     return False
 
 
@@ -888,9 +1459,14 @@ def scan_global_caches(
     dir_sizes: dict[str, int] = {}
 
     for raw in raw_roots:
-        p = expand_path(raw)
-        if not p.is_dir() or p.is_symlink():
+        raw_p = Path(os.path.abspath(os.path.expanduser(raw)))
+        if raw_p.is_symlink() or any(
+            anc.is_symlink() for anc in raw_p.parents if str(anc) not in ("/", "/tmp", "/var", "/etc")
+        ):
             continue
+        if not raw_p.is_dir():
+            continue
+        p = raw_p.resolve(strict=False)
         sz, trunc, latest_mtime = bounded_dir_size(p)
         dir_sizes[str(p)] = sz
         if sz < min_cache_bytes:
@@ -1833,15 +2409,204 @@ def matches_any_glob(name: str, globs: list[str]) -> bool:
     return False
 
 
+def resolve_gauge_id_for_path(
+    target_path: Path | str,
+    gauges: list[dict[str, Any]] | None,
+    fallback: str = "mac-data",
+) -> str:
+    """Resolve gauge_id by longest mount_path component-prefix match against storage_gauges."""
+    if not gauges:
+        return fallback
+    raw_str = str(target_path or "").strip()
+    if not raw_str or not raw_str.startswith(("/", "~", ".")):
+        return fallback
+    resolved = expand_path(raw_str)
+    best_id = ""
+    best_key = (-1, -1)
+    for g in gauges:
+        gid = str(g.get("id") or "").strip()
+        mount_raw = str(g.get("mount_path") or "").strip()
+        if not gid or not mount_raw:
+            continue
+        mount_p = expand_path(mount_raw)
+        if resolved == mount_p or mount_p in resolved.parents:
+            cand_key = (len(mount_p.parts), len(str(mount_p)))
+            if cand_key > best_key:
+                best_key = cand_key
+                best_id = gid
+    return best_id or fallback
+
+
+def deduplicate_candidate_ids(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ensure candidate IDs are globally unique within a snapshot.
+
+    The first occurrence keeps its human-readable ID; collisions append the first 6 hex chars
+    of SHA-1 over the canonical path/spec.
+    """
+    seen: set[str] = set()
+    for cand in candidates:
+        base_id = str(cand.get("id") or "candidate").strip() or "candidate"
+        if base_id not in seen:
+            cand["id"] = base_id
+            seen.add(base_id)
+            continue
+        raw_ref = str(cand.get("path_or_spec") or cand.get("path") or "")
+        if raw_ref.startswith(("/", "~", ".")):
+            canon = str(expand_path(raw_ref))
+        else:
+            canon = f"{cand.get('domain', '')}:{cand.get('category', '')}:{raw_ref}:{cand.get('title', '')}"
+        short_hash = hashlib.sha1(canon.encode("utf-8")).hexdigest()[:6]
+        new_id = f"{base_id}-{short_hash}"
+        seq = 1
+        while new_id in seen:
+            seq += 1
+            new_id = f"{base_id}-{short_hash}-{seq}"
+        cand["id"] = new_id
+        seen.add(new_id)
+    return candidates
+
+
+def scan_remote_repositories_and_guests(
+    config: dict[str, Any],
+    wl_index: dict[str, Any],
+    gauges: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Generate GitHub repository and remote PVE/Docker/NAS candidates from config/fixtures, honoring whitelists."""
+    fixtures = config.get("probe_fixtures", {})
+    if not isinstance(fixtures, dict):
+        fixtures = {}
+
+    candidates: list[dict[str, Any]] = []
+
+    raw_gh_repos: list[Any] = []
+    if isinstance(fixtures.get("github_repos"), list):
+        raw_gh_repos.extend(fixtures["github_repos"])
+    if isinstance(config.get("github_candidates"), list):
+        raw_gh_repos.extend(config["github_candidates"])
+
+    for entry in raw_gh_repos:
+        if isinstance(entry, str) and entry.strip():
+            rec: dict[str, Any] = {"repo": entry.strip()}
+        elif isinstance(entry, dict):
+            rec = dict(entry)
+        else:
+            continue
+
+        spec = str(
+            rec.get("path_or_spec")
+            or rec.get("repo")
+            or rec.get("full_name")
+            or rec.get("path")
+            or rec.get("name")
+            or ""
+        ).strip()
+        if not spec:
+            continue
+        slug = re.sub(r"[^a-z0-9]+", "-", spec.lower()).strip("-")[:40] or "repo"
+        cand: dict[str, Any] = {
+            "id": str(rec.get("id") or f"gh-repo-{slug}"),
+            "domain": str(rec.get("domain") or "github"),
+            "category": str(rec.get("category") or "github_repo"),
+            "action_type": str(rec.get("action_type") or "optimize"),
+            "tier": str(rec.get("tier") or "C"),
+            "title": str(rec.get("title") or f"GitHub 仓库治理候选：{spec}"),
+            "repo": spec,
+            "path": str(rec.get("path") or spec),
+            "path_or_spec": spec,
+            "size_bytes": int(rec.get("size_bytes") or 0),
+            "size_truncated": False,
+            "latest_mtime": int(rec.get("latest_mtime") or 0),
+            "gauge_id": str(rec.get("gauge_id") or ""),
+            "whitelisted": bool(rec.get("whitelisted", False)),
+            "whitelist_note": str(rec.get("whitelist_note") or ""),
+            "evidence": str(rec.get("evidence") or f"远端仓库 {spec} 待复核归档、可见性或分支清理。"),
+        }
+        if "default_checked" in rec:
+            cand["default_checked"] = bool(rec["default_checked"])
+        else:
+            cand["default_checked"] = cand["tier"] == "A" and not cand["whitelisted"]
+        apply_candidate_whitelist(cand, wl_index)
+        candidates.append(cand)
+
+    raw_guests: list[Any] = []
+    for key in ("homelab_guests", "pve_guests", "docker_containers", "nas_candidates", "remote_candidates"):
+        if isinstance(fixtures.get(key), list):
+            raw_guests.extend(fixtures[key])
+    if isinstance(config.get("homelab_candidates"), list):
+        raw_guests.extend(config["homelab_candidates"])
+
+    for entry in raw_guests:
+        if isinstance(entry, str) and entry.strip():
+            rec = {"path_or_spec": entry.strip()}
+        elif isinstance(entry, dict):
+            rec = dict(entry)
+        else:
+            continue
+
+        guest_id = rec.get("guest_id") if rec.get("guest_id") is not None else rec.get("vmid", rec.get("ctid"))
+        name = str(rec.get("name") or rec.get("guest_name") or rec.get("container_name") or "").strip()
+        spec = str(
+            rec.get("path_or_spec")
+            or rec.get("path")
+            or (f"pve:{guest_id}" if guest_id is not None else name)
+        ).strip()
+        if not spec and guest_id is None and not name:
+            continue
+
+        ident_for_slug = str(guest_id if guest_id is not None else (name or spec))
+        slug = re.sub(r"[^a-z0-9]+", "-", ident_for_slug.lower()).strip("-")[:40] or "guest"
+        default_gauge = (
+            resolve_gauge_id_for_path(spec, gauges, fallback="mac-data")
+            if spec.startswith(("/", "~"))
+            else str(rec.get("gauge_id") or "")
+        )
+        cand = {
+            "id": str(rec.get("id") or f"homelab-guest-{slug}"),
+            "domain": str(rec.get("domain") or "nas"),
+            "category": str(rec.get("category") or "homelab_guest"),
+            "action_type": str(rec.get("action_type") or "cleanup"),
+            "tier": str(rec.get("tier") or "C"),
+            "title": str(rec.get("title") or f"远端容器/虚拟机候选：{name or spec}"),
+            "path": str(rec.get("path") or spec),
+            "path_or_spec": spec,
+            "size_bytes": int(rec.get("size_bytes") or 0),
+            "size_truncated": False,
+            "latest_mtime": int(rec.get("latest_mtime") or 0),
+            "gauge_id": str(rec.get("gauge_id") if rec.get("gauge_id") is not None else default_gauge),
+            "whitelisted": bool(rec.get("whitelisted", False)),
+            "whitelist_note": str(rec.get("whitelist_note") or ""),
+            "evidence": str(rec.get("evidence") or f"远端实例 {name or spec} 待确认状态与空间占用。"),
+        }
+        if guest_id is not None:
+            cand["guest_id"] = guest_id
+        if name:
+            cand["name"] = name
+        if spec.startswith(("/", "~")):
+            p_wl, p_note = check_path_whitelisted(expand_path(spec), wl_index)
+            if p_wl:
+                cand["whitelisted"] = True
+                cand["whitelist_note"] = p_note
+        if "default_checked" in rec:
+            cand["default_checked"] = bool(rec["default_checked"])
+        else:
+            cand["default_checked"] = cand["tier"] == "A" and not cand["whitelisted"]
+        apply_candidate_whitelist(cand, wl_index)
+        candidates.append(cand)
+
+    return candidates
+
+
 def scan_workspaces_and_backups(
     config: dict[str, Any],
     wl_index: dict[str, Any],
+    gauges: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     workspace_roots = config.get("workspace_roots", [])
     thresholds = config.get("thresholds", {})
     min_git_pack_bytes = int(float(thresholds.get("min_git_pack_mb", 100)) * 1024 * 1024)
     min_build_bytes = int(float(thresholds.get("min_build_artifact_mb", 100)) * 1024 * 1024)
     backup_pipelines = config.get("backup_pipelines", [])
+    active_gauges = gauges if gauges is not None else collect_storage_gauges(config)
 
     candidates: list[dict[str, Any]] = []
     dir_sizes: dict[str, int] = {}
@@ -1850,6 +2615,8 @@ def scan_workspaces_and_backups(
     for repo in repos:
         repo_slug = re.sub(r"[^a-z0-9]+", "-", repo.name.lower()).strip("-")
         whitelisted_repo, wl_repo_note = check_path_whitelisted(repo, wl_index)
+        if not whitelisted_repo:
+            whitelisted_repo, wl_repo_note = check_repo_whitelisted(repo, wl_index)
 
         # 1. Check .git/objects/pack size
         git_dir = repo / ".git"
@@ -1859,27 +2626,29 @@ def scan_workspaces_and_backups(
                 pack_bytes, truncated, latest_mtime = bounded_dir_size(pack_dir)
                 dir_sizes[str(pack_dir)] = pack_bytes
                 if pack_bytes >= min_git_pack_bytes:
-                    candidates.append(
-                        {
-                            "id": f"git-pack-{repo_slug}",
-                            "domain": "projects",
-                            "category": "git_pack_bloat",
-                            "tier": "B",
-                            "title": f"仓库 Git Pack 体积较大：{repo.name} (.git/objects/pack)",
-                            "path": str(pack_dir),
-                            "size_bytes": pack_bytes,
-                            "size_truncated": truncated,
-                            "latest_mtime": latest_mtime,
-                            "gauge_id": "mac-data",
-                            "whitelisted": whitelisted_repo,
-                            "whitelist_note": wl_repo_note,
-                            "evidence": (
-                                f"{repo.name} 的 .git/objects/pack 达 {pack_bytes / (1024**2):.1f} MiB；"
-                                "可在无并发操作时执行普通 `git gc`（不加 --prune=now，保留别的会话可能还在用的松散对象），"
-                                "或检查是否误提交过大二进制文件。"
-                            ),
-                        }
-                    )
+                    pack_cand: dict[str, Any] = {
+                        "id": f"git-pack-{repo_slug}",
+                        "domain": "projects",
+                        "category": "git_pack_bloat",
+                        "action_type": "optimize",
+                        "tier": "B",
+                        "default_checked": False,
+                        "title": f"仓库 Git Pack 体积较大：{repo.name} (.git/objects/pack)",
+                        "path": str(pack_dir),
+                        "size_bytes": pack_bytes,
+                        "reclaimable_bytes": 0,
+                        "size_truncated": truncated,
+                        "latest_mtime": latest_mtime,
+                        "gauge_id": resolve_gauge_id_for_path(pack_dir, active_gauges),
+                        "whitelisted": whitelisted_repo,
+                        "whitelist_note": wl_repo_note,
+                        "evidence": (
+                            f"{repo.name} 的 .git/objects/pack 达 {pack_bytes / (1024**2):.1f} MiB；"
+                            "可在无并发操作时执行普通 `git gc`（不加 --prune=now，保留别的会话可能还在用的松散对象），"
+                            "或检查是否误提交过大二进制文件。"
+                        ),
+                    }
+                    candidates.append(pack_cand)
 
         # 2. Check AGENTS.md (then CLAUDE.md) pre-merge check declaration, same rule as git-ship
         decl_kind, decl_value, decl_file = premerge_decl_for_repo(repo)
@@ -1897,6 +2666,7 @@ def scan_workspaces_and_backups(
                     "category": "governance_doc",
                     "action_type": "optimize",
                     "tier": "B",
+                    "default_checked": False,
                     "title": (
                         f"修正合入前检查写法：{repo.name}/{decl_file}"
                         if invalid
@@ -1943,26 +2713,50 @@ def scan_workspaces_and_backups(
                     dir_sizes[str(child)] = size_bytes
                     if size_bytes >= min_build_bytes:
                         whitelisted, wl_note = check_path_whitelisted(child, wl_index)
+                        if not whitelisted:
+                            whitelisted, wl_note = check_repo_whitelisted(child, wl_index)
+                        is_manual_archive = matches_any_glob(child.name, list(MANUAL_CONFIRM_BUILD_PATTERNS))
+                        tier = "C" if is_manual_archive else "A"
+                        default_checked = False if (is_manual_archive or whitelisted) else True
+                        gauge_id = resolve_gauge_id_for_path(child, active_gauges)
                         slug = re.sub(r"[^a-z0-9]+", "-", f"{curr.name}-{child.name}".lower()).strip("-")[:36]
                         candidates.append(
                             {
                                 "id": f"build-{slug}",
-                                "domain": "mac",
+                                "domain": "projects",
                                 "category": "build_artifact",
-                                "tier": "A",
-                                "title": f"可重建构建产物：{curr.name}/{child.name}",
+                                "action_type": "cleanup",
+                                "tier": tier,
+                                "default_checked": default_checked,
+                                "title": (
+                                    f"归档/留档构建目录（需人工确认）：{curr.name}/{child.name}"
+                                    if is_manual_archive
+                                    else f"可重建构建产物：{curr.name}/{child.name}"
+                                ),
                                 "path": str(child),
                                 "size_bytes": size_bytes,
                                 "size_truncated": truncated,
                                 "latest_mtime": latest_mtime,
-                                "gauge_id": "mac-data",
+                                "gauge_id": gauge_id,
                                 "whitelisted": whitelisted,
                                 "whitelist_note": wl_note,
-                                "evidence": f"匹配构建/产物目录模式 ({child.name})，可通过工程构建命令重新生成。",
+                                "evidence": (
+                                    f"匹配归档/验收留档目录模式 ({child.name})，可能含签名发布包或留档证据，默认不勾选，请人工确认。"
+                                    if is_manual_archive
+                                    else f"匹配构建/产物目录模式 ({child.name})，可通过工程构建命令重新生成。"
+                                ),
                             }
                         )
                         # Check backup exclusion drift against configured pipelines
                         for pipe in backup_pipelines:
+                            raw_watched = pipe.get("watched_roots")
+                            if isinstance(raw_watched, list) and raw_watched:
+                                child_resolved = child.resolve(strict=False)
+                                watched_paths = [expand_path(str(wr)) for wr in raw_watched if str(wr).strip()]
+                                if watched_paths and not any(
+                                    child_resolved == wp or wp in child_resolved.parents for wp in watched_paths
+                                ):
+                                    continue
                             globs = pipe.get("expected_exclude_globs", [])
                             script_raw = pipe.get("script_path", "")
                             script_text = ""
@@ -1982,17 +2776,20 @@ def scan_workspaces_and_backups(
                                 candidates.append(
                                     {
                                         "id": f"drift-{pipe_id}-{slug}",
-                                        "domain": "mac",
+                                        "domain": "projects",
                                         "category": "backup_exclusion_drift",
+                                        "action_type": "optimize",
                                         "tier": "B",
+                                        "default_checked": False,
                                         "title": f"备份排除规则疑似漏排：{child.name} → {pipe.get('label', pipe_id)}",
                                         "path": str(child),
                                         "size_bytes": size_bytes,
+                                        "reclaimable_bytes": 0,
                                         "size_truncated": truncated,
                                         "latest_mtime": latest_mtime,
-                                        "gauge_id": "mac-data",
-                                        "whitelisted": False,
-                                        "whitelist_note": "",
+                                        "gauge_id": gauge_id,
+                                        "whitelisted": whitelisted,
+                                        "whitelist_note": wl_note,
                                         "evidence": (
                                             f"目录 {child} ({size_bytes / (1024**2):.1f} MiB) 未被备份管线 "
                                             f"{pipe.get('label', pipe_id)} 的排除规则完整覆盖，可能穿透备份撑爆远端空间。"
@@ -2002,6 +2799,7 @@ def scan_workspaces_and_backups(
                 else:
                     stack.append((child, depth + 1))
 
+    deduplicate_candidate_ids(candidates)
     return candidates, dir_sizes
 
 
@@ -2077,7 +2875,8 @@ def cmd_scan_local(args: argparse.Namespace) -> int:
     app_update_candidates = scan_app_updates(config, wl_index, app_inventory, run_probes=run_probes)
     env_groups, env_update_candidates = scan_env_and_dependencies(config, wl_index, run_probes=run_probes)
     peripherals, hw_candidates = scan_peripherals_and_firmware(config, wl_index, run_probes=run_probes)
-    ws_candidates, ws_sizes = scan_workspaces_and_backups(config, wl_index)
+    ws_candidates, ws_sizes = scan_workspaces_and_backups(config, wl_index, gauges=gauges)
+    remote_candidates = scan_remote_repositories_and_guests(config, wl_index, gauges=gauges)
 
     all_candidates = (
         orphan_candidates
@@ -2088,7 +2887,14 @@ def cmd_scan_local(args: argparse.Namespace) -> int:
         + env_update_candidates
         + hw_candidates
         + ws_candidates
+        + remote_candidates
     )
+    for cand in all_candidates:
+        raw_p = str(cand.get("path") or "").strip()
+        if raw_p.startswith(("/", "~")) and cand.get("gauge_id") == "mac-data" and gauges:
+            cand["gauge_id"] = resolve_gauge_id_for_path(raw_p, gauges)
+        apply_candidate_whitelist(cand, wl_index)
+    deduplicate_candidate_ids(all_candidates)
     all_sizes = {**orphan_sizes, **app_sizes, **cache_sizes, **ws_sizes}
 
     freq_apps = [a for a in app_inventory if a.get("usage_status") == "frequent"]
@@ -2217,7 +3023,7 @@ def check_open_handles(target: Path) -> list[str]:
 def check_git_dirty(target: Path) -> bool:
     try:
         proc = subprocess.run(
-            ["git", "-C", str(target), "status", "--porcelain"],
+            ["git", "--no-optional-locks", "-C", str(target), "status", "--porcelain"],
             capture_output=True,
             text=True,
             timeout=4,
@@ -2252,48 +3058,315 @@ def find_enclosing_git_root(target: Path) -> Path | None:
     return None
 
 
+def _bytes_mentions_exact_path(blob: bytes, path_bytes: bytes) -> bool:
+    """Return True if path_bytes appears in blob at a path boundary (not as a prefix of path-v2)."""
+    if not path_bytes:
+        return False
+    pos = 0
+    n = len(path_bytes)
+    total = len(blob)
+    while True:
+        idx = blob.find(path_bytes, pos)
+        if idx < 0:
+            return False
+        end = idx + n
+        if end >= total:
+            return True
+        nxt = blob[end]
+        # Reject if followed by filename continuation chars (alphanumeric, UTF-8 multibyte, '+', '-', '.', '_', '~')
+        if (
+            (48 <= nxt <= 57)
+            or (65 <= nxt <= 90)
+            or (97 <= nxt <= 122)
+            or nxt >= 128
+            or nxt in (43, 45, 46, 95, 126)
+        ):
+            pos = idx + 1
+            continue
+        return True
+
+
+def _file_mentions_any_path(file_path: Path, needles: list[bytes], chunk_bytes: int = 131072) -> bool:
+    if not needles:
+        return False
+    try:
+        st = file_path.stat()
+        with file_path.open("rb") as fp:
+            if st.st_size <= chunk_bytes * 2:
+                blob = fp.read()
+                return any(_bytes_mentions_exact_path(blob, nb) for nb in needles)
+            head = fp.read(chunk_bytes)
+            if any(_bytes_mentions_exact_path(head, nb) for nb in needles):
+                return True
+            fp.seek(max(0, st.st_size - chunk_bytes))
+            tail = fp.read(chunk_bytes)
+            return any(_bytes_mentions_exact_path(tail, nb) for nb in needles)
+    except OSError:
+        return False
+
+
+def _claude_project_slug(path_obj: Path) -> str:
+    return re.sub(r"[^a-zA-Z0-9]+", "-", str(path_obj)).strip("-").lower()
+
+
+def _find_orca_workspace_root(target: Path) -> Path | None:
+    """If target sits inside .../orca/workspaces/<repo>/<worktree>, return that worktree root."""
+    for candidate in (Path(os.path.abspath(target)), target.resolve(strict=False)):
+        parts = candidate.parts
+        for idx in range(len(parts) - 1):
+            if parts[idx].lower() == "orca" and parts[idx + 1].lower() == "workspaces":
+                rem = len(parts) - (idx + 2)
+                if rem >= 2:
+                    return Path(*parts[: idx + 4])
+                if rem == 1:
+                    return Path(*parts[: idx + 3])
+    return None
+
+
+def _is_linked_git_worktree(repo_root: Path | None) -> bool:
+    if repo_root is None:
+        return False
+    try:
+        git_marker = repo_root / ".git"
+        if git_marker.is_file():
+            return True
+    except OSError:
+        pass
+    return ".worktrees" in repo_root.parts
+
+
+def _is_temp_fixture_without_injected_home(target: Path, home_dir: Path) -> bool:
+    tmp_prefixes = (
+        Path("/tmp"),
+        Path("/private/tmp"),
+        Path("/var/folders"),
+        Path("/private/var/folders"),
+        Path(tempfile.gettempdir()).resolve(strict=False),
+    )
+    resolved_target = target.resolve(strict=False)
+    resolved_home = home_dir.resolve(strict=False)
+    target_in_tmp = any(resolved_target == p or p in resolved_target.parents for p in tmp_prefixes)
+    home_in_tmp = any(resolved_home == p or p in resolved_home.parents for p in tmp_prefixes)
+    return target_in_tmp and not home_in_tmp
+
+
+def _resolve_ai_session_roots(
+    target: Path,
+    config: dict[str, Any] | None = None,
+    session_roots: dict[str, list[Path]] | None = None,
+) -> dict[str, list[Path]]:
+    """Resolve session directories for Codex, Claude Code, and Antigravity without touching real host home in isolated fixture tests."""
+    if session_roots is not None:
+        return {
+            host: [expand_path(str(p)) for p in paths if str(p).strip()]
+            for host, paths in session_roots.items()
+        }
+
+    cfg_roots = (config or {}).get("ai_session_roots")
+    if isinstance(cfg_roots, dict):
+        out_cfg: dict[str, list[Path]] = {}
+        for host in ("codex", "claude", "antigravity"):
+            raw_val = cfg_roots.get(host, [])
+            if isinstance(raw_val, str) and raw_val.strip():
+                out_cfg[host] = [expand_path(raw_val)]
+            elif isinstance(raw_val, list):
+                out_cfg[host] = [expand_path(str(x)) for x in raw_val if str(x).strip()]
+        return out_cfg
+
+    env_home = os.environ.get("FSM_SESSION_HOME")
+    env_codex = os.environ.get("FSM_CODEX_SESSIONS_DIR")
+    env_claude = os.environ.get("FSM_CLAUDE_PROJECTS_DIR")
+    env_agy = os.environ.get("FSM_ANTIGRAVITY_BRAIN_DIRS")
+
+    if any(v is not None for v in (env_home, env_codex, env_claude, env_agy)):
+        if env_home is not None and env_home.strip().lower() in ("", "none", "off", "0", "false"):
+            base_roots: dict[str, list[Path]] = {"codex": [], "claude": [], "antigravity": []}
+        elif env_home:
+            h = expand_path(env_home)
+            base_roots = {
+                "codex": [h / ".codex" / "sessions"],
+                "claude": [h / ".claude" / "projects"],
+                "antigravity": [
+                    h / ".gemini" / "antigravity-cli" / "brain",
+                    h / ".gemini" / "antigravity" / "brain",
+                ],
+            }
+        else:
+            base_roots = {"codex": [], "claude": [], "antigravity": []}
+
+        if env_codex is not None:
+            base_roots["codex"] = [expand_path(p) for p in env_codex.split(os.pathsep) if p.strip()]
+        if env_claude is not None:
+            base_roots["claude"] = [expand_path(p) for p in env_claude.split(os.pathsep) if p.strip()]
+        if env_agy is not None:
+            base_roots["antigravity"] = [expand_path(p) for p in env_agy.split(os.pathsep) if p.strip()]
+        return base_roots
+
+    home_dir = Path(os.path.expanduser("~"))
+    if _is_temp_fixture_without_injected_home(target, home_dir):
+        return {"codex": [], "claude": [], "antigravity": []}
+
+    return {
+        "codex": [home_dir / ".codex" / "sessions"],
+        "claude": [home_dir / ".claude" / "projects"],
+        "antigravity": [
+            home_dir / ".gemini" / "antigravity-cli" / "brain",
+            home_dir / ".gemini" / "antigravity" / "brain",
+        ],
+    }
+
+
 def check_codex_session_activity(
     repo_root: Path,
     cutoff_ts: float,
     sessions_dir: Path | None = None,
 ) -> tuple[bool, str]:
-    """Check if recent Codex session rollouts (~/.codex/sessions/**/*.jsonl) reference repo_root after cutoff_ts.
+    """Check if recent Codex session rollouts (~/.codex/sessions/**/*.jsonl) reference repo_root after cutoff_ts."""
+    if sessions_dir is not None:
+        roots = [sessions_dir]
+    else:
+        roots = _resolve_ai_session_roots(repo_root).get("codex", [])
+    needles: list[bytes] = []
+    for p in (Path(os.path.abspath(repo_root)), repo_root.resolve(strict=False)):
+        b = str(p).rstrip("/").encode("utf-8", errors="ignore")
+        if b and b not in needles:
+            needles.append(b)
 
-    Only Codex sessions are read. Claude Code, Antigravity and OpenCode sessions are not
-    inspected; those are covered indirectly by recent-mtime, dirty-status and lsof checks.
-    """
-    sess_root = sessions_dir or (Path.home() / ".codex" / "sessions")
-    if not sess_root.is_dir():
-        return False, ""
-    repo_bytes = str(repo_root).encode("utf-8", errors="ignore")
-    try:
-        for jsonl in sess_root.rglob("*.jsonl"):
-            try:
-                st = jsonl.stat()
-            except OSError:
-                continue
-            if st.st_mtime < cutoff_ts:
-                continue
-            # Read first 64 KiB and last 64 KiB where cwd/worktree metadata lives
-            with jsonl.open("rb") as fp:
-                head = fp.read(65536)
-                if repo_bytes in head:
+    for sess_root in roots:
+        if not sess_root.is_dir():
+            continue
+        try:
+            for jsonl in sess_root.rglob("*.jsonl"):
+                try:
+                    st = jsonl.stat()
+                except OSError:
+                    continue
+                if st.st_mtime < cutoff_ts:
+                    continue
+                if _file_mentions_any_path(jsonl, needles):
                     age_min = max(0.0, (time.time() - st.st_mtime) / 60.0)
                     return (
                         True,
                         f"Active Codex session ({jsonl.name}) referenced {repo_root} {age_min:.1f}m ago; whole worktree is protected.",
                     )
-                if st.st_size > 65536:
-                    fp.seek(max(0, st.st_size - 65536))
-                    tail = fp.read(65536)
-                    if repo_bytes in tail:
-                        age_min = max(0.0, (time.time() - st.st_mtime) / 60.0)
-                        return (
-                            True,
-                            f"Active Codex session ({jsonl.name}) referenced {repo_root} {age_min:.1f}m ago; whole worktree is protected.",
-                        )
-    except Exception:
-        return False, ""
+        except OSError:
+            continue
+    return False, ""
+
+
+def check_ai_session_activity(
+    target: Path,
+    enclosing_repo: Path | None,
+    cutoff_ts: float,
+    *,
+    config: dict[str, Any] | None = None,
+    session_roots: dict[str, list[Path]] | None = None,
+) -> tuple[bool, str]:
+    """Read-only detection of active AI client sessions (Codex, Claude Code, Antigravity) and active Orca/Git worktrees."""
+    orca_root = _find_orca_workspace_root(target)
+    anchor_paths: list[Path] = []
+    for candidate in (enclosing_repo, orca_root, target):
+        if candidate is None:
+            continue
+        for variant in (Path(os.path.abspath(candidate)), candidate.resolve(strict=False)):
+            if variant not in anchor_paths:
+                anchor_paths.append(variant)
+
+    needles: list[bytes] = []
+    claude_slugs: set[str] = set()
+    for p in anchor_paths:
+        raw_b = str(p).rstrip("/").encode("utf-8", errors="ignore")
+        if raw_b and raw_b not in needles:
+            needles.append(raw_b)
+        c_slug = _claude_project_slug(p)
+        if c_slug:
+            claude_slugs.add(c_slug)
+
+    roots = _resolve_ai_session_roots(target, config=config, session_roots=session_roots)
+    display_anchor = enclosing_repo or orca_root or target
+
+    # 1. Codex sessions (~/.codex/sessions/**/*.jsonl)
+    for codex_root in roots.get("codex", []):
+        if not codex_root.is_dir():
+            continue
+        try:
+            for jsonl in codex_root.rglob("*.jsonl"):
+                try:
+                    st = jsonl.stat()
+                except OSError:
+                    continue
+                if st.st_mtime < cutoff_ts:
+                    continue
+                if _file_mentions_any_path(jsonl, needles):
+                    age_min = max(0.0, (time.time() - st.st_mtime) / 60.0)
+                    return (
+                        True,
+                        f"Active Codex session ({jsonl.name}) referenced {display_anchor} {age_min:.1f}m ago.",
+                    )
+        except OSError:
+            continue
+
+    # 2. Claude Code sessions (~/.claude/projects/**/*.jsonl)
+    for claude_root in roots.get("claude", []):
+        if not claude_root.is_dir():
+            continue
+        try:
+            for jsonl in claude_root.rglob("*.jsonl"):
+                try:
+                    st = jsonl.stat()
+                except OSError:
+                    continue
+                if st.st_mtime < cutoff_ts:
+                    continue
+                parent_slug = _claude_project_slug(jsonl.parent.name)
+                matched_by_dir = bool(parent_slug and parent_slug in claude_slugs)
+                if matched_by_dir or _file_mentions_any_path(jsonl, needles):
+                    age_min = max(0.0, (time.time() - st.st_mtime) / 60.0)
+                    return (
+                        True,
+                        f"Active Claude Code session ({jsonl.name}) referenced {display_anchor} {age_min:.1f}m ago.",
+                    )
+        except OSError:
+            continue
+
+    # 3. Antigravity sessions (~/.gemini/antigravity-cli/brain/ and ~/.gemini/antigravity/brain/)
+    agy_exts = {".jsonl", ".log", ".json", ".txt"}
+    for agy_root in roots.get("antigravity", []):
+        if not agy_root.is_dir():
+            continue
+        try:
+            for log_file in agy_root.rglob("*"):
+                if log_file.suffix.lower() not in agy_exts:
+                    continue
+                try:
+                    st = log_file.stat()
+                except OSError:
+                    continue
+                if not stat.S_ISREG(st.st_mode) or st.st_mtime < cutoff_ts:
+                    continue
+                if _file_mentions_any_path(log_file, needles):
+                    age_min = max(0.0, (time.time() - st.st_mtime) / 60.0)
+                    return (
+                        True,
+                        f"Active Antigravity session ({log_file.name}) referenced {display_anchor} {age_min:.1f}m ago.",
+                    )
+        except OSError:
+            continue
+
+    # 4. Active Orca workspace (orca/workspaces) or linked Git worktree with recent file/git activity
+    wt_root = orca_root if orca_root is not None else (enclosing_repo if _is_linked_git_worktree(enclosing_repo) else None)
+    if wt_root is not None and wt_root.exists():
+        wt_mtime = git_metadata_latest_mtime(wt_root)
+        _, _, tree_mtime = bounded_dir_size(wt_root, max_entries=4000, max_seconds=1.5)
+        wt_mtime = max(wt_mtime, tree_mtime)
+        if wt_mtime > cutoff_ts:
+            age_min = max(0.0, (time.time() - wt_mtime) / 60.0)
+            host_label = "Orca workspace (orca/workspaces)" if orca_root is not None else "Git worktree"
+            return (
+                True,
+                f"Active {host_label} session: worktree {wt_root} modified {age_min:.1f}m ago; whole worktree is protected.",
+            )
+
     return False, ""
 
 
@@ -2347,23 +3420,105 @@ def is_remote_or_non_fs_spec(raw_path: str, item: dict[str, Any]) -> bool:
     return False
 
 
-def resolve_item_paths(item: dict[str, Any], cli_uninstall_mode: str | None = None) -> tuple[list[str], str | None]:
+def normalize_uninstall_mode(raw_mode: str, *, context: str = "--uninstall-mode") -> str:
+    norm = str(raw_mode or "").strip().lower().replace("-", "_")
+    if norm not in VALID_UNINSTALL_MODES:
+        raise ConfigError(
+            f"Invalid uninstall mode '{raw_mode}' in {context} (expected keep-data or purge-all)"
+        )
+    return norm
+
+
+def parse_ids_spec(
+    raw_ids: str | None,
+    *,
+    require_non_empty: bool = False,
+) -> tuple[list[str], dict[str, str]]:
+    """Parse `--ids` supporting optional per-item uninstall mode suffixes (`<id>:keep-data` / `<id>:purge-all`).
+
+    Raises ConfigError (exit code 2) on malformed entries, invalid mode suffixes, or conflicting duplicate modes.
+    """
+    ordered_ids: list[str] = []
+    seen: set[str] = set()
+    bare_ids: set[str] = set()
+    per_id_modes: dict[str, str] = {}
+
+    if raw_ids is not None:
+        for raw_part in str(raw_ids).split(","):
+            token = raw_part.strip()
+            if not token:
+                continue
+            if ":" in token:
+                item_id_raw, mode_raw = token.split(":", 1)
+                item_id = item_id_raw.strip()
+                if not item_id:
+                    raise ConfigError(f"Invalid --ids token '{token}': missing candidate ID before ':'")
+                if not mode_raw.strip():
+                    raise ConfigError(f"Invalid --ids token '{token}': empty uninstall mode suffix after ':'")
+                norm_mode = normalize_uninstall_mode(mode_raw, context=f"--ids ({token})")
+                if item_id in bare_ids:
+                    raise ConfigError(
+                        f"Ambiguous duplicate ID '{item_id}' in --ids: cannot mix bare ID with '{token}'"
+                    )
+                if item_id in per_id_modes and per_id_modes[item_id] != norm_mode:
+                    raise ConfigError(
+                        f"Conflicting uninstall modes for '{item_id}' in --ids: "
+                        f"{per_id_modes[item_id]} vs {norm_mode}"
+                    )
+                per_id_modes[item_id] = norm_mode
+            else:
+                item_id = token
+                if item_id in per_id_modes:
+                    raise ConfigError(
+                        f"Ambiguous duplicate ID '{item_id}' in --ids: cannot mix bare ID with '{item_id}:{per_id_modes[item_id]}'"
+                    )
+                bare_ids.add(item_id)
+
+            if item_id not in seen:
+                seen.add(item_id)
+                ordered_ids.append(item_id)
+
+    if require_non_empty and not ordered_ids:
+        raise ConfigError("--ids must list at least one candidate ID; quarantine never defaults to all candidates")
+
+    return ordered_ids, per_id_modes
+
+
+def resolve_item_paths(
+    item: dict[str, Any],
+    cli_uninstall_mode: str | None = None,
+    item_mode_override: str | None = None,
+) -> tuple[list[str], str | None]:
     """Resolve target paths for a candidate item, honoring keep_data / purge_all uninstall modes when present.
 
-    Without an explicit mode the default is keep_data (user data stays); purge_all must be chosen explicitly.
+    Precedence: per-item `<id>:<mode>` override > global `--uninstall-mode` > candidate `selected_uninstall_mode` > `keep_data`.
     """
+    if item_mode_override is not None:
+        validated_override = normalize_uninstall_mode(item_mode_override, context="--ids")
+    else:
+        validated_override = None
+
+    if cli_uninstall_mode is not None:
+        validated_cli = normalize_uninstall_mode(cli_uninstall_mode, context="--uninstall-mode")
+    else:
+        validated_cli = None
+
     modes = item.get("uninstall_modes")
     if isinstance(modes, dict) and modes:
-        raw_mode = cli_uninstall_mode or item.get("selected_uninstall_mode") or "keep_data"
+        raw_mode = validated_override or validated_cli or item.get("selected_uninstall_mode") or "keep_data"
         norm_mode = str(raw_mode).strip().lower().replace("-", "_")
         if norm_mode not in modes:
             norm_mode = "keep_data" if "keep_data" in modes else next(iter(modes.keys()))
         mode_obj = modes.get(norm_mode, {})
         if isinstance(mode_obj, dict) and isinstance(mode_obj.get("paths"), list) and mode_obj["paths"]:
             return [str(p) for p in mode_obj["paths"]], norm_mode
+    elif validated_override is not None:
+        raise ConfigError(
+            f"Candidate '{item.get('id', 'unknown')}' does not support per-item uninstall mode '{validated_override}'"
+        )
     if isinstance(item.get("paths"), list) and item.get("paths"):
         return [str(p) for p in item["paths"]], None
-    p = str(item.get("path") or "").strip()
+    p = str(item.get("path") or item.get("path_or_spec") or "").strip()
     return ([p] if p else []), None
 
 
@@ -2376,22 +3531,52 @@ def evaluate_single_target(
     skip_lsof: bool,
     worktree_cutoff_ts: float | None = None,
     worktree_protect_minutes: float | None = None,
+    *,
+    config: dict[str, Any] | None = None,
+    session_roots: dict[str, list[Path]] | None = None,
 ) -> dict[str, Any]:
-    if is_remote_or_non_fs_spec(raw_path, item):
+    effective_raw = raw_path.strip() or str(item.get("path_or_spec") or item.get("path") or "").strip()
+    display_spec = os.path.expanduser(effective_raw) if effective_raw.startswith(("~", "/")) else effective_raw
+
+    # 1. Priority whitelist guard (runs BEFORE remote/non-fs short-circuit so whitelisted repos/guests never return SAFE_TO_EXECUTE)
+    if item.get("whitelisted"):
         return {
-            "path": raw_path,
+            "path": display_spec,
+            "status": "SKIPPED_WHITELIST",
+            "reason": str(item.get("whitelist_note") or "Candidate is marked whitelisted"),
+        }
+
+    repo_wl, repo_note = check_repo_whitelisted(effective_raw or None, wl_index, item=item)
+    if repo_wl:
+        return {
+            "path": display_spec,
+            "status": "SKIPPED_WHITELIST",
+            "reason": repo_note,
+        }
+
+    guest_wl, guest_note = check_guest_whitelisted(item, effective_raw, wl_index)
+    if guest_wl:
+        return {
+            "path": display_spec,
+            "status": "SKIPPED_WHITELIST",
+            "reason": guest_note,
+        }
+
+    if is_remote_or_non_fs_spec(effective_raw, item):
+        return {
+            "path": effective_raw,
             "status": "SAFE_TO_EXECUTE",
             "reason": "Non-filesystem or remote action; verify via domain tool.",
         }
 
-    raw_expanded = os.path.expanduser(raw_path)
+    raw_expanded = os.path.expanduser(effective_raw)
     target = Path(raw_expanded)
     whitelisted, wl_note = check_path_whitelisted(target, wl_index)
-    if whitelisted or item.get("whitelisted"):
+    if whitelisted:
         return {
             "path": str(target),
             "status": "BLOCKED_WHITELISTED",
-            "reason": wl_note or item.get("whitelist_note") or "Target is in whitelist",
+            "reason": wl_note or "Target is in whitelist",
         }
 
     if not target.exists() and not target.is_symlink():
@@ -2411,6 +3596,21 @@ def evaluate_single_target(
     enclosing_repo = find_enclosing_git_root(target)
     wt_cutoff = worktree_cutoff_ts if worktree_cutoff_ts is not None else cutoff_ts
     wt_minutes = worktree_protect_minutes if worktree_protect_minutes is not None else recent_minutes
+
+    session_cutoff = wt_cutoff if (enclosing_repo is not None or _find_orca_workspace_root(target) is not None) else cutoff_ts
+    sess_active, sess_reason = check_ai_session_activity(
+        target,
+        enclosing_repo,
+        session_cutoff,
+        config=config,
+        session_roots=session_roots,
+    )
+    if sess_active:
+        return {
+            "path": str(target),
+            "status": "BLOCKED_ACTIVE_SESSION",
+            "reason": sess_reason,
+        }
 
     _, _, latest_mtime = bounded_dir_size(target, max_entries=10000, max_seconds=3.0)
     if target.is_dir():
@@ -2441,14 +3641,6 @@ def evaluate_single_target(
                     f"Enclosing worktree {enclosing_repo} modified {age_min:.1f} minutes ago "
                     f"(threshold: {wt_minutes}m); whole worktree (including build/artifact dirs) is protected."
                 ),
-            }
-
-        codex_active, codex_reason = check_codex_session_activity(enclosing_repo, wt_cutoff)
-        if codex_active:
-            return {
-                "path": str(target),
-                "status": "BLOCKED_ACTIVE_WORKTREE",
-                "reason": codex_reason,
             }
 
         if check_git_dirty(enclosing_repo):
@@ -2500,7 +3692,8 @@ def quarantine_path_refusal(target: Path) -> str:
     abs_target = Path(os.path.abspath(target))
     if ".git" in abs_target.parts or ".git" in target.resolve(strict=False).parts:
         return "路径在 Git 内部目录（.git）里，移走会损坏仓库。"
-    if abs_target.name.lower() in GOVERNANCE_DOC_NAMES:
+    name_lower = abs_target.name.lower()
+    if name_lower in GOVERNANCE_DOC_NAMES or name_lower == "readme" or name_lower.startswith("readme."):
         return NON_MOVABLE_CATEGORIES["governance_doc"]
     if abs_target.suffix.lower() == ".plist" and abs_target.parent.name in ("LaunchAgents", "LaunchDaemons"):
         return NON_MOVABLE_CATEGORIES["launch_item"]
@@ -2663,15 +3856,108 @@ def resolve_quarantine_root(config: dict[str, Any], explicit_dir: str | None = N
     }
 
 
+def generate_unique_batch_id(q_root: Path, now: datetime | None = None) -> str:
+    """Generate a collision-free quarantine batch ID (with microseconds and sequence fallback)."""
+    dt = now or datetime.now(timezone.utc)
+    base = f"{dt.strftime('%Y%m%d-%H%M%SZ')}-{dt.microsecond:06d}"
+    candidate = base
+    seq = 1
+    try:
+        while (q_root / candidate).exists():
+            seq += 1
+            candidate = f"{base}-{seq}"
+    except OSError:
+        pass
+    return candidate
+
+
+def _build_restore_script(batch_id: str, staged_items: list[dict[str, Any]]) -> str:
+    """Build a hardened restore.sh that removes empty regenerated dirs and refuses non-empty collisions."""
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        f"# Auto-generated restore script for quarantine batch {batch_id}",
+        "",
+        "restore_errors=0",
+        "",
+        "restore_entry() {",
+        '  local qpath="$1"',
+        '  local orig="$2"',
+        '  local orig_parent="$3"',
+        "",
+        '  if [ ! -e "$qpath" ] && [ ! -L "$qpath" ]; then',
+        "    return 0",
+        "  fi",
+        "",
+        '  mkdir -p "$orig_parent"',
+        "",
+        '  if [ -L "$orig" ]; then',
+        '    echo "ERROR: Destination symlink $orig already exists; refusing to overwrite from $qpath" >&2',
+        "    restore_errors=$((restore_errors + 1))",
+        "    return 0",
+        '  elif [ -d "$orig" ]; then',
+        '    if rmdir "$orig" 2>/dev/null; then',
+        "      :",
+        "    else",
+        '      echo "ERROR: Destination directory $orig already exists and is non-empty; refusing nested mv from $qpath" >&2',
+        "      restore_errors=$((restore_errors + 1))",
+        "      return 0",
+        "    fi",
+        '  elif [ -e "$orig" ]; then',
+        '    echo "ERROR: Destination file $orig already exists; skipping restore from $qpath" >&2',
+        "    restore_errors=$((restore_errors + 1))",
+        "    return 0",
+        "  fi",
+        "",
+        '  mv "$qpath" "$orig"',
+        '  echo "Restored: $orig"',
+        "}",
+        "",
+    ]
+    for entry in staged_items:
+        qpath = shlex.quote(entry["quarantine_path"])
+        orig = shlex.quote(entry["original_path"])
+        orig_parent = shlex.quote(str(Path(entry["original_path"]).parent))
+        lines.append(f"restore_entry {qpath} {orig} {orig_parent}")
+    lines.extend(
+        [
+            "",
+            'if [ "$restore_errors" -ne 0 ]; then',
+            "  exit 1",
+            "fi",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _persist_quarantine_ledger(
+    batch_dir: Path,
+    manifest_path: Path,
+    restore_script_path: Path,
+    batch_id: str,
+    manifest_payload: dict[str, Any],
+    staged_items: list[dict[str, Any]],
+) -> None:
+    batch_dir.mkdir(parents=True, exist_ok=True)
+    write_secure_json(manifest_path, manifest_payload, overwrite=True)
+    restore_text = _build_restore_script(batch_id, staged_items)
+    restore_script_path.write_text(restore_text, encoding="utf-8")
+    os.chmod(restore_script_path, 0o700)
+
+
 def cmd_quarantine(args: argparse.Namespace) -> int:
     """Move explicitly selected, preflight-safe paths into a Quarantine batch with manifest.json and restore.sh."""
     config = load_topology(args.config)
     wl_index = build_whitelist_index(config)
 
-    selected_ids = [x.strip() for x in str(args.ids or "").split(",") if x.strip()]
-    if not selected_ids:
-        raise ConfigError("--ids must list at least one candidate ID; quarantine never defaults to all candidates")
+    selected_ids, per_id_modes = parse_ids_spec(args.ids, require_non_empty=True)
     selected_set = set(selected_ids)
+    cli_uninstall_mode = getattr(args, "uninstall_mode", None)
+    if cli_uninstall_mode is not None:
+        normalize_uninstall_mode(cli_uninstall_mode, context="--uninstall-mode")
+
+    if args.output and not args.overwrite and Path(args.output).exists():
+        raise ConfigError(f"Output file already exists (pass --overwrite to replace): {args.output}")
 
     thresholds = config.get("thresholds", {})
     recent_minutes = (
@@ -2693,135 +3979,192 @@ def cmd_quarantine(args: argparse.Namespace) -> int:
         raise ConfigError(f"Failed to read targets/plan file {args.targets}: {exc}") from exc
 
     raw_items = plan_data.get("targets") or plan_data.get("candidates") or []
-    cli_uninstall_mode = getattr(args, "uninstall_mode", None)
 
     q_root, q_info = resolve_quarantine_root(config, args.quarantine_dir)
-    batch_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
+    batch_id = generate_unique_batch_id(q_root)
     batch_dir = q_root / batch_id
     files_dir = batch_dir / "files"
+    restore_script_path = batch_dir / "restore.sh"
+    manifest_path = batch_dir / "manifest.json"
 
     staged_items: list[dict[str, Any]] = []
     blocked_items: list[dict[str, Any]] = []
     refused_items: list[dict[str, Any]] = []
     skipped_items: list[dict[str, Any]] = []
+    failed_items: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
 
-    for item in raw_items:
-        item_id = str(item.get("id", "unknown"))
-        if item_id not in selected_set:
-            continue
-        seen_ids.add(item_id)
-        paths_to_check, active_mode = resolve_item_paths(item, cli_uninstall_mode=cli_uninstall_mode)
+    def build_manifest_payload() -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "schema": SCHEMA_VERSION,
+            "batch_id": batch_id,
+            "created_at": utc_now_iso(),
+            "dry_run": bool(args.dry_run),
+            "quarantine_root": str(q_root),
+            "quarantine_root_external": bool(q_info.get("external")),
+            "quarantine_root_checks": q_info.get("checks", []),
+            "quarantine_root_fallback_reason": q_info.get("fallback_reason", ""),
+            "batch_dir": str(batch_dir),
+            "restore_script": str(restore_script_path),
+            "requested_ids": selected_ids,
+            "unknown_ids": [i for i in selected_ids if i not in seen_ids],
+            "staged_count": len(staged_items),
+            "blocked_count": len(blocked_items),
+            "refused_count": len(refused_items),
+            "skipped_count": len(skipped_items),
+            "failed_count": len(failed_items),
+            "staged_items": staged_items,
+            "blocked_items": blocked_items,
+            "refused_items": refused_items,
+            "skipped_items": skipped_items,
+            "failed_items": failed_items,
+            "errors": failed_items,
+        }
+        if per_id_modes:
+            payload["requested_uninstall_modes"] = dict(per_id_modes)
+        return payload
 
-        refusal = quarantine_refusal_for(item, paths_to_check)
-        if refusal:
-            refused_items.append(
-                {
-                    "id": item_id,
-                    "path": str(item.get("path") or (paths_to_check[0] if paths_to_check else "")),
-                    "category": item.get("category", ""),
-                    "status": "REFUSED_NOT_MOVABLE",
-                    "reason": refusal,
-                }
-            )
-            continue
-
-        for raw_p in paths_to_check:
-            res = evaluate_single_target(
-                str(raw_p),
+    ledger_written = False
+    try:
+        for item in raw_items:
+            item_id = str(item.get("id", "unknown"))
+            if item_id not in selected_set:
+                continue
+            seen_ids.add(item_id)
+            paths_to_check, active_mode = resolve_item_paths(
                 item,
-                wl_index,
-                cutoff_ts,
-                recent_minutes,
-                args.skip_lsof,
-                worktree_cutoff_ts=wt_cutoff_ts,
-                worktree_protect_minutes=worktree_protect_minutes,
+                cli_uninstall_mode=cli_uninstall_mode,
+                item_mode_override=per_id_modes.get(item_id),
             )
-            if res["status"] == "MISSING_ALREADY_DONE":
-                skipped_items.append({"id": item_id, **res})
-                continue
-            if res["status"] != "SAFE_TO_EXECUTE":
-                blocked_items.append({"id": item_id, **res})
-                continue
 
-            src_path = Path(res["path"]).resolve(strict=False)
-            if src_path == q_root or src_path in q_root.parents:
-                blocked_items.append(
+            refusal = quarantine_refusal_for(item, paths_to_check)
+            if refusal:
+                refused_items.append(
                     {
                         "id": item_id,
-                        "path": str(src_path),
+                        "path": str(item.get("path") or (paths_to_check[0] if paths_to_check else "")),
+                        "category": item.get("category", ""),
                         "status": "REFUSED_NOT_MOVABLE",
-                        "reason": "目标包含隔离区本身，不能把目录移进它自己的子目录。",
+                        "reason": refusal,
                     }
                 )
                 continue
-            rel_dest = str(src_path).lstrip("/")
-            dst_path = files_dir / rel_dest
-            size_bytes, _, _ = bounded_dir_size(src_path, max_entries=10000, max_seconds=2.0)
 
-            if not args.dry_run:
-                dst_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(src_path), str(dst_path))
+            for raw_p in paths_to_check:
+                res = evaluate_single_target(
+                    str(raw_p),
+                    item,
+                    wl_index,
+                    cutoff_ts,
+                    recent_minutes,
+                    args.skip_lsof,
+                    worktree_cutoff_ts=wt_cutoff_ts,
+                    worktree_protect_minutes=worktree_protect_minutes,
+                    config=config,
+                )
+                if res["status"] in ("MISSING_ALREADY_DONE", "SKIPPED_WHITELIST"):
+                    skipped_items.append({"id": item_id, **res})
+                    continue
+                if res["status"] != "SAFE_TO_EXECUTE":
+                    blocked_items.append({"id": item_id, **res})
+                    continue
 
-            staged_entry: dict[str, Any] = {
-                "id": item_id,
-                "original_path": str(src_path),
-                "quarantine_path": str(dst_path),
-                "size_bytes": size_bytes,
-                "staged_at": utc_now_iso(),
-            }
-            if active_mode:
-                staged_entry["uninstall_mode"] = active_mode
-            staged_items.append(staged_entry)
+                src_path = Path(res["path"]).resolve(strict=False)
+                if src_path == q_root or src_path in q_root.parents:
+                    blocked_items.append(
+                        {
+                            "id": item_id,
+                            "path": str(src_path),
+                            "status": "REFUSED_NOT_MOVABLE",
+                            "reason": "目标包含隔离区本身，不能把目录移进它自己的子目录。",
+                        }
+                    )
+                    continue
+                rel_dest = str(src_path).lstrip("/")
+                dst_path = files_dir / rel_dest
+                size_bytes, _, _ = bounded_dir_size(src_path, max_entries=10000, max_seconds=2.0)
 
-    restore_script_path = batch_dir / "restore.sh"
-    manifest_path = batch_dir / "manifest.json"
-    manifest_payload = {
-        "schema": SCHEMA_VERSION,
-        "batch_id": batch_id,
-        "created_at": utc_now_iso(),
-        "dry_run": bool(args.dry_run),
-        "quarantine_root": str(q_root),
-        "quarantine_root_external": bool(q_info.get("external")),
-        "quarantine_root_checks": q_info.get("checks", []),
-        "quarantine_root_fallback_reason": q_info.get("fallback_reason", ""),
-        "batch_dir": str(batch_dir),
-        "restore_script": str(restore_script_path),
-        "requested_ids": selected_ids,
-        "unknown_ids": [i for i in selected_ids if i not in seen_ids],
-        "staged_count": len(staged_items),
-        "blocked_count": len(blocked_items),
-        "refused_count": len(refused_items),
-        "skipped_count": len(skipped_items),
-        "staged_items": staged_items,
-        "blocked_items": blocked_items,
-        "refused_items": refused_items,
-        "skipped_items": skipped_items,
-    }
+                if not args.dry_run:
+                    if dst_path.exists() or dst_path.is_symlink():
+                        failed_items.append(
+                            {
+                                "id": item_id,
+                                "path": str(src_path),
+                                "quarantine_path": str(dst_path),
+                                "status": "FAILED_MOVE",
+                                "error_type": "FileExistsError",
+                                "reason": f"Quarantine destination already exists: {dst_path}",
+                            }
+                        )
+                        continue
+                    try:
+                        dst_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.move(str(src_path), str(dst_path))
+                    except (OSError, shutil.Error) as exc:
+                        # If src_path vanished and dst_path exists, record it in staged_items so restore.sh can still recover it
+                        if not src_path.exists() and dst_path.exists():
+                            recovered_entry: dict[str, Any] = {
+                                "id": item_id,
+                                "original_path": str(src_path),
+                                "quarantine_path": str(dst_path),
+                                "size_bytes": size_bytes,
+                                "staged_at": utc_now_iso(),
+                                "move_warning": str(exc),
+                            }
+                            if active_mode:
+                                recovered_entry["uninstall_mode"] = active_mode
+                            staged_items.append(recovered_entry)
+                        failed_items.append(
+                            {
+                                "id": item_id,
+                                "path": str(src_path),
+                                "quarantine_path": str(dst_path),
+                                "status": "FAILED_MOVE",
+                                "error_type": type(exc).__name__,
+                                "reason": str(exc),
+                            }
+                        )
+                        continue
 
-    if staged_items and not args.dry_run:
-        batch_dir.mkdir(parents=True, exist_ok=True)
-        write_secure_json(manifest_path, manifest_payload, overwrite=True)
-        lines = [
-            "#!/usr/bin/env bash",
-            "set -euo pipefail",
-            f"# Auto-generated restore script for quarantine batch {batch_id}",
-        ]
-        for entry in staged_items:
-            orig = shlex.quote(entry["original_path"])
-            qpath = shlex.quote(entry["quarantine_path"])
-            orig_parent = shlex.quote(str(Path(entry["original_path"]).parent))
-            lines.append(f"mkdir -p {orig_parent}")
-            lines.append(f"if [ -e {qpath} ]; then mv {qpath} {orig}; echo 'Restored:' {orig}; fi")
-        restore_script_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        os.chmod(restore_script_path, 0o700)
+                staged_entry: dict[str, Any] = {
+                    "id": item_id,
+                    "original_path": str(src_path),
+                    "quarantine_path": str(dst_path),
+                    "size_bytes": size_bytes,
+                    "staged_at": utc_now_iso(),
+                }
+                if active_mode:
+                    staged_entry["uninstall_mode"] = active_mode
+                staged_items.append(staged_entry)
+    finally:
+        if staged_items and not args.dry_run:
+            _persist_quarantine_ledger(
+                batch_dir=batch_dir,
+                manifest_path=manifest_path,
+                restore_script_path=restore_script_path,
+                batch_id=batch_id,
+                manifest_payload=build_manifest_payload(),
+                staged_items=staged_items,
+            )
+            ledger_written = True
+
+    manifest_payload = build_manifest_payload()
+    if staged_items and not args.dry_run and not ledger_written:
+        _persist_quarantine_ledger(
+            batch_dir=batch_dir,
+            manifest_path=manifest_path,
+            restore_script_path=restore_script_path,
+            batch_id=batch_id,
+            manifest_payload=manifest_payload,
+            staged_items=staged_items,
+        )
 
     if args.output:
         write_secure_json(Path(args.output), manifest_payload, overwrite=args.overwrite)
     else:
         json.dump(manifest_payload, sys.stdout, ensure_ascii=False, indent=2)
         sys.stdout.write("\n")
-    return 0
+    return 1 if failed_items else 0
 
 
 def annotate_quarantine_eligibility(entry: dict[str, Any], move_refusal: str) -> None:
@@ -2835,6 +4178,12 @@ def cmd_preflight(args: argparse.Namespace) -> int:
     config = load_topology(args.config)
     wl_index = build_whitelist_index(config)
 
+    selected_list, per_id_modes = parse_ids_spec(args.ids, require_non_empty=(args.ids is not None))
+    selected_ids = set(selected_list) if args.ids is not None else None
+    cli_uninstall_mode = getattr(args, "uninstall_mode", None)
+    if cli_uninstall_mode is not None:
+        normalize_uninstall_mode(cli_uninstall_mode, context="--uninstall-mode")
+
     thresholds = config.get("thresholds", {})
     recent_minutes = (
         args.recent_minutes
@@ -2855,20 +4204,20 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         raise ConfigError(f"Failed to read targets/plan file {args.targets}: {exc}") from exc
 
     raw_items = plan_data.get("targets") or plan_data.get("candidates") or []
-    selected_ids = (
-        {x.strip() for x in args.ids.split(",") if x.strip()} if args.ids else None
-    )
-    cli_uninstall_mode = getattr(args, "uninstall_mode", None)
 
     results: list[dict[str, Any]] = []
     blocked_count = 0
 
     for item in raw_items:
-        item_id = item.get("id", "unknown")
+        item_id = str(item.get("id", "unknown"))
         if selected_ids is not None and item_id not in selected_ids:
             continue
 
-        resolved_paths, active_mode = resolve_item_paths(item, cli_uninstall_mode=cli_uninstall_mode)
+        resolved_paths, active_mode = resolve_item_paths(
+            item,
+            cli_uninstall_mode=cli_uninstall_mode,
+            item_mode_override=per_id_modes.get(item_id),
+        )
         move_refusal = quarantine_refusal_for(item, resolved_paths)
         if len(resolved_paths) > 1 or active_mode is not None or (isinstance(item.get("paths"), list) and item.get("paths")):
             sub_results = [
@@ -2881,11 +4230,13 @@ def cmd_preflight(args: argparse.Namespace) -> int:
                     args.skip_lsof,
                     worktree_cutoff_ts=wt_cutoff_ts,
                     worktree_protect_minutes=worktree_protect_minutes,
+                    config=config,
                 )
                 for p in resolved_paths
             ]
             safe_paths = [r["path"] for r in sub_results if r["status"] == "SAFE_TO_EXECUTE"]
             blocked_subs = [r for r in sub_results if r["status"].startswith("BLOCKED_")]
+            skipped_wl_subs = [r for r in sub_results if r["status"] == "SKIPPED_WHITELIST"]
             if blocked_subs:
                 blocked_count += 1
                 first_blocked = blocked_subs[0]
@@ -2895,10 +4246,24 @@ def cmd_preflight(args: argparse.Namespace) -> int:
                     "status": first_blocked["status"],
                     "reason": (
                         f"{len(blocked_subs)}/{len(sub_results)} sub-targets blocked "
-                        f"(first: {first_blocked['path']} -> {first_blocked['reason']})"        
+                        f"(first: {first_blocked['path']} -> {first_blocked['reason']})"
                     ),
                     "safe_paths": safe_paths,
                     "blocked_paths": [r["path"] for r in blocked_subs],
+                    "sub_results": sub_results,
+                }
+                if active_mode:
+                    entry_res["uninstall_mode"] = active_mode
+                results.append(entry_res)
+            elif skipped_wl_subs and not safe_paths:
+                first_wl = skipped_wl_subs[0]
+                entry_res = {
+                    "id": item_id,
+                    "path": str(item.get("path") or first_wl["path"]),
+                    "status": "SKIPPED_WHITELIST",
+                    "reason": first_wl["reason"],
+                    "safe_paths": [],
+                    "blocked_paths": [],
                     "sub_results": sub_results,
                 }
                 if active_mode:
@@ -2933,7 +4298,7 @@ def cmd_preflight(args: argparse.Namespace) -> int:
             annotate_quarantine_eligibility(results[-1], move_refusal)
             continue
 
-        raw_path = resolved_paths[0] if resolved_paths else str(item.get("path") or "")
+        raw_path = resolved_paths[0] if resolved_paths else str(item.get("path") or item.get("path_or_spec") or "")
         single = evaluate_single_target(
             raw_path,
             item,
@@ -2943,17 +4308,19 @@ def cmd_preflight(args: argparse.Namespace) -> int:
             args.skip_lsof,
             worktree_cutoff_ts=wt_cutoff_ts,
             worktree_protect_minutes=worktree_protect_minutes,
+            config=config,
         )
         if single["status"].startswith("BLOCKED_"):
             blocked_count += 1
-        results.append(
-            {
-                "id": item_id,
-                "path": single["path"],
-                "status": single["status"],
-                "reason": single["reason"],
-            }
-        )
+        entry_single: dict[str, Any] = {
+            "id": item_id,
+            "path": single["path"],
+            "status": single["status"],
+            "reason": single["reason"],
+        }
+        if active_mode:
+            entry_single["uninstall_mode"] = active_mode
+        results.append(entry_single)
         annotate_quarantine_eligibility(results[-1], move_refusal)
 
     payload = {
@@ -2964,6 +4331,8 @@ def cmd_preflight(args: argparse.Namespace) -> int:
         "blocked_count": blocked_count,
         "results": results,
     }
+    if per_id_modes:
+        payload["requested_uninstall_modes"] = dict(per_id_modes)
 
     if args.output:
         write_secure_json(Path(args.output), payload, overwrite=args.overwrite)
