@@ -1664,22 +1664,22 @@ function renderOverviewLists(active) {
   const prot = scope.filter(c => isWl(c));
   const spaceSum = space.reduce((s, c) => s + getReclaimableBytes(c), 0);
   const max = Math.max(1, ...space.map(getReclaimableBytes));
-  const where = active && active.id !== "_all" ? active.shortTitle : "所有存储卷";
+  const where = escapeHtml(active && active.id !== "_all" ? active.shortTitle : "所有存储卷");
   let out = "";
   if (space.length) {
     out += overviewGroup("space", "将释放空间", `${where}，${space.length} 项，共 ${formatBytes(spaceSum)}`, space, { kind: "space", max });
   } else {
-    out += overviewEmptyGroup("将释放空间", `${where}，0 项`, "trash", "green", `${escapeHtml(where)}还没有选中会释放空间的项目`, "去全部建议里勾选后，环形图与水位会实时变化", "去全部建议 →");
+    out += overviewEmptyGroup("将释放空间", `${where}，0 项`, "trash", "green", `${where}还没有选中会释放空间的项目`, "去全部建议里勾选后，环形图与水位会实时变化", "去全部建议 →");
   }
   if (opt.length) {
     out += overviewGroup("opt", "优化与整理", `${where}，${opt.length} 项，不计入直接释放空间`, opt, { kind: "opt" });
   } else {
-    out += overviewEmptyGroup("优化与整理", `${where}，0 项`, "bolt", "orange", `${escapeHtml(where)}没有待执行的优化与整理项`, "结构整理、Git 压缩、备份规则核对与版本更新会归在这里", "");
+    out += overviewEmptyGroup("优化与整理", `${where}，0 项`, "bolt", "orange", `${where}没有待执行的优化与整理项`, "结构整理、Git 压缩、备份规则核对与版本更新会归在这里", "");
   }
   if (prot.length) {
     out += overviewGroup("prot", "受保护", `${where}，${prot.length} 项，执行时一律跳过`, prot, { kind: "protected" });
   } else {
-    out += overviewEmptyGroup("受保护", `${where}，0 项`, "shield", "orange", `${escapeHtml(where)}没有受白名单保护的条目`, "在任意建议详情里点「加入白名单」即可锁定保护", "");
+    out += overviewEmptyGroup("受保护", `${where}，0 项`, "shield", "orange", `${where}没有受白名单保护的条目`, "在任意建议详情里点「加入白名单」即可锁定保护", "");
   }
   box.innerHTML = out;
   box.querySelectorAll(".cell[data-id]").forEach(cell => {
