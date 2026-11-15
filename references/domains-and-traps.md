@@ -37,7 +37,7 @@
 
 ### 2. 📂 本地项目群与多宿主 Worktree（配合 `$repo-cleanup` & `$codex-maintenance`）
 - **多宿主 Worktree 盘点**：
-  - 在 `workspace_roots` 下每个仓库运行 `git worktree list`，汇总仓库内嵌的 `.claude/worktrees/*`、`.worktrees/*` 以及挂在别处的 worktree（如 Orca、Codex、Antigravity 的集中目录）；
+  - 在 `workspace_roots` 下每个仓库运行 `git worktree list`，汇总仓库内嵌的 `.claude/worktrees/*`、`.worktrees/*` 以及挂在别处的集中式 worktree（如 Orca `~/orca/workspaces/`、Codex `~/.codex/worktrees/`、Antigravity `~/.gemini/antigravity/worktrees/`）；
   - 只盘点不动手：退役门槛（无未提交修改、无未跟踪文件、无未合入提交、无活跃会话或进程占用）由 `$repo-cleanup` 核对并执行；别的对话正在用的工作副本不搬、不收拢。
 - **`.git/objects/pack` 膨胀体检**：
   - 检查各仓库 `.git/objects/pack` 体积；若超过阈值（默认 100 MiB）且远大于源码体积，标记为 `git_pack_bloat`（B 级），在无并发写入时用普通 `git gc` 压缩（不加 `--prune=now`，保留别的会话可能还在用的松散对象）。pack 目录永远不进隔离区。
@@ -58,7 +58,7 @@
 
 ### 4. 🏠 NAS 与 PVE 家庭服务器（Homelab）
 - **Proxmox VE 节点与存储池**：
-  - `/boot/efi`（ESP 分区）：检查是否被旧版 `proxmox-kernel-*` 镜像或误放的主板 BIOS `.CAP` 文件塞满（水位 >80% 会导致下次内核升级失敗）；卸载旧内核是 **C 级**（用户拍板后才做），**永远保留当前运行内核与最新 2 个版本**；
+  - `/boot/efi`（ESP 分区）：检查是否被旧版 `proxmox-kernel-*` 镜像或误放的主板 BIOS `.CAP` 文件塞满（水位 >80% 会导致下次内核升级失败）；卸载旧内核是 **C 级**（用户拍板后才做），**永远保留当前运行内核与最新 2 个版本**；
   - `pve-root`：排查 `/root/` 或 `/var/tmp/` 下的一次性维护备份、旧归档包；
   - `local-lvm` (`pve/data` thin-pool)：检查 `lvs` 的 `Data%` 与 `Meta%`；排查各 VM/CT 配置中长期未挂载的 `unused0`/`unused1` 孤儿卷，以及停机数月的一次性灾难恢复演练克隆机（如 `*-dr-test`）。孤儿卷和演练克隆机固定为 **C 级**，只列候选，用户逐台确认后才删。
 - **VM 与 LXC 容器内部**：
@@ -70,7 +70,7 @@
 
 ---
 
-## 二、五大跨层连带存储陷阱（实战必查）
+## 二、六大跨层连带存储陷阱（实战必查）
 
 ### 陷阱 1：本地目录新建/改名 ➔ 穿透备份排除规则 ➔ 撑爆 iCloud / NAS
 - **现象**：在本地新建了构建归档目录（如 `*-builds`、`*-preservation`、`Artifacts`）或改了目录名，结果后台定时运行的云端加密备份脚本或 NAS 增量同步脚本因为只写了固定路径排除，把几十 GB 的二进制构建包和 `.o`/`.rlib` 编译中间产物全量切片上传到了 iCloud Drive 或 NAS。
@@ -111,8 +111,10 @@
   1. 清理 `#recycle` 是 **C 级**候选，只针对本批次删掉的条目（按本批次删除清单里的相对路径逐条定位），用户确认后才做；
   2. **严禁在 macOS SMB 挂载点上跑多路并发 `rm -rf`**，单进程串行逐条删除，或通过 SSH 在 NAS 本机删除。
 
-### 陷阱 6：只保护了活跃 Worktree 的源码，却清理或挪走了其内部的 `artifacts` / `target`，打断正在跨轮验证的并发 AI 会话
-- **现象**：另一个 Codex / Claude 会话正在某棵工作树（如 `~/.codex/worktrees/<任务名>/<项目名>`）里做跨轮回归测试，依赖被 `.gitignore` 忽略的 `distribution/artifacts/` 下的 CSV 样本、便携版 `LibreOffice.app` 或编译产物。巡检时虽然保留了该 worktree 的 Git 源码，但把里面的 `distribution/artifacts/` 或 `target/` 当成「可重建产物」删掉（或移去回收站），导致隔壁会话下一秒读取原路径直接报错中断。
+### 陷阱 6：活跃 Git Worktree 级联保护与外置盘就地隔离（防打断并发会话与防撑爆内置 SSD）
+- **现象**：
+  1. 另一个 Codex / Claude Code / Antigravity / Orca 会话正在某棵 linked worktree（如 `~/orca/workspaces/<项目>/<分支>` 或 `~/.codex/worktrees/<任务>/<项目>`）里做跨轮回归测试，依赖被 `.gitignore` 忽略的 `distribution/artifacts/`、`target/` 或 `node_modules/`。巡检时虽然保留了该 worktree 的 Git 源码，却把里面的构建或测试产物当成「可重建缓存」删掉或移走，导致隔壁会话下一秒报错中断；
+  2. 清理大容量外置硬盘（如 `/Volumes/ExternalSSD`）上的闲置构建归档时，若把文件跨卷移入内置系统盘的隔离目录或废纸篓，会触发数十 GB 跨盘拷贝并瞬间撑爆内置 SSD。
 - **治本对策**：
-  1. **活跃工作树整树连带豁免**：`full_stack_tool.py preflight` 会向上追溯目标的父级 Git 工作树/仓库根目录，结合 `.git` 元数据修改时间、工作树文件修改时间（默认 48 小时保护窗 `worktree_protect_minutes: 2880`）、`git status --porcelain`、`lsof` 打开句柄以及 Codex 会话记录（`~/.codex/sessions/**/*.jsonl` 里近期提到该路径；Claude Code、Antigravity、OpenCode 的会话目前不读）。只要父级工作树处于活跃或未收尾状态，**整棵工作树（含内部所有 `target`、`node_modules`、`distribution/artifacts`）全部锁定跳过，连移动都不允许**。
-  2. **闲置项目产物先移入「外置盘隔离区（Quarantine）」**：对已超过保护窗确认闲置的项目产物或测试载荷，使用 `full_stack_tool.py quarantine --ids <ID>` 移入配置的隔离根（如 `/Volumes/<外置盘>/.Cleanup_Quarantine/<批次>/`，必须是真实挂载且 `volume_uuid` 相符，否则退回 `~/.Cleanup_Quarantine/`），自动生成 `manifest.json` 与一键恢复脚本 `restore.sh`。旧 worktree 不进隔离区，交给 `$repo-cleanup` 退役。等用户确认所有任务无异常后，再列出批次请用户同意清除。
+  1. **活跃工作树整树级联豁免**：`full_stack_tool.py preflight` 与 `quarantine` 会向上追溯目标的父级 Git 工作树/仓库根目录，结合 `.git` 元数据与工作树文件修改时间（默认 48 小时保护窗 `worktree_protect_minutes: 2880`，常规目录 `recent_activity_minutes: 60`）、`git status --porcelain`、`lsof` 打开句柄，以及多代理宿主活跃会话与工作树记录——涵盖 **Codex（`~/.codex/sessions`）、Claude Code（`~/.claude/projects`）、Antigravity（`~/.gemini/antigravity-cli/brain`）与 Orca 多工作树目录（`~/orca/workspaces/`）**。只要父级工作树处于 48 小时活跃窗或未收尾状态，**整棵工作树及其关联目录（含 `target`、`node_modules`、`distribution/artifacts`）全部自动锁定跳过**。
+  2. **外置盘就地隔离 + 内置盘分级隔离区**：外置卷（如 `/Volumes/ExternalSSD`、`/Volumes/Data`）上的闲置隔离文件直接移入**该外置卷自身的 `.Trash-quarantine/<批次>/` 目录**（同卷原子移动，绝不跨卷拷回内置系统盘撑爆内置 SSD）；内置盘上的闲置项目产物则移入配置 `quarantine.root_dirs` 中首个真实挂载、可写且 `volume_uuid` 校验一致的隔离根（不可用时退回本机 `~/.Cleanup_Quarantine/`）。每个批次自动生成 `manifest.json` 与安全防覆盖的 `restore.sh`（即使部分子路径遇系统权限错误，已搬移路径仍保证写出清单与还原脚本）。旧 worktree 永远不进隔离区，统一交给 `$repo-cleanup` 退役。

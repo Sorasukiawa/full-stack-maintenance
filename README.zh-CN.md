@@ -6,8 +6,8 @@
 
 [![Tests](https://github.com/Sorasukiawa/full-stack-maintenance/actions/workflows/tests.yml/badge.svg)](https://github.com/Sorasukiawa/full-stack-maintenance/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-38bdf8.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B%20(仅标准库)-34d399.svg)](#直接运行脚本)
-[![Agent Skills](https://img.shields.io/badge/Agent%20Skills-Claude%20Code%20%7C%20Codex%20%7C%20Antigravity%20%7C%20OpenCode%20%7C%20Cursor-818cf8.svg)](#多-agent-适配与安装)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B%20(仅标准库)-34d399.svg)](#-直接运行脚本)
+[![Agent Skills](https://img.shields.io/badge/Agent%20Skills-Claude%20Code%20%7C%20Codex%20%7C%20Antigravity%20%7C%20OpenCode%20%7C%20Cursor-818cf8.svg)](#-多-agent-适配与安装)
 
 **[English](README.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md)**
 
@@ -31,13 +31,13 @@
 每次巡检都会生成一份零外部依赖、按 macOS 原生应用风格设计的单文件 `inspection-dashboard.html`，可在任意独立浏览器或受限沙箱 IDE 预览面板中直接交互：
 
 - 🍎 **macOS 应用式布局** — 毛玻璃侧栏配「系统设置」风格的彩色图标块、加粗大标题、内嵌分组列表和悬浮玻璃操作栏；默认跟随系统浅色／深色外观，也可以手动切换「自动／浅色／深色」。
-- 🎯 **存储圆环总览（样式参考 Apple 健康活动圆环）** — 一条圆头粗环：灰色是清理后已用，沿弧绿青渐变（带柔和圆头阴影）是本次勾选将释放的空间，蓝色是悬停项的占比，圆心显示可释放的大小，右侧配四格容量数据。上方一排存储卷小圆环可切换单盘或全部存储卷，右侧的药丸形分段「空间构成」条展示磁盘被什么占满。
+- 🎯 **存储圆环总览（样式参考 Apple 健康活动圆环）** — 一条圆头粗环：灰色是清理后已用，沿弧绿青渐变（带柔和圆头阴影）是本次勾选预计真实释放的磁盘空间（按 `reclaimable_bytes` 统计，非删文件的优化/更新建议计为 `0` 不虚增释放量），蓝色是悬停项的占比，圆心显示可释放的大小，右侧配四格容量数据。上方一排存储卷小圆环可切换单盘或全部存储卷（未挂载存储池 `status: "unavailable"` 自动以离线状态展示），右侧的药丸形分段「空间构成」条展示磁盘被什么占满。
 - 🪀 **带轻回弹的弹簧动效** — 圆环、数字、分段控件滑块、侧栏选中块、行展开和导出面板全部由可打断的弹簧驱动，参数采用 Apple 的「阻尼比 + 响应时间」；CSS 过渡使用预先算好的弹簧曲线（`linear()`）。会遵循系统的「减少动态效果」「降低透明度」「增强对比度」设置。
-- 🎛️ **勾选工作台与 APP 双模式卸载** — 按领域分页、按风险等级（A／B／C）分组，可按动作类型（空间清理／结构整理／性能优化／版本更新）筛选；久未使用 APP 支持在卡片内直接切换「**一键全部删除（含残留）**」或「**保留用户数据（仅删 App 与缓存）**」；顶部药丸形水位条实时显示勾选对所在存储卷的影响。
+- 🎛️ **勾选工作台与 APP 双模式卸载** — 按领域分页、按风险等级（A／B／C）分组，可按动作类型（空间清理／结构整理／性能优化／版本更新）筛选；久未使用 APP 支持在卡片内直接切换「**保留用户数据（`keep_data`，默认仅删 App 与缓存）**」或「**一键全部删除（`purge_all`，含残留）**」；顶部药丸形水位条实时显示勾选对所在存储卷的影响。
 - 📈 **距上次巡检基线变化** — 自动对比上一次快照（`diff`），标出各存储卷涨跌与增长最快的 Top 目录。
 - ✏️ **沙箱兼容 `localStorage` 记忆 + 单项微调备注** — 刷新页面不丢勾选、卸载模式和备注（在禁用 `localStorage` 的沙箱 `iframe` 预览中自动安全降级）。
-- 🛡️ **持久化豁免白名单** — 在任意建议的详情里点「加入白名单」即可移入白名单页，并随导出指令写回本地 `config/topology.local.json`。
-- 📋 **一键导出执行指令** — 把勾选的 ID、所选卸载模式（`--uninstall-mode`）、单项微调备注和新增白名单打包成结构化 Markdown 指令，直接粘贴回 AI 对话框。
+- 🛡️ **持久化豁免白名单** — 在任意建议的详情里点「加入白名单」即可移入白名单页，并随导出指令写回本地 `config/topology.local.json`（支持 `whitelist.paths`、`whitelist.apps`、`whitelist.repos`、`whitelist.guest_ids` 四类）。
+- 📋 **一键导出执行指令** — 把勾选的 ID、所选卸载模式（支持全局 `--uninstall-mode` 及按条目 `id:keep-data` / `id:purge-all`）、单项微调备注和新增白名单打包成结构化 Markdown 指令，直接粘贴回 AI 对话框。
 
 ---
 
@@ -88,11 +88,13 @@ flowchart LR
 
 | Agent 宿主 | 调用方式 | 并行子代理与看板适配行为 |
 | :--- | :--- | :--- |
-| **Claude Code** | `/full-stack-maintenance` | 通过 `allowed-tools` 预授只读扫描权限（盘点不弹窗）；并行派发 4 个 `Agent` 子代理；生成并打开本地 `.html` 看板 |
-| **OpenAI Codex** | `$full-stack-maintenance` | 自动加载 `agents/openai.yaml` 卡片与默认提示词；支持并行子代理与本地浏览器预览 |
-| **Google Antigravity** | 自然语言或 `$full-stack-maintenance` | 并行调用 4 路 `invoke_subagent` 分身；直接将交互式 HTML 看板输出为会话 Artifact |
-| **OpenCode** | `/full-stack-maintenance` 或自然语言 | 调用 `task` 子代理或顺序执行四域只读扫描，生成单文件 `.html` 看板 |
+| **Claude Code** | `/full-stack-maintenance` | 通过 `allowed-tools` 预授只读扫描权限（盘点不弹窗）；并行派发 4 个 `Agent` 子代理；看板统一输出到 `$SKILL_ROOT/state/inspection-dashboard.html` |
+| **OpenAI Codex** | `$full-stack-maintenance` | 自动加载 `agents/openai.yaml` 卡片与默认提示词；支持并行子代理并打开 `$SKILL_ROOT/state/inspection-dashboard.html` |
+| **Google Antigravity** | 自然语言或 `$full-stack-maintenance` | 并行调用 4 路 `invoke_subagent`（汇总后调用 `manage_subagents` 回收内存）；看板统一写入 `$SKILL_ROOT/state/inspection-dashboard.html` 并以 `file://` 链接打开（仅 Markdown 报告写会话 Artifact） |
+| **OpenCode** | `/full-stack-maintenance` 或自然语言 | 调用 `task` 子代理或顺序执行四域只读扫描，单文件 `.html` 看板写入 `$SKILL_ROOT/state/` |
 | **Cursor / Windsurf / Cline** | `@full-stack-maintenance` 或自然语言 | 无子代理工具时自动回退为主会话分批只读扫描，体验完全一致 |
+
+所有宿主的快照、基线对比、HTML 看板与 `preflight`/`quarantine` 结果统一保存在技能目录下被 Git 忽略的 `$SKILL_ROOT/state/`（在 Orca 终端中可配合 `orca-browser` 直接在内置面板打开）。执行前活跃会话与工作树保护同时覆盖 **Codex**（`~/.codex/sessions`）、**Claude Code**（`~/.claude/projects`）、**Antigravity**（`~/.gemini/antigravity-cli/brain`）以及 **Orca** 多工作树目录（`~/orca/workspaces/`）。
 
 ### 方式一：Claude Code 插件市场安装
 
@@ -127,10 +129,10 @@ git clone https://github.com/Sorasukiawa/full-stack-maintenance.git "$HOME/.agen
 
 ---
 
-## 🛡️ 专治五大「跨层存储陷阱」
+## 🛡️ 专治六大「跨层存储陷阱」
 
 > [!IMPORTANT]
-> 很多时候「删了几十 GB 文件但磁盘可用空间没涨」或「云端备份莫名其妙被撑爆」，是因为跨层存储机制的连带效应。本技能内置了五大跨层陷阱的标准排查与回收闭环：
+> 很多时候「删了几十 GB 文件但磁盘可用空间没涨」「云端备份莫名其妙被撑爆」或「清理产物打断了隔壁并行 AI 会话」，是因为跨层存储机制的连带效应。本技能内置了六大跨层陷阱的标准排查与回收闭环：
 
 | # | 跨层陷阱 | 典型症状 | 本技能的根因诊断与回收方案 |
 | :-: | :--- | :--- | :--- |
@@ -139,6 +141,7 @@ git clone https://github.com/Sorasukiawa/full-stack-maintenance.git "$HOME/.agen
 | **3** | **iCloud 占位分块回下风暴** | 对 iCloud Drive 下几十万个加密备份分块逐一运行解密校验，把原本已 Evict（仅在云端）的历史分块重新下载回本机塞爆磁盘 | 校验前先检查 `st_blocks > 0` 或云端驻留状态，且状态探针仅对正在上传的文件查进度，杜绝回下风暴与 Spotlight IPC 超时 |
 | **4** | **PVE LXC 薄池未回收** | 在 LXC 容器内删掉十几个 GB 的旧备份，容器内 `df -h` 降了，但宿主机 `local-lvm` 的 `Data%` 分毫未动 | 把 PVE 宿主机上的 `pct fstrim <ctid>` 列为 C 级候选等用户确认，并盘点 `unused*` 孤儿卷与停机演练克隆机（同为 C 级） |
 | **5** | **NAS SMB `#recycle` 截留** | 在 Mac 挂载的 `/Volumes/<NAS共享>` 上删掉几十 GB 文件，NAS 存储池可用空间完全没变 | 审计 `#recycle` 占用；只清本批次删掉的条目，列为 C 级候选等用户确认，不整目录清空 |
+| **6** | **活跃 Git Worktree 级联保护与外置盘就地隔离** | 清理活跃工作树里的 `target/` 或 `artifacts/` 打断隔壁并发 AI 会话；把外置硬盘上的大体积归档移入本机隔离区导致几十 GB 跨盘拷回撑爆内置 SSD | **48 小时内活跃**（覆盖 Codex / Claude Code / Antigravity 会话与 `~/orca/workspaces/`）的 linked worktree 及其关联目录自动整树拦截；外置卷上的隔离文件直接移入**该外置卷自身的 `.Trash-quarantine` 目录**，绝不跨卷拷回内置系统盘 |
 
 ---
 
@@ -153,32 +156,58 @@ cp -n config/topology.example.json config/topology.local.json
 ```bash
 mkdir -p state
 
-# 1. 本机只读扫描（孤儿应用残留、.git Pack 膨胀、可重建构建产物、备份排除穿透检测）
+# 1. 本机只读扫描，并与上次巡检基线对比（找出这几天是谁偷偷占了空间）
 python3 scripts/full_stack_tool.py scan-local \
   --config config/topology.local.json \
   --output state/current-snapshot.json --overwrite
 
-# 2. 与上次巡检基线对比（找出这几天是谁偷偷占了空间）
 python3 scripts/full_stack_tool.py diff \
   --before state/baseline-snapshot.json \
   --after state/current-snapshot.json \
   --output state/diff.json --overwrite
 
-# 3. 渲染单文件交互式 HTML 水位模拟看板
+# 2. 渲染单文件交互式 HTML 水位模拟看板
 python3 scripts/render_dashboard.py \
   --input state/current-snapshot.json \
   --diff state/diff.json \
   --output state/inspection-dashboard.html --overwrite
 
-# 4. 动手前二次并发安全复查（检查白名单、符号链接、60分钟内修改与 lsof 占用）
+# 3. 动手前二次并发安全复查（检查白名单、符号链接、60分钟近期修改、48小时活跃 worktree 保护窗口与 lsof 占用）
 python3 scripts/full_stack_tool.py preflight \
   --config config/topology.local.json \
   --targets state/current-snapshot.json \
-  --ids "build-example-target" \
+  --ids "build-example-target,app-uninstall-example:keep-data" \
+  --uninstall-mode keep-data \
   --output state/preflight.json --overwrite
+
+# 4. 将显式点名且复查通过的条目移入可还原隔离区（先用 --dry-run 预演计划）
+python3 scripts/full_stack_tool.py quarantine \
+  --config config/topology.local.json \
+  --targets state/current-snapshot.json \
+  --ids "build-example-target,app-uninstall-example:keep-data" \
+  --uninstall-mode keep-data \
+  --dry-run \
+  --output state/quarantine-plan.json --overwrite
 ```
 
-完整 JSON 结构与 `preflight` 状态码说明见 [references/dashboard-and-cli.md](references/dashboard-and-cli.md)。
+完整 JSON 结构与 `preflight` 状态码（`SAFE_TO_EXECUTE`、`BLOCKED_WHITELISTED`、`BLOCKED_ACTIVE_WORKTREE`、`BLOCKED_RECENT_ACTIVITY`、`BLOCKED_OPEN_HANDLES`、`BLOCKED_DIRTY_WORKTREE`、`BLOCKED_SYMLINK_ROOT`）说明见 [references/dashboard-and-cli.md](references/dashboard-and-cli.md)。
+
+---
+
+## 📂 仓库目录结构
+
+| 路径 | 用途说明 |
+| :--- | :--- |
+| [`SKILL.md`](SKILL.md) | 技能主入口与执行手册：四域编排、Fail-Closed 白名单、HTML 看板与 `preflight`/`quarantine` 护栏 |
+| [`.claude-plugin/`](.claude-plugin/plugin.json) | Claude Code 插件与市场（Marketplace）清单 |
+| [`agents/openai.yaml`](agents/openai.yaml) | OpenAI Codex 技能卡片显示名称、简介与默认提示词 |
+| [`config/topology.example.json`](config/topology.example.json) | 脱敏配置模板：工作区根路径、存储卷水位、备份管线、家庭服务器与持久化白名单 |
+| [`scripts/full_stack_tool.py`](scripts/full_stack_tool.py) | 零依赖标准库 CLI：`scan-local`、`diff`、`preflight` 与受控 `quarantine` |
+| [`scripts/render_dashboard.py`](scripts/render_dashboard.py) | 零依赖单文件交互式 HTML 水位模拟看板渲染器 |
+| [`references/domains-and-traps.md`](references/domains-and-traps.md) | 四域深度巡检清单与六大跨层连带存储陷阱排查手册 |
+| [`references/dashboard-and-cli.md`](references/dashboard-and-cli.md) | CLI 参数契约、快照/对比/复核 JSON Schema 与状态码定义 |
+| [`references/multi-agent-hosts.md`](references/multi-agent-hosts.md) | Claude Code、Codex、Antigravity、OpenCode、Cursor 与 Orca 多宿主适配指南 |
+| [`tests/`](tests/test_full_stack.py) · [`evals/`](evals/evals.json) | 隔离夹具回归单测（`test_full_stack.py`）、技能包校验脚本（`check-skill.sh`）与触发评估集 |
 
 ---
 
