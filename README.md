@@ -6,8 +6,8 @@
 
 [![Tests](https://github.com/Sorasukiawa/full-stack-maintenance/actions/workflows/tests.yml/badge.svg)](https://github.com/Sorasukiawa/full-stack-maintenance/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-38bdf8.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B%20(Stdlib%20Only)-34d399.svg)](#run-the-scripts-directly)
-[![Agent Skills](https://img.shields.io/badge/Agent%20Skills-Claude%20Code%20%7C%20Codex%20%7C%20Antigravity%20%7C%20OpenCode%20%7C%20Cursor-818cf8.svg)](#multi-agent-support--install)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B%20(Stdlib%20Only)-34d399.svg)](#-run-the-scripts-directly)
+[![Agent Skills](https://img.shields.io/badge/Agent%20Skills-Claude%20Code%20%7C%20Codex%20%7C%20Antigravity%20%7C%20OpenCode%20%7C%20Cursor-818cf8.svg)](#-multi-agent-support--install)
 
 **[English](README.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md)**
 
@@ -31,13 +31,13 @@
 Every audit generates a self-contained single-file `inspection-dashboard.html` designed like a native macOS app. It opens in any standalone browser or sandboxed IDE preview pane:
 
 - 🍎 **macOS-style layout** — A translucent vibrancy sidebar with System Settings style icon tiles, bold large titles, inset grouped lists, and a floating glass action dock. Follows the system light/dark appearance automatically, with a manual Auto / Light / Dark switch.
-- 🎯 **Storage ring overview (drawn like an Apple Health activity ring)** — One thick round-capped canvas ring shows retained used space (grey), the space your selection will free (along-arc green-to-teal gradient with soft cap shadow), and the hovered item's slice (blue), with the reclaimable amount in the centre and a 4-cell volume summary on the right. A strip of per-volume mini rings switches between disks or the all-volumes total, and a pill-shaped capsule "space composition" bar shows what fills the disk.
+- 🎯 **Storage ring overview (drawn like an Apple Health activity ring)** — One thick round-capped canvas ring shows retained used space (grey), the actual disk space your selection will free via `reclaimable_bytes` (along-arc green-to-teal gradient with soft cap shadow, keeping non-deleting `optimize` / `update` advisories at `0` so freed space is never inflated), and the hovered item's slice (blue), with the reclaimable amount in the centre and a 4-cell volume summary on the right. A strip of per-volume mini rings switches between disks or the all-volumes total (marking unmounted pools with `status: "unavailable"` as offline), and a pill-shaped capsule "space composition" bar shows what fills the disk.
 - 🪀 **Spring physics with a light rebound** — Every interactive change (ring arcs, numbers, segmented-control thumbs, sidebar selection, row expansion, the export sheet) runs on interruptible springs defined by Apple's damping ratio + response parameters. CSS transitions use spring curves pre-computed into `linear()` easing. Reduced motion, reduced transparency and increased contrast preferences are honoured.
-- 🎛️ **Approval workbench & dual-mode app uninstaller** — Per-domain lists grouped by risk tier (A / B / C), filters by action type (cleanup / organize / optimize / update), an inline **Keep User Data vs. Purge All (incl. leftovers)** mode switch for unused apps, and a live pill-shaped storage impact bar.
+- 🎛️ **Approval workbench & dual-mode app uninstaller** — Per-domain lists grouped by risk tier (A / B / C), filters by action type (cleanup / organize / optimize / update), an inline **Keep User Data (`keep_data`, default) vs. Purge All (`purge_all`, incl. leftovers)** mode switch for unused apps, and a live pill-shaped storage impact bar.
 - 📈 **Baseline snapshot diff** — Compares against your previous audit snapshot (`diff`) to spotlight which volumes grew and the top newly bloated directories.
 - ✏️ **Sandboxed-safe `localStorage` state & per-item notes** — Checkboxes, app uninstall modes, and inline adjustment notes (e.g., *"keep latest 2 versions"*) persist across refreshes and degrade gracefully inside restricted `iframe[sandbox="allow-scripts"]` previews.
-- 🛡️ **Persistent exemption whitelist** — `加入白名单` moves an item to the Whitelist page and exports it for your Git-ignored `config/topology.local.json`.
-- 📋 **One-click execution prompt export** — Packages your checked item IDs, selected `--uninstall-mode`, per-item notes, and newly whitelisted paths into a structured Markdown instruction ready to paste back into your AI agent.
+- 🛡️ **Persistent exemption whitelist** — `加入白名单` moves an item to the Whitelist page and exports it for your Git-ignored `config/topology.local.json` (`whitelist.paths`, `whitelist.apps`, `whitelist.repos`, `whitelist.guest_ids`).
+- 📋 **One-click execution prompt export** — Packages your checked item IDs, selected `--uninstall-mode` (including per-item `id:keep-data` / `id:purge-all`), per-item notes, and newly whitelisted entries into a structured Markdown instruction ready to paste back into your AI agent.
 
 ---
 
@@ -88,11 +88,13 @@ Instead of duplicating single-domain rules, `full-stack-maintenance` coordinates
 
 | Agent Host | Invocation | Subagent & Dashboard Adaptation |
 | :--- | :--- | :--- |
-| **Claude Code** | `/full-stack-maintenance` | Pre-approves read-only scans via `allowed-tools`; spawns 4 parallel `Agent` subagents; opens or links local `.html` dashboard |
-| **OpenAI Codex** | `$full-stack-maintenance` | Loads UI card from `agents/openai.yaml`; supports parallel subagents & local browser preview |
-| **Google Antigravity** | Natural prompt or `$full-stack-maintenance` | Spawns 4 parallel `invoke_subagent` workers; renders dashboard directly as a clickable conversation Artifact |
-| **OpenCode** | `/full-stack-maintenance` or natural prompt | Dispatches parallel `task` workers or sequential scan; outputs single-file `.html` |
+| **Claude Code** | `/full-stack-maintenance` | Pre-approves read-only scans via `allowed-tools`; spawns 4 parallel `Agent` subagents; writes dashboard to `$SKILL_ROOT/state/inspection-dashboard.html` |
+| **OpenAI Codex** | `$full-stack-maintenance` | Loads UI card from `agents/openai.yaml`; supports parallel subagents & opens `$SKILL_ROOT/state/inspection-dashboard.html` |
+| **Google Antigravity** | Natural prompt or `$full-stack-maintenance` | Spawns 4 parallel `invoke_subagent` workers (reclaimed via `manage_subagents`); writes HTML dashboard to `$SKILL_ROOT/state/inspection-dashboard.html` and links via `file://` (Markdown reports only in Artifacts) |
+| **OpenCode** | `/full-stack-maintenance` or natural prompt | Dispatches parallel `task` workers or sequential scan; writes single-file `.html` to `$SKILL_ROOT/state/` |
 | **Cursor / Windsurf / Cline** | `@full-stack-maintenance` or natural prompt | Automatically falls back to sequential multi-domain read-only scan when subagents are unavailable |
+
+All hosts store snapshots, diffs, HTML dashboards, and `preflight`/`quarantine` outputs uniformly in Git-ignored `$SKILL_ROOT/state/` (and support opening via `orca-browser` inside Orca workspaces). Pre-flight active session and worktree protection covers **Codex** (`~/.codex/sessions`), **Claude Code** (`~/.claude/projects`), **Antigravity** (`~/.gemini/antigravity-cli/brain`), and **Orca** multi-worktree workspaces (`~/orca/workspaces/`).
 
 ### Option 1: Claude Code Plugin Marketplace
 
@@ -127,10 +129,10 @@ git clone https://github.com/Sorasukiawa/full-stack-maintenance.git "$HOME/.agen
 
 ---
 
-## 🛡️ Five Cross-Layer Storage Traps Caught
+## 🛡️ Six Cross-Layer Storage Traps Caught
 
 > [!IMPORTANT]
-> Deleting gigabytes of files often fails to free actual disk space—or silently re-uploads gigabytes to the cloud—because of cross-layer storage traps. `full-stack-maintenance` explicitly checks and resolves these five traps:
+> Deleting gigabytes of files often fails to free actual disk space—or silently re-uploads gigabytes to the cloud or disrupts a parallel AI worktree—because of cross-layer storage traps. `full-stack-maintenance` explicitly checks and resolves these six traps:
 
 | # | Cross-Layer Trap | Typical Symptom | How `full-stack-maintenance` Solves It |
 | :-: | :--- | :--- | :--- |
@@ -139,6 +141,7 @@ git clone https://github.com/Sorasukiawa/full-stack-maintenance.git "$HOME/.agen
 | **3** | **iCloud Dataless Re-Download Storm** | Running `open()` or hash verification across evicted iCloud backup chunks triggers `bird` to download tens of GBs back onto the local SSD | Inspects `st_blocks > 0` / ubiquitous download status before reading local chunks, and limits `NSMetadataItem` progress queries to active uploads |
 | **4** | **Proxmox LXC Thin-Pool Lag** | Deleting files inside an LXC container lowers container `df -h`, but Proxmox `local-lvm` `Data%` stays near 85%+ | Lists `pct fstrim <ctid>` on the PVE host as a C-tier candidate for user approval, and audits `unused*` volumes & stopped DR test clones (also C-tier) |
 | **5** | **NAS SMB `#recycle` Capture** | Deleting large archives over an SMB mount (`/Volumes/<share>`) moves them into `#recycle` without freeing Btrfs/NVMe pool space | Audits `#recycle` usage; removing only this batch's deleted entries is a C-tier candidate that waits for user approval (never a blanket purge) |
+| **6** | **Active Git Worktree Cascading Guard & In-Volume External Quarantine** | Cleaning `target/` or `artifacts/` inside an active linked worktree breaks a concurrent AI session; moving external-drive archives into a local quarantine copies tens of GBs onto the internal SSD | Automatically blocks any linked worktree and its nested directories active within a **48-hour protection window** (across Codex, Claude Code, Antigravity, and `~/orca/workspaces/`); stages external-volume items in-place into that volume's own `.Trash-quarantine` directory without cross-volume copying onto the internal system disk |
 
 ---
 
@@ -153,32 +156,41 @@ cp -n config/topology.example.json config/topology.local.json
 ```bash
 mkdir -p state
 
-# 1. Read-only local scan (orphans, .git pack bloat, build artifacts, backup exclusion drift)
+# 1. Read-only local scan & optional diff against your previous baseline snapshot
 python3 scripts/full_stack_tool.py scan-local \
   --config config/topology.local.json \
   --output state/current-snapshot.json --overwrite
 
-# 2. Diff against your previous baseline snapshot ("what grew since the last check")
 python3 scripts/full_stack_tool.py diff \
   --before state/baseline-snapshot.json \
   --after state/current-snapshot.json \
   --output state/diff.json --overwrite
 
-# 3. Render the single-file interactive HTML waterline dashboard
+# 2. Render the single-file interactive HTML waterline dashboard
 python3 scripts/render_dashboard.py \
   --input state/current-snapshot.json \
   --diff state/diff.json \
   --output state/inspection-dashboard.html --overwrite
 
-# 4. Run pre-flight concurrency verification before executing checked items
+# 3. Pre-flight concurrency check (whitelist, symlinks, 60m recent activity, 48h active worktree guard & lsof)
 python3 scripts/full_stack_tool.py preflight \
   --config config/topology.local.json \
   --targets state/current-snapshot.json \
-  --ids "build-example-target" \
+  --ids "build-example-target,app-uninstall-example:keep-data" \
+  --uninstall-mode keep-data \
   --output state/preflight.json --overwrite
+
+# 4. Stage explicitly selected, preflight-safe items into a restorable quarantine batch (preview first with --dry-run)
+python3 scripts/full_stack_tool.py quarantine \
+  --config config/topology.local.json \
+  --targets state/current-snapshot.json \
+  --ids "build-example-target,app-uninstall-example:keep-data" \
+  --uninstall-mode keep-data \
+  --dry-run \
+  --output state/quarantine-plan.json --overwrite
 ```
 
-See [references/dashboard-and-cli.md](references/dashboard-and-cli.md) for the full JSON schema and `preflight` status codes (`SAFE_TO_EXECUTE`, `BLOCKED_WHITELISTED`, `BLOCKED_RECENT_ACTIVITY`, `BLOCKED_OPEN_HANDLES`, `BLOCKED_DIRTY_WORKTREE`, `BLOCKED_SYMLINK_ROOT`).
+See [references/dashboard-and-cli.md](references/dashboard-and-cli.md) for the full JSON schema and `preflight` status codes (`SAFE_TO_EXECUTE`, `BLOCKED_WHITELISTED`, `BLOCKED_ACTIVE_WORKTREE`, `BLOCKED_RECENT_ACTIVITY`, `BLOCKED_OPEN_HANDLES`, `BLOCKED_DIRTY_WORKTREE`, `BLOCKED_SYMLINK_ROOT`).
 
 ---
 
@@ -192,7 +204,7 @@ See [references/dashboard-and-cli.md](references/dashboard-and-cli.md) for the f
 | [`config/topology.example.json`](config/topology.example.json) | Sanitized template for workspace roots, storage gauges, backup pipelines, homelab hosts, and whitelist |
 | [`scripts/full_stack_tool.py`](scripts/full_stack_tool.py) | Standard-library CLI for `scan-local`, `diff`, `preflight`, and guarded `quarantine` |
 | [`scripts/render_dashboard.py`](scripts/render_dashboard.py) | Zero-dependency single-file interactive HTML dashboard generator |
-| [`references/domains-and-traps.md`](references/domains-and-traps.md) | 4-domain audit checklist and the 5 cross-layer storage trap playbooks |
+| [`references/domains-and-traps.md`](references/domains-and-traps.md) | 4-domain audit checklist and the 6 cross-layer storage trap playbooks |
 | [`references/dashboard-and-cli.md`](references/dashboard-and-cli.md) | CLI contract, JSON schemas, and status code definitions |
 | [`references/multi-agent-hosts.md`](references/multi-agent-hosts.md) | Multi-agent adaptation guide for Claude Code, Codex, Antigravity, OpenCode, and Cursor |
 | [`tests/`](tests/test_full_stack.py) · [`evals/`](evals/evals.json) | Isolated fixture unit tests (`test_full_stack.py`), package validator (`check-skill.sh`), and trigger/behavior evals |
