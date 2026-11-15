@@ -17,12 +17,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - os: ubuntu-latest
+            python: "3.10"
+          - os: ubuntu-latest
+            python: "3.12"
           - os: macos-latest
             python: "3.12"
           - os: macos-latest
             python: "3.14"
-          - os: ubuntu-latest
-            python: "3.10"
     env:
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
@@ -32,7 +34,21 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ matrix.python }}
+      - name: Validate evals JSON files
+        run: |
+          python -B - <<'PY'
+          import glob, json, sys
+          files = sorted(glob.glob("evals/*.json"))
+          if not files:
+              sys.exit("No evals/*.json files found")
+          for path in files:
+              with open(path, encoding="utf-8") as fh:
+                  data = json.load(fh)
+              if not data:
+                  sys.exit(f"Empty JSON payload in {path}")
+          print(f"Validated {len(files)} eval JSON file(s): {', '.join(files)}")
+          PY
       - name: Validate skill metadata and manifests
         run: bash tests/check-skill.sh
       - name: Run isolated fixture tests
-        run: python -m unittest discover -v -s tests
+        run: python -B -m unittest discover -v -s tests
