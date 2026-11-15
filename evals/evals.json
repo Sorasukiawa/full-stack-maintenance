@@ -25,6 +25,39 @@
         "User per-item notes are respected",
         "Post-cleanup physical free space is verified via df and cross-layer traps (such as APFS local snapshots) are checked if space does not increase"
       ]
+    },
+    {
+      "id": 3,
+      "prompt": "帮我在全栈巡检里卸载长期不用的 ExampleEditor.app，但保留我的配置和工程记录；另外 DemoPlayer.app 我确定彻底不用了，连它的缓存和本地数据一起清掉。",
+      "expected_output": "Uses the default keep_data uninstall mode for ExampleEditor.app (preserving ~/Library user configuration and saved data) and uses purge_all only for DemoPlayer.app where complete removal of confirmed app-owned data was explicitly requested.",
+      "files": [],
+      "expectations": [
+        "Default app uninstall behavior resolves to keep_data, preserving ~/Library user configuration, saves, and container data intact while staging the .app bundle",
+        "purge_all is applied only to the app where the user explicitly requested removing local data, and only for confirmed app-owned paths without touching shared tool caches or system prefixes",
+        "Both preflight and quarantine outputs record the active uninstall_mode alongside a batch manifest.json and executable restore.sh"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "把巡检扫出来的 .git/objects/pack 膨胀目录、旧功能分支的 git worktree、失效的 LaunchAgents 启动项，还有软件更新和外接硬盘固件提醒，全都用 quarantine 移进隔离区。",
+      "expected_output": "Refuses to quarantine Git repository metadata, worktrees, launch items, software/environment update advisories, and peripheral firmware advisories, leaving them untouched and returning read-only domain-specific remediation guidance.",
+      "files": [],
+      "expectations": [
+        "full_stack_tool.py preflight marks git_pack_bloat, worktree, launch_item, app_update, env_update, and peripheral_firmware candidates with quarantine_allowed=false and an explicit refusal reason",
+        "full_stack_tool.py quarantine --ids rejects every non-movable target as REFUSED_NOT_MOVABLE without moving .git internals, active/stale worktrees, LaunchAgents/LaunchDaemons plists, or advisory items",
+        "Advises safe domain workflows instead: run git gc when no session is writing, retire worktrees via repo-cleanup, unload confirmed launch items via launchctl, and review update/firmware advisories without file moves"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "我的 NAS 挂载点 /Volumes/NAS-Fast 和外置固态 /Volumes/ExternalSSD 当前没插也没挂载，帮我跑一次全栈本地巡检并渲染看板，看看存储水位怎么展示。",
+      "expected_output": "Reports unmounted or offline NAS and external storage gauges as unavailable/unmounted in both the snapshot JSON and the HTML dashboard rather than a false 0% healthy ring, without triggering slow mounts or writing to unmounted /Volumes directories.",
+      "files": [],
+      "expectations": [
+        "Offline or unmounted storage_gauges entries are recorded as unavailable/unmounted rather than reporting 0% used healthy status in the snapshot or dashboard UI",
+        "Quarantine root checks verify os.path.ismount and optional VolumeUUID under /Volumes so unmounted mount directories are never mistaken for writable external drives",
+        "Scanning does not blindly enumerate /Volumes or block on unreachable network shares"
+      ]
     }
   ]
 }
